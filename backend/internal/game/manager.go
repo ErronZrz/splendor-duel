@@ -1,7 +1,6 @@
 package game
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -57,34 +56,41 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 
 	// 创建玩家
 	player := models.Player{
-		ID:           playerID,
-		Name:         req.PlayerName,
-		Gems:         make(map[models.GemType]int),
-		Bonus:        make(map[models.GemType]int),
-		ReservedCards: []models.DevelopmentCard{},
-		PlayedCards:  []models.DevelopmentCard{},
-		PrivilegeTokens: 0,
-		Crowns:       0,
-		Nobles:       []models.NobleCard{},
-		Points:       0,
-		IsHost:       true,
-		LastActive:   time.Now(),
+		ID:                playerID,
+		Name:              req.PlayerName,
+		Gems:              make(map[models.GemType]int),
+		Bonus:             make(map[models.GemType]int),
+		ReservedCards:     []string{},
+		DevelopmentCards:  []string{},
+		PrivilegeTokens:   0,
+		Crowns:            0,
+		Nobles:            []string{},
+		Points:            0,
+		IsHost:            true,
+		LastActive:        time.Now(),
 	}
 
 	// 创建游戏状态
 	gameState := models.GameState{
-		Status:        "waiting",
-		CurrentTurn:   "",
-		AvailableGems: initializeGems(),
-		DevelopmentCards: map[models.CardLevel][]models.DevelopmentCard{
-			models.Level1: getDevelopmentCards(1),
-			models.Level2: getDevelopmentCards(2),
-			models.Level3: getDevelopmentCards(3),
-		},
-		NobleCards: getNobleCards(),
-		Players:    map[string]models.Player{playerID: player},
-		CreatedAt:  time.Now(),
+		Status:                   models.GameStatusWaiting,
+		CurrentPlayerIndex:       0,
+		TurnNumber:               0,
+		Players:                  []models.Player{player},
+		Winner:                   "",
+		GemBoard:                 make([][]models.GemType, 5),
+		GemsInBag:                0,
+		AvailablePrivilegeTokens: 3,
+		UnflippedCards:           map[models.CardLevel]int{},
+		FlippedCards:             map[models.CardLevel][]string{},
+		AvailableNobles:          []string{"noble1", "noble2", "noble3", "noble4"},
+		ExtraTurns:               make(map[string]int),
+		CreatedAt:                time.Now(),
 	}
+	
+	// 初始化宝石版图（即使在等待状态也要显示）
+	gl := NewGameLogic(&gameState, m)
+	gl.initializeGemBoard()
+	gl.initializeDevelopmentCards()
 
 	// 创建房间
 	room := &models.Room{
@@ -166,23 +172,23 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 
 	// 创建玩家
 	player := models.Player{
-		ID:           playerID,
-		Name:         req.PlayerName,
-		Gems:         make(map[models.GemType]int),
-		Bonus:        make(map[models.GemType]int),
-		ReservedCards: []models.DevelopmentCard{},
-		PlayedCards:  []models.DevelopmentCard{},
-		PrivilegeTokens: 0,
-		Crowns:       0,
-		Nobles:       []models.NobleCard{},
-		Points:       0,
-		IsHost:       false,
-		LastActive:   time.Now(),
+		ID:                playerID,
+		Name:              req.PlayerName,
+		Gems:              make(map[models.GemType]int),
+		Bonus:             make(map[models.GemType]int),
+		ReservedCards:     []string{},
+		DevelopmentCards:  []string{},
+		PrivilegeTokens:   0,
+		Crowns:            0,
+		Nobles:            []string{},
+		Points:            0,
+		IsHost:            false,
+		LastActive:        time.Now(),
 	}
 
 	// 添加玩家到房间
 	m.mutex.Lock()
-	targetRoom.GameState.Players[playerID] = player
+	targetRoom.GameState.Players = append(targetRoom.GameState.Players, player)
 	targetRoom.UpdatedAt = time.Now()
 	m.mutex.Unlock()
 
@@ -258,136 +264,5 @@ func (m *Manager) CleanupExpiredRooms() {
 	}
 }
 
-// 初始化宝石
-func initializeGems() map[models.GemType]int {
-	return map[models.GemType]int{
-		models.GemWhite: 4,
-		models.GemBlue:  4,
-		models.GemGreen: 4,
-		models.GemRed:   4,
-		models.GemBlack: 4,
-		models.GemPearl: 4,
-		models.GemGold:  5,
-	}
-}
-
-// 获取发展卡（根据实际命名规则）
-func getDevelopmentCards(level models.CardLevel) []models.DevelopmentCard {
-	cards := []models.DevelopmentCard{}
-	
-	// 根据等级生成不同数量的卡片
-	var count int
-	
-	switch level {
-	case models.Level1:
-		count = 30
-	case models.Level2:
-		count = 24
-	case models.Level3:
-		count = 13
-	}
-
-	// 生成卡片ID和图片路径
-	for i := 0; i < count; i++ {
-		// 计算字母和数字
-		letterIndex := i / 10
-		numberIndex := i % 10
-		
-		// 生成字母 (a-g, h-l, m-o)
-		letter := string(rune('a' + letterIndex))
-		if level == models.Level2 {
-			letter = string(rune('h' + letterIndex))
-		} else if level == models.Level3 {
-			letter = string(rune('m' + letterIndex))
-		}
-		
-		cardID := fmt.Sprintf("%s%d", letter, numberIndex+1)
-		imagePath := fmt.Sprintf("/images/cards/level%d/%s.jpg", level, cardID)
-		
-		card := models.DevelopmentCard{
-			ID:        cardID,
-			Level:     level,
-			Points:    int(level) * 2,
-			Bonus:     getRandomGemType(), // 随机分配宝石类型
-			Cost:      generateRandomCost(level),
-			ImagePath: imagePath,
-		}
-		cards = append(cards, card)
-	}
-
-	return cards
-}
-
-// 获取随机宝石类型
-func getRandomGemType() models.GemType {
-	gemTypes := []models.GemType{
-		models.GemWhite, models.GemBlue, models.GemGreen,
-		models.GemRed, models.GemBlack, models.GemPearl,
-	}
-	return gemTypes[time.Now().UnixNano()%int64(len(gemTypes))]
-}
-
-// 生成随机成本
-func generateRandomCost(level models.CardLevel) map[models.GemType]int {
-	cost := make(map[models.GemType]int)
-	
-	// 根据等级生成不同复杂度的成本
-	var totalCost int
-	switch level {
-	case models.Level1:
-		totalCost = 2 + int(time.Now().UnixNano()%3) // 2-4
-	case models.Level2:
-		totalCost = 4 + int(time.Now().UnixNano()%3) // 4-6
-	case models.Level3:
-		totalCost = 6 + int(time.Now().UnixNano()%3) // 6-8
-	}
-	
-	// 随机分配成本到不同宝石类型
-	gemTypes := []models.GemType{
-		models.GemWhite, models.GemBlue, models.GemGreen,
-		models.GemRed, models.GemBlack, models.GemPearl,
-	}
-	
-	remainingCost := totalCost
-	for i := 0; i < len(gemTypes) && remainingCost > 0; i++ {
-		if remainingCost > 0 {
-			costAmount := 1 + int(time.Now().UnixNano()%int64(remainingCost))
-			if costAmount > 0 {
-				cost[gemTypes[i]] = costAmount
-				remainingCost -= costAmount
-			}
-		}
-	}
-	
-	return cost
-}
-
-// 获取贵族卡
-func getNobleCards() []models.NobleCard {
-	return []models.NobleCard{
-		{
-			ID:        "noble1",
-			Points:    3,
-			Requirement: map[models.GemType]int{models.GemWhite: 3, models.GemBlue: 3},
-			ImagePath: "/images/nobles/noble1.jpg",
-		},
-		{
-			ID:        "noble2",
-			Points:    3,
-			Requirement: map[models.GemType]int{models.GemGreen: 3, models.GemRed: 3},
-			ImagePath: "/images/nobles/noble2.jpg",
-		},
-		{
-			ID:        "noble3",
-			Points:    3,
-			Requirement: map[models.GemType]int{models.GemBlack: 3, models.GemPearl: 3},
-			ImagePath: "/images/nobles/noble3.jpg",
-		},
-		{
-			ID:        "noble4",
-			Points:    3,
-			Requirement: map[models.GemType]int{models.GemWhite: 2, models.GemBlue: 2, models.GemGreen: 2},
-			ImagePath: "/images/nobles/noble4.jpg",
-		},
-	}
-}
+// 注意：这些函数已被新的游戏逻辑替代
+// 宝石初始化、发展卡生成等逻辑现在在 game_logic.go 中实现

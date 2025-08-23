@@ -15,18 +15,27 @@ export const useGameStore = defineStore('game', () => {
   // 创建房间
   const createRoom = async (roomName, playerName) => {
     try {
+      console.log('Store: 开始创建房间API调用')
       const response = await axios.post('/api/rooms', {
         roomName,
         playerName
       })
       
+      console.log('Store: API响应完整数据:', response.data)
+      
       if (response.data.success) {
-        currentRoom.value = response.data.room
+        console.log('Store: 设置currentRoom:', response.data.data.room)
+        console.log('Store: 设置currentPlayer:', { id: response.data.data.playerId, name: playerName })
+        
+        currentRoom.value = response.data.data.room
         currentPlayer.value = {
-          id: response.data.playerId,
+          id: response.data.data.playerId,
           name: playerName
         }
-        return { success: true, roomId: response.data.room.id }
+        
+        console.log('Store: 设置后的状态:', { currentRoom: currentRoom.value, currentPlayer: currentPlayer.value })
+        
+        return { success: true, roomId: response.data.data.room.id }
       } else {
         return { success: false, message: response.data.message }
       }
@@ -45,12 +54,12 @@ export const useGameStore = defineStore('game', () => {
       })
       
       if (response.data.success) {
-        currentRoom.value = response.data.room
+        currentRoom.value = response.data.data.room
         currentPlayer.value = {
-          id: response.data.playerId,
+          id: response.data.data.playerId,
           name: playerName
         }
-        return { success: true, roomId: response.data.room.id }
+        return { success: true, roomId: response.data.data.room.id }
       } else {
         return { success: false, message: response.data.message }
       }
@@ -95,28 +104,60 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理 WebSocket 消息
   const handleWebSocketMessage = (data) => {
+    console.log('收到WebSocket消息:', data)
+    
     switch (data.type) {
       case 'game_state_update':
-        gameState.value = data.gameState
+        console.log('收到游戏状态更新:', data.gameState)
+        if (data.gameState) {
+          gameState.value = data.gameState
+          console.log('游戏状态已更新:', gameState.value)
+        }
         break
       case 'chat_message':
-        chatMessages.value.push(data.message)
+        if (data.message) {
+          chatMessages.value.push({
+            playerId: data.playerId,
+            playerName: data.playerName,
+            message: data.message,
+            timestamp: new Date()
+          })
+        }
         break
       case 'game_action':
-        gameHistory.value.push(data.action)
+        if (data.action) {
+          gameHistory.value.push({
+            playerId: data.action.playerId,
+            playerName: data.action.playerName,
+            description: data.action.description || `执行了${data.action.type}操作`,
+            timestamp: data.action.timestamp || new Date()
+          })
+        }
         break
       case 'player_joined':
-        // 处理玩家加入
+        console.log('玩家加入:', data.playerName)
+        // 可以在这里更新等待玩家列表
         break
       case 'player_left':
-        // 处理玩家离开
+        console.log('玩家离开:', data.playerName)
         break
       case 'game_start':
-        // 游戏开始
+        console.log('收到游戏开始消息:', data)
+        if (data.gameState) {
+          gameState.value = data.gameState
+        } else if (data.data && data.data.gameState) {
+          gameState.value = data.data.gameState
+        }
+        console.log('游戏开始后的状态:', gameState.value)
         break
       case 'game_end':
-        // 游戏结束
+        console.log('游戏结束')
         break
+      case 'error':
+        console.error('服务器错误:', data.message)
+        break
+      default:
+        console.log('未知消息类型:', data.type)
     }
   }
 
@@ -138,8 +179,39 @@ export const useGameStore = defineStore('game', () => {
       websocket.value.send(JSON.stringify({
         type: 'game_action',
         playerId: currentPlayer.value.id,
-        action: action
+        playerName: currentPlayer.value.name,
+        data: action.data,
+        actionType: action.type
       }))
+    }
+  }
+
+  // 发送游戏操作
+  const sendGameAction = (actionType, data) => {
+    console.log('Store: 准备发送游戏操作:', { actionType, data })
+    console.log('Store: WebSocket状态:', { websocket: !!websocket.value, isConnected: isConnected.value })
+    
+    if (websocket.value && isConnected.value) {
+      const message = {
+        type: 'game_action',
+        playerId: currentPlayer.value.id,
+        playerName: currentPlayer.value.name,
+        actionType: actionType,
+        data: data
+      }
+      
+      console.log('Store: 发送WebSocket消息:', message)
+      
+      try {
+        websocket.value.send(JSON.stringify(message))
+        console.log('Store: 游戏操作发送成功')
+      } catch (error) {
+        console.error('Store: 发送游戏操作失败:', error)
+        throw error
+      }
+    } else {
+      console.error('Store: WebSocket未连接，无法发送操作')
+      throw new Error('WebSocket未连接')
     }
   }
 
@@ -177,6 +249,7 @@ export const useGameStore = defineStore('game', () => {
     connectWebSocket,
     sendChatMessage,
     performGameAction,
+    sendGameAction,
     disconnect,
     reset
   }

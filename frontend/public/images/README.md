@@ -7,10 +7,6 @@
 ```
 images/
 ├── cards/           # 发展卡图片
-│   ├── level1/      # 一级发展卡 (30张: a 到 g)
-│   ├── level2/      # 二级发展卡 (24张: h 到 l)
-│   ├── level3/      # 三级发展卡 (13张: m 到 o)
-│   └── backs/       # 卡背图片 (3张: back1.jpg, back2.jpg, back3.jpg)
 ├── gems/            # 宝石代币图片 (7张)
 │   ├── white.jpg    # 白色宝石
 │   ├── blue.jpg     # 蓝色宝石

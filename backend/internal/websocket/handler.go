@@ -277,11 +277,28 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 		},
 	})
 
-	// 更新游戏状态
+	// 更新游戏状态并检查是否应该开始游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
-		if player, exists := roomData.GameState.Players[message.PlayerID]; exists {
-			player.LastActive = time.Now()
-			roomData.GameState.Players[message.PlayerID] = player
+		for i, player := range roomData.GameState.Players {
+			if player.ID == message.PlayerID {
+				roomData.GameState.Players[i].LastActive = time.Now()
+				break
+			}
+		}
+		
+		// 检查是否应该自动开始游戏（当有2个玩家且状态为waiting时）
+		if len(roomData.GameState.Players) >= 2 && roomData.GameState.Status == models.GameStatusWaiting {
+			log.Printf("房间 %s 有 %d 个玩家，自动开始游戏", c.RoomID, len(roomData.GameState.Players))
+			
+			// 创建游戏逻辑实例并开始游戏
+			gl := game.NewGameLogic(&roomData.GameState, room.Manager)
+			if err := gl.StartGame(); err != nil {
+				log.Printf("自动开始游戏失败: %v", err)
+				return
+			}
+			
+			roomData.GameState.StartedAt = time.Now()
+			log.Printf("游戏已自动开始")
 		}
 	})
 
@@ -291,6 +308,14 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 		Type:      "game_state_update",
 		GameState: &gameState,
 	})
+	
+	// 如果游戏已开始，广播游戏开始消息
+	if gameState.Status == models.GameStatusPlaying {
+		room.broadcastToAll(models.WSMessage{
+			Type: "game_start",
+			Data: room.Manager.GetRoom(c.RoomID),
+		})
+	}
 }
 
 // handleChatMessage 处理聊天消息
@@ -312,6 +337,8 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 
 // handleGameAction 处理游戏动作
 func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
+	log.Printf("处理游戏动作: %s, 玩家: %s, 数据: %+v", message.Type, message.PlayerName, message.Data)
+	
 	gameAction := models.GameAction{
 		ID:          generateClientID(),
 		PlayerID:    message.PlayerID,
@@ -328,21 +355,119 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		Action: &gameAction,
 	})
 
-	// 这里可以添加游戏逻辑处理
-	// 例如：移动棋子、购买卡片等
+	// 执行游戏逻辑
+	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
+		// 创建游戏逻辑实例
+		gl := game.NewGameLogic(&roomData.GameState, room.Manager)
+		
+		// 根据动作类型执行相应的游戏逻辑
+		// 前端发送的actionType在消息的顶层，data在消息的data字段中
+		actionType := message.ActionType
+		if actionType == "" {
+			log.Printf("无法获取actionType: %+v", message.ActionType)
+			return
+		}
+		
+		log.Printf("解析到actionType: %s", actionType)
+		
+		switch actionType {
+		case "takeGems":
+			if gemPositions, ok := message.Data.(map[string]interface{})["gemPositions"].([]interface{}); ok {
+				log.Printf("执行拿取宝石操作，位置: %+v", gemPositions)
+				// 转换类型以匹配TakeGems函数的参数
+				var positions []map[string]interface{}
+				for _, pos := range gemPositions {
+					if posMap, ok := pos.(map[string]interface{}); ok {
+						positions = append(positions, posMap)
+					}
+				}
+				if err := gl.TakeGems(message.PlayerID, positions); err != nil {
+					log.Printf("拿取宝石失败: %v", err)
+				} else {
+					log.Printf("拿取宝石成功")
+				}
+			}
+		case "buyCard":
+			if cardID, ok := message.Data.(map[string]interface{})["cardId"].(string); ok {
+				log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
+				if err := gl.BuyCard(message.PlayerID, cardID); err != nil {
+					log.Printf("购买发展卡失败: %v", err)
+				} else {
+					log.Printf("购买发展卡成功")
+				}
+			}
+		case "reserveCard":
+			if cardID, ok := message.Data.(map[string]interface{})["cardId"].(string); ok {
+				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
+				// 获取黄金位置
+				var goldX, goldY int
+				if goldXVal, ok := message.Data.(map[string]interface{})["goldX"].(float64); ok {
+					goldX = int(goldXVal)
+				}
+				if goldYVal, ok := message.Data.(map[string]interface{})["goldY"].(float64); ok {
+					goldY = int(goldYVal)
+				}
+				if err := gl.ReserveCard(message.PlayerID, cardID, goldX, goldY); err != nil {
+					log.Printf("保留发展卡失败: %v", err)
+				} else {
+					log.Printf("保留发展卡成功")
+				}
+			}
+		case "spendPrivilege":
+			if privilegeCount, ok := message.Data.(map[string]interface{})["privilegeCount"].(float64); ok {
+				log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
+				// 获取宝石位置
+				if gemPositions, ok := message.Data.(map[string]interface{})["gemPositions"].([]interface{}); ok {
+					var positions []map[string]interface{}
+					for _, pos := range gemPositions {
+						if posMap, ok := pos.(map[string]interface{}); ok {
+							positions = append(positions, posMap)
+						}
+					}
+					if err := gl.SpendPrivilege(message.PlayerID, int(privilegeCount), positions); err != nil {
+						log.Printf("花费特权失败: %v", err)
+					} else {
+						log.Printf("花费特权成功")
+					}
+				}
+			}
+		case "refillBoard":
+			log.Printf("执行补充版图操作")
+			if err := gl.RefillBoard(message.PlayerID); err != nil {
+				log.Printf("补充版图失败: %v", err)
+			} else {
+				log.Printf("补充版图成功")
+			}
+		default:
+			log.Printf("未知的游戏动作类型: %s", message.Type)
+		}
+		
+		// 更新游戏状态
+		log.Printf("游戏状态已更新")
+	})
+
+	// 广播更新后的游戏状态
+	gameState := room.Manager.GetRoom(c.RoomID).GameState
+	room.broadcastToAll(models.WSMessage{
+		Type:      "game_state_update",
+		GameState: &gameState,
+	})
 }
 
 // handleStartGame 处理开始游戏
 func (c *Client) handleStartGame(room *Room) {
+	// 使用游戏逻辑来正确初始化游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
-		roomData.GameState.Status = "playing"
-		roomData.GameState.StartedAt = time.Now()
+		// 创建游戏逻辑实例
+		gl := game.NewGameLogic(&roomData.GameState, room.Manager)
 		
-		// 设置第一个玩家为当前回合
-		for playerID := range roomData.GameState.Players {
-			roomData.GameState.CurrentTurn = playerID
-			break
+		// 开始游戏（这会初始化宝石版图、发展卡等）
+		if err := gl.StartGame(); err != nil {
+			log.Printf("开始游戏失败: %v", err)
+			return
 		}
+		
+		roomData.GameState.StartedAt = time.Now()
 	})
 
 	// 广播游戏开始消息

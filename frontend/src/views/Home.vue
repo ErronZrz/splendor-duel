@@ -68,6 +68,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/game'
+import { storeToRefs } from 'pinia'
 
 const router = useRouter()
 const gameStore = useGameStore()
@@ -85,13 +86,24 @@ const createRoom = async () => {
   
   try {
     error.value = ''
+    console.log('开始创建房间:', { roomName: roomName.value.trim(), playerName: playerName.value.trim() })
+    
     const response = await gameStore.createRoom(roomName.value.trim(), playerName.value.trim())
+    console.log('创建房间响应:', response)
+    
     if (response.success) {
+      console.log('房间创建成功，准备跳转到:', `/game/${response.roomId}`)
+      const { currentRoom, currentPlayer } = storeToRefs(gameStore)
+      console.log('当前store状态:', {
+        currentRoom: currentRoom.value,
+        currentPlayer: currentPlayer.value
+      })
       router.push(`/game/${response.roomId}`)
     } else {
       error.value = response.message || '创建房间失败'
     }
   } catch (err) {
+    console.error('创建房间出错:', err)
     error.value = '网络错误，请重试'
   }
 }

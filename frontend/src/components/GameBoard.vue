@@ -14,26 +14,49 @@
       <!-- 左边中间：胜利目标提示卡 -->
       <div class="victory-objectives">
         <h3>胜利目标</h3>
-        <div class="objectives-image">
-          <img src="/images/game/goal.jpg" alt="胜利目标" />
+        <div class="objectives-content">
+          <div class="goal-item">
+            <span class="goal-icon">🏆</span>
+            <span>20分获胜</span>
+          </div>
+          <div class="goal-item">
+            <span class="goal-icon">👑</span>
+            <span>10皇冠获胜</span>
+          </div>
+          <div class="goal-item">
+            <span class="goal-icon">🎨</span>
+            <span>单色10bonus获胜</span>
+          </div>
         </div>
       </div>
 
-      <!-- 中间：拿取宝石的板块 -->
+      <!-- 中间：5x5宝石版图 -->
       <div class="gem-board">
-        <h3>拿取宝石</h3>
-        <div class="gem-board-content">
+        <h3>宝石版图</h3>
+        <div class="gem-board-grid">
+          <!-- 5x5 宝石网格 -->
           <div 
-            v-for="(count, gemType) in availableGems" 
-            :key="gemType"
-            class="gem-item"
-            :class="gemType"
-            @click="selectGem(gemType)"
+            v-for="(row, x) in gameState.gemBoard || []" 
+            :key="`row-${x}`"
+            class="gem-row"
           >
-            <div class="gem-image">
-              <img :src="getGemImage(gemType)" :alt="gemType" />
+            <div 
+              v-for="(gemType, y) in row" 
+              :key="`gem-${x}-${y}`"
+              class="gem-slot"
+              :class="{ 'empty': !gemType, 'selectable': canSelectGem(x, y) }"
+              @click="selectGemPosition(x, y)"
+            >
+              <div v-if="gemType" class="gem-token">
+                <img :src="getGemImage(gemType)" :alt="gemType" class="gem-image" />
+              </div>
+              <div v-else class="empty-slot"></div>
             </div>
-            <div class="gem-count">{{ count }}</div>
+          </div>
+          
+          <!-- 如果没有宝石版图数据，显示占位符 -->
+          <div v-if="!gameState.gemBoard" class="board-placeholder">
+            <div class="placeholder-text">等待游戏开始...</div>
           </div>
         </div>
       </div>
@@ -43,15 +66,15 @@
         <h3>贵族卡</h3>
         <div class="nobles-grid">
           <div 
-            v-for="noble in availableNobles" 
-            :key="noble.id"
+            v-for="nobleId in availableNobles" 
+            :key="nobleId"
             class="noble-card"
-            @click="selectNoble(noble)"
+            @click="selectNoble(nobleId)"
           >
             <div class="noble-image">
-              <img :src="noble.imagePath" :alt="noble.id" />
+              <div class="noble-placeholder">👑</div>
             </div>
-            <div class="noble-points">{{ noble.points }} 分</div>
+            <div class="noble-info">{{ nobleId }}</div>
           </div>
         </div>
       </div>
@@ -71,21 +94,21 @@
           <div class="card-pile level-3">
             <h4>3级</h4>
             <div class="pile-back">
-              <img src="/images/cards/backs/back1.jpg" alt="3级卡背" />
+              <div class="card-back-placeholder">🃏</div>
             </div>
             <div class="pile-count">{{ unflippedCards[3] }}</div>
           </div>
           <div class="card-pile level-2">
             <h4>2级</h4>
             <div class="pile-back">
-              <img src="/images/cards/backs/back2.jpg" alt="2级卡背" />
+              <div class="card-back-placeholder">🃏</div>
             </div>
             <div class="pile-count">{{ unflippedCards[2] }}</div>
           </div>
           <div class="card-pile level-1">
             <h4>1级</h4>
             <div class="pile-back">
-              <img src="/images/cards/backs/back3.jpg" alt="1级卡背" />
+              <div class="card-back-placeholder">🃏</div>
             </div>
             <div class="pile-count">{{ unflippedCards[1] }}</div>
           </div>
@@ -101,18 +124,18 @@
             <h4>等级 {{ level }}</h4>
             <div class="cards-row">
               <div 
-                v-for="card in getFlippedCardsByLevel(level)" 
-                :key="card.id"
+                v-for="cardId in getFlippedCardsByLevel(level)" 
+                :key="cardId"
                 class="development-card"
                 :class="`level-${level}`"
-                @click="selectCard(card)"
+                @click="selectCard(cardId)"
               >
                 <div class="card-image">
-                  <img :src="card.imagePath" :alt="`Level ${level} Card`" />
+                  <div class="card-placeholder">🃏</div>
                 </div>
                 <div class="card-info">
-                  <div class="card-points">{{ card.points }} 分</div>
-                  <div class="card-bonus">{{ getGemName(card.bonus) }}</div>
+                  <div class="card-id">{{ cardId }}</div>
+                  <div class="card-level">{{ level }}级</div>
                 </div>
               </div>
             </div>
@@ -158,22 +181,21 @@
 
         <!-- 保留的发展卡 -->
         <div class="status-section">
-          <h4>保留的卡 ({{ player.reservedCards.length }}/3)</h4>
+          <h4>保留的卡 ({{ player.reservedCards?.length || 0 }}/3)</h4>
           <div class="reserved-cards">
             <div 
-              v-for="(card, index) in player.reservedCards" 
+              v-for="(cardId, index) in player.reservedCards" 
               :key="index"
               class="reserved-card"
-              :class="`level-${card.level}`"
             >
               <div class="card-back">
-                <img src="/images/cards/backs/back1.jpg" :alt="`Level ${card.level} Card Back`" />
+                <div class="card-back-placeholder">🃏</div>
               </div>
-              <div class="card-level">{{ card.level }}级</div>
+              <div class="card-id">{{ cardId }}</div>
             </div>
             <!-- 填充空位 -->
             <div 
-              v-for="i in (3 - player.reservedCards.length)" 
+              v-for="i in (3 - (player.reservedCards?.length || 0))" 
               :key="`empty-${i}`"
               class="reserved-card empty"
             >
@@ -198,11 +220,11 @@
         <div class="status-section">
           <h4>贵族</h4>
           <div class="nobles-display">
-            <div v-for="noble in player.nobles" :key="noble.id" class="noble-status">
-              <img :src="noble.imagePath" :alt="noble.id" class="noble-icon" />
-              <span>{{ noble.points }}分</span>
+            <div v-for="nobleId in player.nobles" :key="nobleId" class="noble-status">
+              <div class="noble-icon-placeholder">👑</div>
+              <span>{{ nobleId }}</span>
             </div>
-            <div v-if="player.nobles.length === 0" class="no-nobles">无</div>
+            <div v-if="!player.nobles || player.nobles.length === 0" class="no-nobles">无</div>
           </div>
         </div>
 
@@ -233,47 +255,31 @@ const props = defineProps({
 const emit = defineEmits(['gem-selected', 'card-selected', 'noble-selected'])
 
 // 计算属性
-const availableGems = computed(() => {
-  return props.gameState?.availableGems || {}
-})
-
 const availableNobles = computed(() => {
-  return props.gameState?.nobleCards || []
+  return props.gameState?.availableNobles || []
 })
 
 const allPlayers = computed(() => {
-  if (!props.gameState?.players) return []
-  return Object.values(props.gameState.players)
+  return props.gameState?.players || []
 })
 
 // 游戏版图相关数据
 const totalGemsInBag = computed(() => {
-  // 计算袋子里有多少宝石（总宝石数 - 场上可用宝石数）
-  const totalGems = 4 + 4 + 4 + 4 + 4 + 4 + 5 // 白蓝绿红黑珍珠各4个，黄金5个
-  const availableGemsCount = Object.values(availableGems.value).reduce((sum, count) => sum + count, 0)
-  return totalGems - availableGemsCount
+  return props.gameState?.gemsInBag || 0
 })
 
 const availablePrivilegeTokens = computed(() => {
-  // 场上未被获得的特权指示物数量
-  return 3 // 游戏开始时固定3个
+  return props.gameState?.availablePrivilegeTokens || 3
 })
 
 const unflippedCards = computed(() => {
-  // 未被翻开的发展卡数量
-  return {
-    1: 30, // 1级30张
-    2: 24, // 2级24张
-    3: 13  // 3级13张
-  }
+  return props.gameState?.unflippedCards || { 1: 30, 2: 24, 3: 13 }
 })
 
 // 方法
 const getFlippedCardsByLevel = (level) => {
-  // 获取被翻开的发展卡，保持固定数量：1级5张，2级4张，3级3张
-  const cards = props.gameState?.developmentCards?.[level] || []
-  const maxFlipped = level === 1 ? 5 : level === 2 ? 4 : 3
-  return cards.slice(0, maxFlipped)
+  const cards = props.gameState?.flippedCards?.[level] || []
+  return cards
 }
 
 const getGemImage = (gemType) => {
@@ -288,21 +294,32 @@ const getGemName = (gemType) => {
     red: '红色',
     black: '黑色',
     pearl: '珍珠',
-    gold: '黄金'
+    gold: '黄金',
+    gray: '灰色'
   }
   return gemNames[gemType] || gemType
 }
 
-const selectGem = (gemType) => {
-  emit('gem-selected', gemType)
+// 新增：宝石版图相关方法
+const canSelectGem = (x, y) => {
+  // 检查是否可以选择该位置的宝石
+  // 这里可以加入游戏逻辑，比如是否在直线上
+  return true
 }
 
-const selectCard = (card) => {
-  emit('card-selected', card)
+const selectGemPosition = (x, y) => {
+  const gemType = props.gameState?.gemBoard?.[x]?.[y]
+  if (gemType) {
+    emit('gem-selected', { x, y, gemType })
+  }
 }
 
-const selectNoble = (noble) => {
-  emit('noble-selected', noble)
+const selectCard = (cardId) => {
+  emit('card-selected', cardId)
+}
+
+const selectNoble = (nobleId) => {
+  emit('noble-selected', nobleId)
 }
 </script>
 
@@ -385,40 +402,130 @@ const selectNoble = (noble) => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.gem-board-content {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  padding: 20px;
-}
-
-.gem-item {
+/* 5x5 宝石版图样式 */
+.gem-board-grid {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
+  gap: 4px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+}
+
+.gem-row {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.gem-slot {
+  width: 60px;
+  height: 60px;
+  border: 2px solid #e9ecef;
   border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: all 0.3s ease;
-  border: 2px solid transparent;
+  background: white;
 }
 
-.gem-item:hover {
+.gem-slot:hover {
   border-color: #667eea;
-  transform: translateY(-2px);
+  transform: scale(1.05);
 }
 
-.gem-image img {
+.gem-slot.selectable:hover {
+  background: #e3f2fd;
+}
+
+.gem-slot.empty {
+  background: #f8f9fa;
+  border-color: #dee2e6;
+}
+
+.gem-token {
   width: 50px;
   height: 50px;
   border-radius: 50%;
-  object-fit: cover;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.gem-count {
-  font-weight: 600;
+.gem-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.empty-slot {
+  width: 30px;
+  height: 30px;
+  border: 2px dashed #dee2e6;
+  border-radius: 50%;
+}
+
+.board-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  opacity: 0.3;
+}
+
+.board-background img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+}
+
+/* 占位符样式 */
+.board-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #f8f9fa;
+  border-radius: 12px;
+}
+
+.placeholder-text {
+  font-size: 18px;
+  color: #6c757d;
+  text-align: center;
+}
+
+.goal-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 14px;
   color: #495057;
+}
+
+.goal-icon {
+  font-size: 16px;
+}
+
+.noble-placeholder, .card-back-placeholder, .card-placeholder, .noble-icon-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #f8f9fa;
+  border-radius: 6px;
+  font-size: 24px;
+  color: #6c757d;
 }
 
 /* 贵族卡 */
