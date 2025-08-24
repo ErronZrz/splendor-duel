@@ -19,7 +19,7 @@
      <div class="game-main">
        <!-- 游戏版图区域 -->
        <div class="game-board-area">
-         <div v-if="!gameState || gameState?.status === 'waiting'" class="waiting-area">
+         <div v-if="showWaitingArea" class="waiting-area">
            <h3>等待其他玩家加入...</h3>
            <div class="debug-info">
              <p><strong>调试信息:</strong></p>
@@ -99,7 +99,7 @@
                          v-for="card in getCardsByLevel(level)" 
                          :key="card.id"
                          class="card-item"
-                         @click="handleCardSelected(card.id)"
+                         @click="handleCardClick(card)"
                        >
                          <img 
                            :src="`/images/cards/${card.id}.jpg`" 
@@ -166,9 +166,35 @@
                     <div class="player-bonuses">
                       <h5>奖励:</h5>
                       <div class="bonuses-list">
-                        <span v-for="(count, color) in player.bonuses || {}" :key="color" class="bonus-count">
-                          {{ color }}: {{ count }}
-                        </span>
+                        <div 
+                          v-for="(count, color) in player.bonus || {}" 
+                          :key="color" 
+                          class="bonus-item"
+                          @mouseenter="showBonusTooltip($event, player.id, color)"
+                          @mouseleave="hideBonusTooltip"
+                        >
+                          <span class="bonus-count">
+                            {{ getGemDisplayName(color) }}: {{ count }}
+                          </span>
+                          <!-- Bonus悬停提示 -->
+                          <div 
+                            v-if="activeTooltip.playerId === player.id && activeTooltip.color === color"
+                            class="bonus-tooltip"
+                            :style="tooltipStyle"
+                          >
+                            <h6>{{ getGemDisplayName(color) }} Bonus ({{ count }})</h6>
+                            <div class="bonus-cards">
+                              <img 
+                                v-for="cardId in getBonusCards(player.id, color)" 
+                                :key="cardId"
+                                :src="`/images/cards/${cardId}.jpg`"
+                                :alt="`Bonus卡${cardId}`"
+                                class="bonus-card-image"
+                                @error="handleCardImageError"
+                              />
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
@@ -181,6 +207,44 @@
                     <div class="player-privileges">
                       <h5>特权: {{ player.privilegeTokens || 0 }}</h5>
                     </div>
+                    
+                    <!-- 保留的发展卡 -->
+                    <div class="player-reserved-cards">
+                      <h5>保留的发展卡 ({{ player.reservedCards?.length || 0 }}/3):</h5>
+                      <div class="reserved-cards-list">
+                        <div 
+                          v-for="(cardId, index) in player.reservedCards || []" 
+                          :key="index"
+                          class="reserved-card-item"
+                          :class="{ 'clickable': isCurrentPlayerTurn(player.id) }"
+                          @click="handleReservedCardClick({ cardId, playerId: player.id })"
+                        >
+                          <!-- 只有卡牌所有者能看到卡牌正面；对手只能看到牌背 -->
+                          <img 
+                            v-if="player.id === currentPlayer?.id"
+                            :src="`/images/cards/${cardId}.jpg`" 
+                            :alt="`保留卡${cardId}`"
+                            class="reserved-card-image"
+                            @error="handleCardImageError"
+                          />
+                          <img 
+                            v-else
+                            :src="`/images/cards/back${getCardLevel(cardId)}.jpg`" 
+                            :alt="`保留卡牌背`"
+                            class="reserved-card-image"
+                            @error="handleCardImageError"
+                          />
+                        </div>
+                        <!-- 填充空位 -->
+                        <div 
+                          v-for="i in (3 - (player.reservedCards?.length || 0))" 
+                          :key="`empty-${i}`"
+                          class="reserved-card-item empty"
+                        >
+                          <div class="empty-slot">空</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -189,12 +253,6 @@
               <div class="action-panel">
                 <h3>游戏操作</h3>
                 <div v-if="isMyTurn" class="available-actions">
-                  <button @click="handleTakeGems" class="btn btn-primary">
-                    拿取宝石
-                  </button>
-                  <button @click="handleBuyCard" class="btn btn-primary">
-                    购买发展卡
-                  </button>
                   <button @click="handleSpendPrivilege" class="btn btn-secondary">
                     花费特权
                   </button>
@@ -268,7 +326,12 @@
        :gem-board="gameState?.gemBoard || []"
        :available-privileges="getCurrentPlayerData().privilegeTokens || 0"
        :flipped-cards="gameState?.flippedCards || {}"
+       :unflipped-cards="gameState?.unflippedCards || {}"
        :selected-gold-position="actionDialog.selectedGold || null"
+       :initial-gem-position="actionDialog.initialGemPosition || null"
+       :player-data="actionDialog.playerData || null"
+       :selected-card="actionDialog.selectedCard || null"
+       :card-details="gameState?.cardDetails || {}"
        @confirm="handleActionConfirm"
        @cancel="handleActionCancel"
      />
@@ -295,7 +358,6 @@ const gameStore = useGameStore()
 
 const newMessage = ref('')
 const chatMessagesRef = ref(null)
-const waitingPlayers = ref([])
 const notificationRef = ref(null)
 
 // 操作对话框状态
@@ -305,6 +367,18 @@ const actionDialog = ref({
   title: '',
   message: '',
   selectedCard: null
+})
+
+// Bonus工具提示状态
+const activeTooltip = ref({
+  playerId: null,
+  color: null
+})
+
+const tooltipStyle = ref({
+  position: 'absolute',
+  top: '0px',
+  left: '0px'
 })
 
 // 使用 storeToRefs 确保响应式
@@ -321,8 +395,23 @@ console.log('Game.vue 初始化:', {
 
 // 计算属性
 const canStartGame = computed(() => {
-  return waitingPlayers.value.length >= 2 && 
-         currentPlayer?.value?.id === waitingPlayers.value[0]?.id
+  // 检查是否有足够的玩家，并且当前玩家是房主
+  const players = gameState.value?.players || []
+  return players.length >= 2 && 
+         currentPlayer?.value?.id === players[0]?.id &&
+         gameState.value?.status === 'waiting'
+})
+
+// 等待玩家列表（从游戏状态中获取）
+const waitingPlayers = computed(() => {
+  return gameState.value?.players || []
+})
+
+// 是否显示等待区域
+const showWaitingArea = computed(() => {
+  return !gameState.value || 
+         gameState.value.status === 'waiting' || 
+         gameState.value.status === 'waiting_for_players'
 })
 
 const isMyTurn = computed(() => {
@@ -355,35 +444,56 @@ const isCurrentPlayerTurn = (playerId) => {
   return currentPlayer?.id === playerId
 }
 
-// 根据等级获取发展卡
+// 根据等级获取发展卡（从后端数据中获取）
 const getCardsByLevel = (level) => {
   if (!gameState?.value) return []
+  
+  // 直接从后端获取该等级已翻开的卡牌ID列表
   const flippedCards = gameState.value.flippedCards || {}
   const cardIds = flippedCards[level] || []
   
-  // 这里应该从全局卡牌数据中获取详细信息
-  // 暂时返回简化的卡牌信息
-  return cardIds.map(id => ({
-    id: id,
-    name: `卡牌${id}`,
-    cost: {},
-    bonus: null
-  }))
+  // 从后端卡牌详细信息中获取完整数据
+  const cardDetails = gameState.value.cardDetails || {}
+  
+  return cardIds.map(id => {
+    const cardDetail = cardDetails[id]
+    if (!cardDetail) {
+      console.warn(`未找到卡牌 ${id} 的详细信息`)
+      return null
+    }
+    
+    return {
+      id: cardDetail.id,
+      name: `${cardDetail.code || cardDetail.id} (${cardDetail.points || 0}分)`,
+      level: cardDetail.level,
+      cost: cardDetail.cost,
+      bonus: cardDetail.bonus,
+      crowns: cardDetail.crowns,
+      color: cardDetail.color,
+      isSpecial: cardDetail.isSpecial
+    }
+  }).filter(card => card !== null)
 }
 
-// 格式化卡牌费用
-const formatCardCost = (cost) => {
-  if (!cost) return '无'
-  return Object.entries(cost)
-    .map(([gemType, count]) => `${gemType}:${count}`)
-    .join(', ')
+// 获取宝石显示名称
+const getGemDisplayName = (gemType) => {
+  const gemMap = {
+    'white': '白宝石',
+    'blue': '蓝宝石',
+    'green': '绿宝石',
+    'red': '红宝石',
+    'black': '黑宝石',
+    'pearl': '珍珠',
+    'gold': '黄金'
+  }
+  return gemMap[gemType] || gemType
 }
 
 // 获取宝石图片名称
 const getGemImageName = (gemType) => {
   const gemMap = {
     'white': 'white',
-    'blue': 'blue', 
+    'blue': 'blue',
     'green': 'green',
     'red': 'red',
     'black': 'black',
@@ -391,6 +501,85 @@ const getGemImageName = (gemType) => {
     'gold': 'gold'
   }
   return gemMap[gemType] || gemType
+}
+
+// 显示Bonus工具提示
+const showBonusTooltip = (event, playerId, color) => {
+  clearTimeout(hideTimer)
+  const host = event.currentTarget // .bonus-item
+  tooltipStyle.value = {
+    position: 'absolute',
+    top: `${host.offsetHeight + 6}px`, // 紧贴在条目下方
+    left: '0px',
+    zIndex: 1000
+  }
+  activeTooltip.value = { playerId, color }
+}
+
+// 隐藏Bonus工具提示
+const hideBonusTooltip = () => {
+  hideTimer = setTimeout(() => {
+    activeTooltip.value = { playerId: null, color: null }
+  }, 120) // 给一点时间让鼠标移到提示框
+}
+
+// 隐藏定时器
+let hideTimer = null
+
+// 获取指定玩家的指定颜色bonus卡牌列表
+const getBonusCards = (playerId, color) => {
+  console.log('getBonusCards 被调用:', { playerId, color, gameState: gameState?.value })
+  
+  if (!gameState?.value?.players || !gameState?.value?.cardDetails) {
+    console.log('getBonusCards: 缺少必要数据')
+    return []
+  }
+  
+  const player = gameState.value.players.find(p => p.id === playerId)
+  if (!player?.developmentCards) {
+    console.log('getBonusCards: 玩家没有发展卡')
+    return []
+  }
+  
+  console.log('getBonusCards: 玩家发展卡:', player.developmentCards)
+  console.log('getBonusCards: 卡牌详细信息:', gameState.value.cardDetails)
+  
+  // 过滤出指定颜色的发展卡
+  const bonusCards = player.developmentCards.filter(cardId => {
+    const cardDetail = gameState.value.cardDetails[cardId]
+    console.log(`getBonusCards: 检查卡牌 ${cardId}:`, cardDetail)
+    return cardDetail && cardDetail.bonus === color
+  })
+  
+  console.log('getBonusCards: 找到的bonus卡牌:', bonusCards)
+  return bonusCards
+}
+
+// 获取卡牌等级（从后端数据中获取）
+const getCardLevel = (cardId) => {
+  if (!cardId) return 1
+  
+  // 从后端卡牌详细信息中获取等级
+  if (gameState?.value?.cardDetails && gameState.value.cardDetails[cardId]) {
+    return gameState.value.cardDetails[cardId].level || 1
+  }
+  
+  // 如果没有详细信息，尝试从卡牌ID推断等级
+  if (cardId.includes('level1') || cardId.includes('_1_')) return 1
+  if (cardId.includes('level2') || cardId.includes('_2_')) return 2
+  if (cardId.includes('level3') || cardId.includes('_3_')) return 3
+  
+  // 默认返回等级1
+  return 1
+}
+
+// 获取牌堆剩余数量（从后端数据中获取）
+const getDeckRemainingCount = (level) => {
+  if (!gameState?.value) return 0
+  
+  // 直接从后端获取未翻开的卡牌数量
+  const unflippedCards = gameState.value.unflippedCards || {}
+  return unflippedCards[level] || 0
 }
 
 // 获取贵族名称
@@ -458,7 +647,8 @@ const scrollToBottom = async () => {
 // 开始游戏
 const startGame = () => {
   gameStore.performGameAction({
-    type: 'start_game'
+    type: 'start_game',
+    data: {} // 添加空的data字段，避免后端panic
   })
 }
 
@@ -533,7 +723,7 @@ const handleBuyCard = () => {
   }
 }
 
-// 处理保留发展卡操作
+// 处理保留发展卡操作（向后端发送保留请求）
 const handleReserveCard = (goldX, goldY) => {
   if (!isMyTurn.value) {
     if (notificationRef.value) {
@@ -542,6 +732,8 @@ const handleReserveCard = (goldX, goldY) => {
     return
   }
   
+  // 打开保留发展卡对话框
+  // 前端只负责收集用户选择，具体保留逻辑由后端处理
   actionDialog.value = {
     visible: true,
     actionType: 'reserveCard',
@@ -552,7 +744,7 @@ const handleReserveCard = (goldX, goldY) => {
   }
 }
 
-// 处理花费特权操作
+// 处理花费特权操作（向后端发送特权请求）
 const handleSpendPrivilege = () => {
   if (!isMyTurn.value) {
     if (notificationRef.value) {
@@ -569,6 +761,8 @@ const handleSpendPrivilege = () => {
     return
   }
   
+  // 打开花费特权对话框
+  // 前端只负责收集用户输入，具体特权逻辑由后端处理
   actionDialog.value = {
     visible: true,
     actionType: 'spendPrivilege',
@@ -578,14 +772,14 @@ const handleSpendPrivilege = () => {
   }
 }
 
-// 处理补充版图操作
+// 处理补充版图操作（向后端发送补充请求）
 const handleRefillBoard = () => {
   if (!isMyTurn.value) {
     showNotification('不是你的回合', 'error')
     return
   }
   
-  // 直接执行补充版图操作
+  // 向后端发送补充版图请求，让后端处理所有补充逻辑
   executeAction('refillBoard', {})
 }
 
@@ -595,27 +789,47 @@ const handleActionConfirm = (data) => {
   
   switch (data.actionType) {
     case 'takeGems':
-      console.log('执行拿取宝石操作:', data.selectedGems)
+      console.log('向后端发送拿取宝石请求:', data.selectedGems)
+      // 向后端发送拿取宝石请求，让后端处理所有验证和逻辑
       executeAction('takeGems', {
         gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
       })
       break
     case 'buyCard':
-      console.log('执行购买发展卡操作:', data.selectedCard)
+      console.log('向后端发送购买发展卡请求:', data.selectedCard, data.paymentPlan)
+      if (!data.selectedCard?.id) {
+        if (notificationRef.value) {
+          notificationRef.value.error('错误', '没有选择要购买的发展卡')
+        }
+        return
+      }
+      // 向后端发送购买发展卡请求，让后端处理所有购买逻辑
       executeAction('buyCard', {
-        cardId: data.selectedCard?.id
+        cardId: data.selectedCard.id,
+        paymentPlan: data.paymentPlan || {}
       })
       break
     case 'reserveCard':
-      console.log('执行保留发展卡操作:', data.selectedCard, actionDialog.value.selectedGold)
-      executeAction('reserveCard', {
-        cardId: data.selectedCard?.id,
-        goldX: actionDialog.value.selectedGold?.x,
-        goldY: actionDialog.value.selectedGold?.y
-      })
+      console.log('向后端发送保留发展卡请求:', data.selectedCard, actionDialog.value.selectedGold)
+      if (data.selectedCard?.type === 'deck') {
+        // 从牌堆盲抽卡牌 - 向后端发送等级信息
+        executeAction('reserveCard', {
+          cardId: `deck_level_${data.selectedCard.level}`, // 传递等级信息
+          goldX: actionDialog.value.selectedGold?.x,
+          goldY: actionDialog.value.selectedGold?.y
+        })
+      } else {
+        // 保留场上已翻开的卡牌
+        executeAction('reserveCard', {
+          cardId: data.selectedCard?.id,
+          goldX: actionDialog.value.selectedGold?.x,
+          goldY: actionDialog.value.selectedGold?.y
+        })
+      }
       break
     case 'spendPrivilege':
-      console.log('执行花费特权操作:', data.privilegeCount, data.selectedGems)
+      console.log('向后端发送花费特权请求:', data.privilegeCount, data.selectedGems)
+      // 向后端发送花费特权请求，让后端处理所有特权逻辑
       executeAction('spendPrivilege', {
         privilegeCount: data.privilegeCount,
         gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
@@ -631,7 +845,7 @@ const handleActionCancel = () => {
   actionDialog.value.visible = false
 }
 
-// 执行游戏操作
+// 执行游戏操作（向后端发送请求）
 const executeAction = (actionType, data) => {
   if (!isMyTurn.value) {
     if (notificationRef.value) {
@@ -640,28 +854,28 @@ const executeAction = (actionType, data) => {
     return
   }
   
-  console.log('执行操作:', actionType, data)
+  console.log('向后端发送操作:', actionType, data)
   console.log('当前回合状态:', isMyTurn.value)
   console.log('WebSocket连接状态:', gameStore.isConnected)
   
-  // 发送操作到后端
+  // 向后端发送操作请求，让后端处理所有游戏逻辑
   try {
     gameStore.sendGameAction(actionType, data)
-    console.log('操作已发送到后端')
+    console.log('操作请求已发送到后端')
     if (notificationRef.value) {
-      notificationRef.value.success('成功', '操作已发送')
+      notificationRef.value.success('成功', '操作请求已发送')
     }
   } catch (error) {
-    console.error('发送操作失败:', error)
+    console.error('发送操作请求失败:', error)
     if (notificationRef.value) {
-      notificationRef.value.error('错误', '发送操作失败')
+      notificationRef.value.error('错误', '发送操作请求失败')
     }
   }
 }
 
 
 
-// 处理宝石点击
+// 处理宝石点击（向后端发送操作请求）
 const handleGemClick = (rowIndex, colIndex, gemType) => {
   if (!isMyTurn.value) {
     if (notificationRef.value) {
@@ -674,9 +888,103 @@ const handleGemClick = (rowIndex, colIndex, gemType) => {
   if (gemType === 'gold') {
     handleReserveCard(rowIndex, colIndex)
   } else {
-    // 如果点击的是其他宝石，打开拿取宝石对话框
-    handleTakeGems()
+    // 如果点击的是其他宝石，直接打开拿取宝石对话框
+    // 前端只负责收集用户输入，具体逻辑由后端处理
+    actionDialog.value = {
+      visible: true,
+      actionType: 'takeGems',
+      title: '拿取宝石',
+      message: '选择要拿取的宝石 (1-3个，必须在一条直线上且连续)',
+      selectedGold: null,
+      initialGemPosition: { x: rowIndex, y: colIndex, type: gemType }
+    }
   }
+}
+
+// 处理发展卡点击（向后端发送购买请求）
+const handleCardClick = (card) => {
+  if (!isMyTurn.value) {
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '不是你的回合')
+    }
+    return
+  }
+
+  // 检查是否买得起这张卡（前端只做基本验证，具体逻辑由后端处理）
+  const canAfford = checkCanAffordCard(card.id)
+  if (!canAfford) {
+    return
+  }
+
+  // 打开购买发展卡对话框
+  // 前端只负责收集用户输入，具体购买逻辑由后端处理
+  actionDialog.value = {
+    visible: true,
+    actionType: 'buyCard',
+    title: '购买发展卡',
+    message: '请选择支付方案',
+    selectedCard: card,
+    playerData: getCurrentPlayerData()
+  }
+}
+
+// 检查玩家是否可以购买卡牌
+const checkCanAffordCard = (cardId) => {
+  if (!gameState?.value?.cardDetails || !getCurrentPlayerData()) {
+    console.log('checkCanAffordCard: 缺少必要数据')
+    return false
+  }
+  
+  const cardDetail = gameState.value.cardDetails[cardId]
+  if (!cardDetail) {
+    console.log(`checkCanAffordCard: 未找到卡牌 ${cardId} 的详细信息`)
+    return false
+  }
+  
+  const player = getCurrentPlayerData()
+  let totalRequired = 0
+  const missingGems = {}
+  
+  // 计算总费用（考虑奖励优惠）
+  for (const gemType in cardDetail.cost) {
+    const required = cardDetail.cost[gemType]
+            const bonus = player.bonus?.[gemType] || 0
+    const available = player.gems?.[gemType] || 0
+    const actualRequired = Math.max(0, required - bonus)
+    
+    if (actualRequired > 0) {
+      totalRequired += actualRequired
+      if (actualRequired > available) {
+        missingGems[gemType] = actualRequired - available
+      }
+    }
+  }
+  
+  // 检查是否有足够的黄金来补足短缺
+  const availableGold = player.gems?.gold || 0
+  let totalMissing = 0
+  for (const gemType in missingGems) {
+    totalMissing += missingGems[gemType]
+  }
+  
+  if (totalMissing <= availableGold) {
+    return true
+  }
+  
+  // 构建缺失宝石的详细信息
+  const missingDetails = []
+  for (const gemType in missingGems) {
+    const gemName = getGemDisplayName(gemType)
+    missingDetails.push(`${gemName}×${missingGems[gemType]}`)
+  }
+  
+  const message = `宝石不足，缺少: ${missingDetails.join(', ')}`
+  
+  if (notificationRef.value) {
+    notificationRef.value.error('无法购买', message)
+  }
+  
+  return false
 }
 
 // 处理操作面板事件（简化版）
@@ -686,6 +994,51 @@ const handleActionSelected = (actionData) => {
 
 const handleActionConfirmed = (actionData) => {
   console.log('操作确认:', actionData)
+}
+
+// 处理保留卡点击
+const handleReservedCardClick = (data) => {
+  const { cardId, playerId } = data
+  
+  // 检查是否为当前玩家
+  if (!isMyTurn.value) {
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '不是你的回合')
+    }
+    return
+  }
+  
+  // 检查是否为当前玩家的保留卡
+  if (playerId !== getCurrentPlayerData()?.id) {
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '只能操作自己的保留卡')
+    }
+    return
+  }
+  
+  // 从卡牌详细信息中获取完整的卡牌信息
+  const cardDetail = gameState.value?.cardDetails?.[cardId]
+  if (!cardDetail) {
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '无法获取保留卡的详细信息')
+    }
+    return
+  }
+  
+  // 打开购买发展卡对话框
+  actionDialog.value = {
+    visible: true,
+    actionType: 'buyCard',
+    title: '购买保留的发展卡',
+    message: '请确认购买这张保留的发展卡。',
+    selectedCard: {
+      id: cardDetail.id,
+      name: `保留卡${cardDetail.id}`,
+      cost: cardDetail.cost,
+      bonus: cardDetail.bonus
+    },
+    playerData: getCurrentPlayerData()
+  }
 }
 
 // 格式化时间
@@ -710,9 +1063,9 @@ const initializeGame = () => {
     gameStore.connectWebSocket(props.roomId)
     
     // 模拟等待玩家（实际应该从 WebSocket 获取）
-    waitingPlayers.value = [
-      { id: currentPlayer.value?.id, name: currentPlayer.value?.name }
-    ]
+    // waitingPlayers.value = [
+    //   { id: currentPlayer.value?.id, name: currentPlayer.value?.name }
+    // ]
   }
 }
 
@@ -1173,10 +1526,133 @@ watch(gameState, (newState, oldState) => {
   color: #6c757d;
 }
 
+/* 保留区样式 */
+.player-reserved-cards {
+  margin-bottom: 8px;
+}
+
+.player-reserved-cards h5 {
+  margin: 0 0 4px 0;
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.reserved-cards-list {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.reserved-card-item {
+  width: 40px;
+  height: 60px;
+  border: 2px solid #e9ecef;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.reserved-card-item.clickable {
+  cursor: pointer;
+}
+
+.reserved-card-item.clickable:hover {
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.reserved-card-item.empty {
+  background: #f8f9fa;
+  border: 2px dashed #ced4da;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reserved-card-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.reserved-card-id {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  font-size: 8px;
+  padding: 2px;
+  text-align: center;
+  line-height: 1;
+}
+
+.empty-slot {
+  font-size: 10px;
+  color: #6c757d;
+}
+
 .gems-list, .bonuses-list {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.bonus-item {
+  position: relative;
+  cursor: pointer;
+  overflow: visible; /* 确保提示框不会被裁切 */
+}
+
+.bonus-count {
+  display: inline-block;
+  background: #e9ecef;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #495057;
+  transition: background-color 0.2s ease;
+}
+
+.bonus-item:hover .bonus-count {
+  background: #667eea;
+  color: white;
+}
+
+.bonus-tooltip {
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  z-index: 1000;
+  /* position 由行内样式控制，确保本地定位 */
+}
+
+.bonus-tooltip h6 {
+  margin: 0 0 8px 0;
+  font-size: 12px;
+  color: #495057;
+  text-align: center;
+}
+
+.bonus-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+
+.bonus-card-image {
+  width: 30px;
+  height: 45px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
 }
 
 .gem-count, .bonus-count {

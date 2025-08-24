@@ -268,10 +268,13 @@ func (c *Client) handleMessage(message []byte) {
 
 // handlePlayerJoin 处理玩家加入
 func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
+	// 设置客户端的玩家ID
+	c.PlayerID = message.PlayerID
+	
 	// 广播玩家加入消息
 	room.broadcastToAll(models.WSMessage{
 		Type: "player_joined",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"playerId":   message.PlayerID,
 			"playerName": message.PlayerName,
 		},
@@ -279,11 +282,29 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 
 	// 更新游戏状态并检查是否应该开始游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
+		// 检查玩家是否已经存在
+		playerExists := false
 		for i, player := range roomData.GameState.Players {
 			if player.ID == message.PlayerID {
 				roomData.GameState.Players[i].LastActive = time.Now()
+				playerExists = true
 				break
 			}
+		}
+		
+		// 如果玩家不存在，添加新玩家
+		if !playerExists {
+			roomData.GameState.Players = append(roomData.GameState.Players, models.Player{
+				ID:          message.PlayerID,
+				Name:        message.PlayerName,
+				LastActive:  time.Now(),
+				Gems:        make(map[models.GemType]int),
+				Bonus:       make(map[models.GemType]int),
+				ReservedCards: []string{},
+				Crowns:      0,
+				PrivilegeTokens: 0,
+				Points:      0,
+			})
 		}
 		
 		// 检查是否应该自动开始游戏（当有2个玩家且状态为waiting时）
@@ -302,18 +323,21 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 		}
 	})
 
+	// 获取最新的游戏状态
+	latestRoom := room.Manager.GetRoom(c.RoomID)
+	latestGameState := latestRoom.GameState
+	
 	// 广播更新后的游戏状态
-	gameState := room.Manager.GetRoom(c.RoomID).GameState
 	room.broadcastToAll(models.WSMessage{
 		Type:      "game_state_update",
-		GameState: &gameState,
+		GameState: &latestGameState,
 	})
 	
 	// 如果游戏已开始，广播游戏开始消息
-	if gameState.Status == models.GameStatusPlaying {
+	if latestGameState.Status == models.GameStatusPlaying {
 		room.broadcastToAll(models.WSMessage{
 			Type: "game_start",
-			Data: room.Manager.GetRoom(c.RoomID),
+			Data: latestRoom,
 		})
 	}
 }
@@ -339,12 +363,25 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 	log.Printf("处理游戏动作: %s, 玩家: %s, 数据: %+v", message.Type, message.PlayerName, message.Data)
 	
+	// 安全检查：确保Data不为nil
+	if message.Data == nil {
+		log.Printf("警告: 游戏动作数据为nil，跳过处理")
+		return
+	}
+	
+	// 尝试将Data转换为map[string]any
+	data, ok := message.Data.(map[string]any)
+	if !ok {
+		log.Printf("警告: 无法将Data转换为map[string]any，跳过处理")
+		return
+	}
+	
 	gameAction := models.GameAction{
 		ID:          generateClientID(),
 		PlayerID:    message.PlayerID,
 		PlayerName:  message.PlayerName,
 		Type:        message.Type,
-		Data:        message.Data.(map[string]interface{}),
+		Data:        data,
 		Timestamp:   time.Now(),
 		Description: generateActionDescription(message),
 	}
@@ -371,13 +408,34 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		log.Printf("解析到actionType: %s", actionType)
 		
 		switch actionType {
+		case "start_game":
+			log.Printf("执行开始游戏操作")
+			// 检查游戏状态
+			if roomData.GameState.Status == models.GameStatusPlaying {
+				log.Printf("游戏已经开始，跳过重复开始操作")
+				return
+			}
+			
+			// 检查是否已经有足够的玩家
+			if len(roomData.GameState.Players) >= 2 {
+				// 开始游戏
+				if err := gl.StartGame(); err != nil {
+					log.Printf("开始游戏失败: %v", err)
+					return
+				}
+				roomData.GameState.StartedAt = time.Now()
+				log.Printf("游戏已手动开始")
+			} else {
+				log.Printf("玩家数量不足，无法开始游戏")
+				return
+			}
 		case "takeGems":
-			if gemPositions, ok := message.Data.(map[string]interface{})["gemPositions"].([]interface{}); ok {
+			if gemPositions, ok := data["gemPositions"].([]any); ok {
 				log.Printf("执行拿取宝石操作，位置: %+v", gemPositions)
 				// 转换类型以匹配TakeGems函数的参数
-				var positions []map[string]interface{}
+				var positions []map[string]any
 				for _, pos := range gemPositions {
-					if posMap, ok := pos.(map[string]interface{}); ok {
+					if posMap, ok := pos.(map[string]any); ok {
 						positions = append(positions, posMap)
 					}
 				}
@@ -388,23 +446,24 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				}
 			}
 		case "buyCard":
-			if cardID, ok := message.Data.(map[string]interface{})["cardId"].(string); ok {
+			if cardID, ok := data["cardId"].(string); ok {
 				log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
-				if err := gl.BuyCard(message.PlayerID, cardID); err != nil {
+				// 直接调用新的购买方法，传递支付计划
+				if err := gl.BuyCardWithPaymentPlan(message.PlayerID, data); err != nil {
 					log.Printf("购买发展卡失败: %v", err)
 				} else {
 					log.Printf("购买发展卡成功")
 				}
 			}
 		case "reserveCard":
-			if cardID, ok := message.Data.(map[string]interface{})["cardId"].(string); ok {
+			if cardID, ok := data["cardId"].(string); ok {
 				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
 				// 获取黄金位置
 				var goldX, goldY int
-				if goldXVal, ok := message.Data.(map[string]interface{})["goldX"].(float64); ok {
+				if goldXVal, ok := data["goldX"].(float64); ok {
 					goldX = int(goldXVal)
 				}
-				if goldYVal, ok := message.Data.(map[string]interface{})["goldY"].(float64); ok {
+				if goldYVal, ok := data["goldY"].(float64); ok {
 					goldY = int(goldYVal)
 				}
 				if err := gl.ReserveCard(message.PlayerID, cardID, goldX, goldY); err != nil {
@@ -414,13 +473,13 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				}
 			}
 		case "spendPrivilege":
-			if privilegeCount, ok := message.Data.(map[string]interface{})["privilegeCount"].(float64); ok {
+			if privilegeCount, ok := data["privilegeCount"].(float64); ok {
 				log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
 				// 获取宝石位置
-				if gemPositions, ok := message.Data.(map[string]interface{})["gemPositions"].([]interface{}); ok {
-					var positions []map[string]interface{}
+				if gemPositions, ok := data["gemPositions"].([]any); ok {
+					var positions []map[string]any
 					for _, pos := range gemPositions {
-						if posMap, ok := pos.(map[string]interface{}); ok {
+						if posMap, ok := pos.(map[string]any); ok {
 							positions = append(positions, posMap)
 						}
 					}
@@ -439,19 +498,28 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				log.Printf("补充版图成功")
 			}
 		default:
-			log.Printf("未知的游戏动作类型: %s", message.Type)
+			log.Printf("未知的游戏动作类型: %s", actionType)
 		}
 		
 		// 更新游戏状态
 		log.Printf("游戏状态已更新")
 	})
 
-	// 广播更新后的游戏状态
-	gameState := room.Manager.GetRoom(c.RoomID).GameState
+	// 获取最新的游戏状态并广播
+	latestRoom := room.Manager.GetRoom(c.RoomID)
+	latestGameState := latestRoom.GameState
 	room.broadcastToAll(models.WSMessage{
 		Type:      "game_state_update",
-		GameState: &gameState,
+		GameState: &latestGameState,
 	})
+	
+	// 如果游戏已开始，广播游戏开始消息
+	if latestGameState.Status == models.GameStatusPlaying {
+		room.broadcastToAll(models.WSMessage{
+			Type: "game_start",
+			Data: latestRoom,
+		})
+	}
 }
 
 // handleStartGame 处理开始游戏
@@ -488,6 +556,16 @@ func (c *Client) handleStartGame(room *Room) {
 func (c *Client) cleanup() {
 	hub := getHub()
 	if room, exists := hub.Rooms[c.RoomID]; exists {
+		// 在注销客户端之前，广播玩家离开消息
+		if c.PlayerID != "" {
+			room.broadcastToAll(models.WSMessage{
+				Type: "player_left",
+				Data: map[string]any{
+					"playerId": c.PlayerID,
+				},
+			})
+		}
+		
 		room.unregisterClient(c)
 		
 		// 如果没有客户端了，删除房间

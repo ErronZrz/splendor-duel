@@ -135,11 +135,41 @@ export const useGameStore = defineStore('game', () => {
         }
         break
       case 'player_joined':
-        console.log('玩家加入:', data.playerName)
-        // 可以在这里更新等待玩家列表
+        console.log('玩家加入:', data.data)
+        // 更新游戏状态以反映新玩家
+        if (data.data && data.data.playerId) {
+          // 如果游戏状态还没有玩家列表，创建一个
+          if (!gameState.value) {
+            gameState.value = {
+              status: 'waiting',
+              players: []
+            }
+          }
+          
+          // 检查玩家是否已经存在
+          const existingPlayer = gameState.value.players.find(p => p.id === data.data.playerId)
+          if (!existingPlayer) {
+            gameState.value.players.push({
+              id: data.data.playerId,
+              name: data.data.playerName,
+              gems: {},
+              bonuses: {},
+              reservedCards: [],
+              crowns: 0,
+              privilegeTokens: 0,
+              points: 0
+            })
+          }
+          
+          console.log('更新后的游戏状态:', gameState.value)
+        }
         break
       case 'player_left':
-        console.log('玩家离开:', data.playerName)
+        console.log('玩家离开:', data.data)
+        // 从玩家列表中移除离开的玩家
+        if (data.data && data.data.playerId && gameState.value?.players) {
+          gameState.value.players = gameState.value.players.filter(p => p.id !== data.data.playerId)
+        }
         break
       case 'game_start':
         console.log('收到游戏开始消息:', data)
@@ -176,11 +206,14 @@ export const useGameStore = defineStore('game', () => {
   // 执行游戏动作
   const performGameAction = (action) => {
     if (websocket.value && isConnected.value) {
+      // 确保action.data存在，如果不存在则使用空对象
+      const data = action.data || {}
+      
       websocket.value.send(JSON.stringify({
         type: 'game_action',
         playerId: currentPlayer.value.id,
         playerName: currentPlayer.value.name,
-        data: action.data,
+        data: data,
         actionType: action.type
       }))
     }

@@ -78,7 +78,7 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 		Players:                  []models.Player{player},
 		Winner:                   "",
 		GemBoard:                 make([][]models.GemType, 5),
-		GemsInBag:                0,
+		GemBag:                   []models.GemType{},
 		AvailablePrivilegeTokens: 3,
 		UnflippedCards:           map[models.CardLevel]int{},
 		FlippedCards:             map[models.CardLevel][]string{},

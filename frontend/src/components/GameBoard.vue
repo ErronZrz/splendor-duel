@@ -187,11 +187,19 @@
               v-for="(cardId, index) in player.reservedCards" 
               :key="index"
               class="reserved-card"
+              @click="handleReservedCardClick(cardId, player.id)"
+              :class="{ 'clickable': isCurrentPlayer(player.id) }"
             >
-              <div class="card-back">
-                <div class="card-back-placeholder">🃏</div>
+              <img 
+                :src="`/images/cards/${cardId}.jpg`" 
+                :alt="`保留卡${cardId}`"
+                class="card-image"
+                @error="handleCardImageError"
+              />
+              <div class="card-info">
+                <div class="card-id">{{ cardId }}</div>
+                <div class="card-cost" v-if="getCardCost(cardId)">费用: {{ formatCardCost(getCardCost(cardId)) }}</div>
               </div>
-              <div class="card-id">{{ cardId }}</div>
             </div>
             <!-- 填充空位 -->
             <div 
@@ -320,6 +328,46 @@ const selectCard = (cardId) => {
 
 const selectNoble = (nobleId) => {
   emit('noble-selected', nobleId)
+}
+
+// 处理保留卡点击
+const handleReservedCardClick = (cardId, playerId) => {
+  // 只有当前玩家才能点击自己的保留卡
+  if (isCurrentPlayer(playerId)) {
+    emit('reserved-card-clicked', { cardId, playerId })
+  }
+}
+
+// 检查是否为当前玩家
+const isCurrentPlayer = (playerId) => {
+  const currentPlayerIndex = props.gameState?.currentPlayerIndex || 0
+  const currentPlayer = props.gameState?.players?.[currentPlayerIndex]
+  return currentPlayer?.id === playerId
+}
+
+// 获取卡牌费用
+const getCardCost = (cardId) => {
+  // 这里应该从全局卡牌数据中获取，暂时返回空对象
+  // 实际实现中需要从卡牌池中查找
+  return {}
+}
+
+// 格式化卡牌费用
+const formatCardCost = (cost) => {
+  if (!cost || Object.keys(cost).length === 0) return '无'
+  return Object.entries(cost)
+    .map(([gemType, count]) => `${getGemName(gemType)}:${count}`)
+    .join(', ')
+}
+
+// 处理卡牌图片加载错误
+const handleCardImageError = (event) => {
+  console.warn('保留卡图片加载失败:', event.target.src)
+  event.target.style.display = 'none'
+  const textSpan = document.createElement('span')
+  textSpan.textContent = '卡牌'
+  textSpan.className = 'card-text-fallback'
+  event.target.parentNode.appendChild(textSpan)
 }
 </script>
 
@@ -767,20 +815,66 @@ const selectNoble = (nobleId) => {
 }
 
 .reserved-card {
-  background: #f8f9fa;
-  border-radius: 6px;
+  background: white;
+  border-radius: 8px;
   padding: 8px;
   text-align: center;
-  min-width: 60px;
+  min-width: 80px;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.reserved-card.clickable:hover {
+  border-color: #667eea;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
 .reserved-card.empty {
   background: #e9ecef;
   color: #6c757d;
+  cursor: default;
+  border: 2px dashed #ced4da;
 }
 
-.empty-slot {
+.reserved-card .card-image {
+  width: 60px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.reserved-card .card-info {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.reserved-card .card-id {
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 2px;
+}
+
+.reserved-card .card-cost {
+  font-size: 9px;
+  color: #6c757d;
+}
+
+.card-text-fallback {
   font-size: 12px;
+  color: #6c757d;
+  text-align: center;
+  padding: 20px 10px;
+  background: #f8f9fa;
+  border-radius: 4px;
+  width: 60px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .privilege-tokens, .crowns, .points, .tokens-count, .pile-count, .pile-back, .card-back, .reserved-card, .empty-slot, .no-nobles {

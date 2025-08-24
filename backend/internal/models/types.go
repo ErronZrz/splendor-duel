@@ -94,12 +94,17 @@ type GameState struct {
 	
 	// 宝石版图 (5x5网格)
 	GemBoard                  [][]GemType                   `json:"gemBoard"`                  // 宝石版图
-	GemsInBag                 int                           `json:"gemsInBag"`                 // 宝石袋子中的宝石数量
+	GemBag                    []GemType                     `json:"gemBag"`                    // 宝石袋子（按顺序排列）
 	AvailablePrivilegeTokens  int                           `json:"availablePrivilegeTokens"`  // 可用的特权指示物数量
 	
 	// 发展卡
 	UnflippedCards            map[CardLevel]int             `json:"unflippedCards"`            // 未翻开的卡牌数量
 	FlippedCards              map[CardLevel][]string        `json:"flippedCards"`              // 已翻开的卡牌ID列表
+	Level1Deck                []string                      `json:"level1Deck"`                // 等级1牌堆（已洗乱）
+	Level2Deck                []string                      `json:"level2Deck"`                // 等级2牌堆（已洗乱）
+	Level3Deck                []string                      `json:"level3Deck"`                // 等级3牌堆（已洗乱）
+	CardDetails               map[string]DevelopmentCard    `json:"cardDetails"`               // 卡牌详细信息（包含费用）
+	CardMap                   map[string]DevelopmentCard    `json:"cardMap"`                 // ID到卡牌数据的快速映射
 	
 	// 贵族卡
 	AvailableNobles           []string                      `json:"availableNobles"`           // 可获得的贵族ID列表
@@ -136,7 +141,7 @@ type GameAction struct {
 	PlayerID    string                 `json:"playerId"`
 	PlayerName  string                 `json:"playerName"`
 	Type        string                 `json:"type"`
-	Data        map[string]interface{} `json:"data"`
+	Data        map[string]any `json:"data"`
 	Timestamp   time.Time              `json:"timestamp"`
 	Description string                 `json:"description"`
 }
@@ -145,7 +150,7 @@ type GameAction struct {
 type APIResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
+	Data    any `json:"data,omitempty"`
 }
 
 // 创建房间请求
@@ -178,7 +183,7 @@ type WSMessage struct {
 	PlayerID   string      `json:"playerId,omitempty"`
 	PlayerName string      `json:"playerName,omitempty"`
 	ActionType string      `json:"actionType,omitempty"`
-	Data       interface{} `json:"data,omitempty"`
+	Data       any `json:"data,omitempty"`
 	Message    string      `json:"message,omitempty"`
 	Action     *GameAction `json:"action,omitempty"`
 	GameState  *GameState  `json:"gameState,omitempty"`
