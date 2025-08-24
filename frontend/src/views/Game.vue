@@ -332,8 +332,12 @@
       :player-data="actionDialog.playerData || null"
       :selected-card="actionDialog.selectedCard || null"
       :card-details="gameState?.cardDetails || {}"
+      :gem-discard-target="gameState?.gemDiscardTarget || 10"
       @confirm="handleActionConfirm"
       @cancel="handleActionCancel"
+              @discard-gem="handleDiscardGem"
+        @discard-gems-batch="handleDiscardGemsBatch"
+      @reset="handleReset"
     />
   </div>
 </template>
@@ -835,13 +839,68 @@ const handleActionConfirm = (data) => {
         gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
       })
       break
+    case 'discardGems':
+      if (data.completed) {
+        console.log('宝石丢弃完成，关闭对话框')
+        // 宝石丢弃已完成，关闭对话框
+        actionDialog.value.visible = false
+        
+        // 设置完成标志
+        discardCompleted = true
+        
+        // 立即停止宝石丢弃对话框检查定时器
+        stopDiscardDialogCheck()
+        
+        // 调用后端的回合结束处理，这会检查宝石数量并切换回合
+        executeAction('endTurn', {})
+      }
+      break
   }
   
   actionDialog.value.visible = false
 }
 
 // 处理操作对话框取消
-const handleActionCancel = () => {
+const handleActionCancel = (data) => {
+  console.log('取消操作:', data)
+  
+  // 如果是宝石丢弃对话框被关闭，记录状态但不重置游戏状态
+  if (data?.actionType === 'discardGems' && data?.closed) {
+    console.log('宝石丢弃对话框被关闭，但游戏状态仍需要丢弃')
+    // 对话框关闭，但游戏状态仍然需要丢弃宝石
+    // 设置一个定时器，定期检查是否需要重新打开对话框
+    startDiscardDialogCheck()
+  }
+  
+  actionDialog.value.visible = false
+}
+
+// 处理丢弃宝石
+const handleDiscardGem = (data) => {
+  const { gemType } = data
+  console.log('处理丢弃宝石:', gemType)
+  
+  // 向后端发送丢弃宝石请求
+  executeAction('discardGem', {
+    gemType: gemType
+  })
+}
+
+// 处理批量丢弃宝石
+const handleDiscardGemsBatch = (data) => {
+  const { gemDiscards } = data
+  console.log('处理批量丢弃宝石:', gemDiscards)
+  
+  // 向后端发送批量丢弃宝石请求
+  executeAction('discardGemsBatch', {
+    gemDiscards: gemDiscards
+  })
+}
+
+// 处理重置宝石丢弃
+const handleReset = () => {
+  console.log('重置宝石丢弃选择')
+  // 关闭对话框，让玩家重新开始
   actionDialog.value.visible = false
 }
 
@@ -875,6 +934,85 @@ const executeAction = (actionType, data) => {
 
 
 
+// 宝石丢弃对话框检查定时器
+let discardDialogCheckTimer = null
+
+// 宝石丢弃完成标志
+let discardCompleted = false
+
+// 开始宝石丢弃对话框检查
+const startDiscardDialogCheck = () => {
+  console.log('开始宝石丢弃对话框检查定时器')
+  
+  // 清除之前的定时器
+  if (discardDialogCheckTimer) {
+    clearInterval(discardDialogCheckTimer)
+    console.log('清除之前的定时器')
+  }
+  
+  // 设置定时器，每500ms检查一次是否需要重新打开对话框
+  discardDialogCheckTimer = setInterval(() => {
+    const gameState = gameStore.gameState
+    console.log('定时检查宝石丢弃状态:', {
+      needsGemDiscard: gameState?.needsGemDiscard,
+      gemDiscardPlayerID: gameState?.gemDiscardPlayerID,
+      currentPlayerID: currentPlayer.value?.id,
+      dialogVisible: actionDialog.value?.visible,
+      dialogType: actionDialog.value?.actionType
+    })
+    
+    // 如果游戏状态显示不需要丢弃宝石，立即停止定时器
+    if (!gameState?.needsGemDiscard) {
+      console.log('游戏状态显示不需要丢弃宝石，停止定时器')
+      clearInterval(discardDialogCheckTimer)
+      discardDialogCheckTimer = null
+      discardCompleted = false // 重置完成标志
+      return
+    }
+    
+    // 如果宝石丢弃已完成，不重新打开对话框
+    if (discardCompleted) {
+      console.log('宝石丢弃已完成，不重新打开对话框')
+      return
+    }
+    
+    if (gameState?.needsGemDiscard && 
+        gameState?.gemDiscardPlayerID === currentPlayer.value?.id &&
+        (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems')) {
+      
+      console.log('定时检查：需要重新打开宝石丢弃对话框')
+      
+      // 重新打开对话框
+      actionDialog.value = {
+        visible: true,
+        actionType: 'discardGems',
+        title: '丢弃宝石',
+        message: '您的宝石总数超过10个，请丢弃一些宝石',
+        selectedCard: null,
+        playerData: getCurrentPlayerData()
+      }
+      
+      // 清除定时器
+      clearInterval(discardDialogCheckTimer)
+      discardDialogCheckTimer = null
+      console.log('定时器已清除')
+    }
+  }, 500)
+  
+  console.log('定时器已设置，ID:', discardDialogCheckTimer)
+}
+
+// 停止宝石丢弃对话框检查
+const stopDiscardDialogCheck = () => {
+  if (discardDialogCheckTimer) {
+    console.log('停止宝石丢弃对话框检查定时器，ID:', discardDialogCheckTimer)
+    clearInterval(discardDialogCheckTimer)
+    discardDialogCheckTimer = null
+  } else {
+    console.log('没有运行中的定时器需要停止')
+  }
+}
+
 // 处理宝石点击（向后端发送操作请求）
 const handleGemClick = (rowIndex, colIndex, gemType) => {
   if (!isMyTurn.value) {
@@ -901,13 +1039,24 @@ const handleGemClick = (rowIndex, colIndex, gemType) => {
   }
 }
 
-// 处理发展卡点击（向后端发送购买请求）
-const handleCardClick = (card) => {
+// 统一的购买发展卡点击处理函数
+const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
   if (!isMyTurn.value) {
     if (notificationRef.value) {
       notificationRef.value.error('错误', '不是你的回合')
     }
     return
+  }
+
+  // 如果是保留卡，需要额外验证
+  if (isReserved) {
+    // 检查是否为当前玩家的保留卡
+    if (playerId !== getCurrentPlayerData()?.id) {
+      if (notificationRef.value) {
+        notificationRef.value.error('错误', '只能操作自己的保留卡')
+      }
+      return
+    }
   }
 
   // 检查是否买得起这张卡（前端只做基本验证，具体逻辑由后端处理）
@@ -917,15 +1066,44 @@ const handleCardClick = (card) => {
   }
 
   // 打开购买发展卡对话框
-  // 前端只负责收集用户输入，具体购买逻辑由后端处理
   actionDialog.value = {
     visible: true,
     actionType: 'buyCard',
-    title: '购买发展卡',
-    message: '请选择支付方案',
+    title: isReserved ? '购买保留的发展卡' : '购买发展卡',
+    message: '请确认要支付的token数量',
     selectedCard: card,
     playerData: getCurrentPlayerData()
   }
+}
+
+// 处理发展卡点击（向后端发送购买请求）
+const handleCardClick = (card) => {
+  handleBuyCardClick(card, false)
+}
+
+// 处理保留卡点击
+const handleReservedCardClick = (data) => {
+  const { cardId, playerId } = data
+  
+  // 从卡牌详细信息中获取完整的卡牌信息
+  const cardDetail = gameState.value?.cardDetails?.[cardId]
+  if (!cardDetail) {
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '无法获取保留卡的详细信息')
+    }
+    return
+  }
+  
+  // 构建保留卡对象
+  const reservedCard = {
+    id: cardDetail.id,
+    name: `保留卡${cardDetail.id}`,
+    cost: cardDetail.cost,
+    bonus: cardDetail.bonus
+  }
+  
+  // 使用统一的购买函数处理
+  handleBuyCardClick(reservedCard, true, playerId)
 }
 
 // 检查玩家是否可以购买卡牌
@@ -996,51 +1174,6 @@ const handleActionConfirmed = (actionData) => {
   console.log('操作确认:', actionData)
 }
 
-// 处理保留卡点击
-const handleReservedCardClick = (data) => {
-  const { cardId, playerId } = data
-  
-  // 检查是否为当前玩家
-  if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
-    return
-  }
-  
-  // 检查是否为当前玩家的保留卡
-  if (playerId !== getCurrentPlayerData()?.id) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '只能操作自己的保留卡')
-    }
-    return
-  }
-  
-  // 从卡牌详细信息中获取完整的卡牌信息
-  const cardDetail = gameState.value?.cardDetails?.[cardId]
-  if (!cardDetail) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '无法获取保留卡的详细信息')
-    }
-    return
-  }
-  
-  // 打开购买发展卡对话框
-  actionDialog.value = {
-    visible: true,
-    actionType: 'buyCard',
-    title: '购买保留的发展卡',
-    message: '请确认购买这张保留的发展卡。',
-    selectedCard: {
-      id: cardDetail.id,
-      name: `保留卡${cardDetail.id}`,
-      cost: cardDetail.cost,
-      bonus: cardDetail.bonus
-    },
-    playerData: getCurrentPlayerData()
-  }
-}
-
 // 格式化时间
 const formatTime = (timestamp) => {
   if (!timestamp) return ''
@@ -1102,6 +1235,9 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // 停止宝石丢弃对话框检查定时器
+  stopDiscardDialogCheck()
+  
   gameStore.disconnect()
 })
 
@@ -1135,6 +1271,41 @@ watch(gameState, (newState, oldState) => {
       notificationRef.value.success('恭喜获胜！', '你赢得了这场游戏！', 0)
     } else {
       notificationRef.value.info('游戏结束', '很遗憾，这次没有获胜', 0)
+    }
+  }
+  
+  // 检查是否需要丢弃宝石
+  console.log('检查宝石丢弃状态:', {
+    newNeedsDiscard: newState?.needsGemDiscard,
+    oldNeedsDiscard: oldState?.needsGemDiscard,
+    newGemDiscardTarget: newState?.gemDiscardTarget,
+    oldGemDiscardTarget: oldState?.gemDiscardTarget,
+    newGemDiscardPlayerID: newState?.gemDiscardPlayerID,
+    oldGemDiscardPlayerID: oldState?.gemDiscardPlayerID,
+    currentPlayerID: currentPlayer.value?.id
+  })
+  
+  // 检查是否需要显示宝石丢弃对话框
+  if (newState?.needsGemDiscard && newState.gemDiscardPlayerID === currentPlayer.value?.id) {
+    // 如果对话框当前不可见，则显示它
+    if (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems') {
+      console.log('当前玩家需要丢弃宝石，显示对话框')
+      
+      // 重置完成标志
+      discardCompleted = false
+      
+      // 停止定时器检查（如果正在运行）
+      stopDiscardDialogCheck()
+      
+      // 显示宝石丢弃对话框
+      actionDialog.value = {
+        visible: true,
+        actionType: 'discardGems',
+        title: '丢弃宝石',
+        message: '您的宝石总数超过10个，请丢弃一些宝石',
+        selectedCard: null,
+        playerData: getCurrentPlayerData()
+      }
     }
   }
 }, { deep: true })

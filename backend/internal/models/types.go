@@ -112,6 +112,14 @@ type GameState struct {
 	// 额外回合
 	ExtraTurns                 map[string]int                `json:"extraTurns"`                // 每个玩家的额外回合数
 	
+	// 待补充的发展卡信息
+	CardToRefill              PendingRefill                `json:"cardToRefill"`             // 回合结束时需要补充的发展卡信息
+	
+	// 宝石丢弃相关
+	NeedsGemDiscard           bool                          `json:"needsGemDiscard"`          // 是否需要丢弃宝石
+	GemDiscardTarget          int                           `json:"gemDiscardTarget"`         // 宝石丢弃目标数量
+	GemDiscardPlayerID        string                        `json:"gemDiscardPlayerID"`       // 需要丢弃宝石的玩家ID
+	
 	// 时间
 	CreatedAt                 time.Time                     `json:"createdAt"`
 	StartedAt                 time.Time                     `json:"startedAt,omitempty"`
@@ -175,6 +183,12 @@ type CreateRoomResponse struct {
 type JoinRoomResponse struct {
 	Room     Room   `json:"room"`
 	PlayerID string `json:"playerId"`
+}
+
+// 待补充的发展卡信息
+type PendingRefill struct {
+	Level CardLevel `json:"level"` // 卡牌等级
+	Index int       `json:"index"` // 在原数组中的位置
 }
 
 // WebSocket 消息类型

@@ -84,6 +84,10 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 		FlippedCards:             map[models.CardLevel][]string{},
 		AvailableNobles:          []string{"noble1", "noble2", "noble3", "noble4"},
 		ExtraTurns:               make(map[string]int),
+		CardToRefill:             models.PendingRefill{Level: 0, Index: 0},
+		NeedsGemDiscard:          false,
+		GemDiscardTarget:         10,
+		GemDiscardPlayerID:       "",
 		CreatedAt:                time.Now(),
 	}
 	

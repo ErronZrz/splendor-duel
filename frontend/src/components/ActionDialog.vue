@@ -3,14 +3,15 @@
     <div class="dialog-content" @click.stop>
       <div class="dialog-header">
         <h3>{{ title }}</h3>
-        <button class="close-btn" @click="handleCancel">&times;</button>
+        <!-- 对于宝石丢弃操作，不显示关闭按钮 -->
+        <button v-if="actionType !== 'discardGems'" class="close-btn" @click="handleCancel">&times;</button>
       </div>
       
       <div class="dialog-body">
         <p>{{ message }}</p>
         
-                 <!-- 拿取宝石操作 -->
-         <div v-if="actionType === 'takeGems'" class="gem-selection">
+        <!-- 拿取宝石操作 -->
+        <div v-if="actionType === 'takeGems'" class="gem-selection">
             <h4>选择宝石 (1-3个，必须在一条直线上且连续)</h4>
             <div class="gem-selection-controls">
               <button 
@@ -130,6 +131,52 @@
                 <p>💡 点击建议支付中的非黄金token可以转换为黄金支付</p>
               </div>
             </div>
+          </div>
+        </div>
+        
+        <!-- 丢弃宝石操作 -->
+        <div v-if="actionType === 'discardGems'" class="gem-discard">
+          <h4>丢弃宝石</h4>
+          <p class="discard-message">
+            您的宝石总数超过10个，请丢弃一些宝石直到总数为{{ gemDiscardTarget }}。
+          </p>
+          
+          <div class="gem-display">
+            <div class="gem-row">
+              <div 
+                v-for="gemType in ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']" 
+                :key="gemType"
+                class="gem-item"
+                :class="{ 
+                  'clickable': getCurrentGemCount(gemType) > 0,
+                  'disabled': getCurrentGemCount(gemType) <= 0
+                }"
+                @click="discardGem(gemType)"
+              >
+                <img 
+                  :src="`/images/gems/${gemType}.jpg`" 
+                  :alt="gemType"
+                  class="gem-icon"
+                  @error="handleGemImageError"
+                />
+                <span class="gem-count">{{ getCurrentGemCount(gemType) }}</span>
+                <div v-if="getCurrentGemCount(gemType) > 0" class="discard-hint">点击丢弃</div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="gem-summary">
+            <p>当前总数: <span class="total-count">{{ getCurrentTotalAfterDiscard }}</span></p>
+            <p>目标总数: <span class="target-count">{{ gemDiscardTarget }}</span></p>
+            <p v-if="Object.keys(discardedGems).length > 0" class="discarded-info">
+              已选择丢弃: 
+              <span v-for="(count, gemType) in discardedGems" :key="gemType" class="discarded-gem">
+                {{ getGemDisplayName(gemType) }}: {{ count }}
+              </span>
+            </p>
+            <p class="discard-tip">
+              💡 提示：如果关闭了对话框，系统会自动重新打开，直到您完成宝石丢弃
+            </p>
           </div>
         </div>
         
@@ -265,13 +312,27 @@
       </div>
       
       <div class="dialog-footer">
-        <button class="btn btn-secondary" @click="handleCancel">取消</button>
+        <!-- 对于宝石丢弃操作，不显示取消按钮，显示重置按钮 -->
+        <button 
+          v-if="actionType === 'discardGems'"
+          class="btn btn-warning" 
+          @click="handleReset"
+        >
+          重置
+        </button>
+        <button 
+          v-else
+          class="btn btn-secondary" 
+          @click="handleCancel"
+        >
+          取消
+        </button>
         <button 
           class="btn btn-primary" 
           @click="handleConfirm"
           :disabled="!canConfirm"
         >
-          确认
+          {{ actionType === 'discardGems' ? '完成丢弃' : '确认' }}
         </button>
       </div>
     </div>
@@ -294,10 +355,11 @@ const props = defineProps({
   initialGemPosition: Object,
   playerData: Object,
   selectedCard: Object,
-  cardDetails: Object // 新增：用于传递卡牌详细信息
+  cardDetails: Object, // 新增：用于传递卡牌详细信息
+  gemDiscardTarget: Number // 新增：宝石丢弃目标数量
 })
 
-const emit = defineEmits(['confirm', 'cancel'])
+const emit = defineEmits(['confirm', 'cancel', 'discardGem', 'discardGemsBatch', 'reset'])
 
 const selectedGems = ref([])
 const selectedCard = ref(null)
@@ -305,12 +367,20 @@ const selectedGold = ref(null)
 const privilegeCount = ref(0)
 const paymentPlan = ref({})
 
+// 宝石丢弃的本地状态管理
+const discardedGems = ref({}) // 记录每种宝石已丢弃的数量
+const originalGemCounts = ref({}) // 记录原始宝石数量
+
 // 重置状态
 watch(() => props.visible, (newVal) => {
   if (newVal) {
     selectedGems.value = []
     privilegeCount.value = 0
     paymentPlan.value = {} // 重置支付计划
+    
+    // 重置宝石丢弃状态
+    discardedGems.value = {}
+    originalGemCounts.value = {}
     
     // 对于保留发展卡操作，不清空selectedGold，因为它是从父组件传递的
     if (props.actionType !== 'reserveCard') {
@@ -334,6 +404,12 @@ watch(() => props.visible, (newVal) => {
     if (props.actionType === 'takeGems' && props.initialGemPosition) {
       const { x, y, type } = props.initialGemPosition
       selectedGems.value = [{ x, y, type }]
+    }
+    
+    // 对于宝石丢弃操作，记录原始宝石数量
+    if (props.actionType === 'discardGems' && props.playerData?.gems) {
+      originalGemCounts.value = { ...props.playerData.gems }
+      console.log('记录原始宝石数量:', originalGemCounts.value)
     }
   }
 })
@@ -360,6 +436,54 @@ watch(() => selectedCard.value, (newVal) => {
 watch(() => paymentPlan.value, (newVal) => {
   console.log('paymentPlan 变化:', newVal)
 }, { deep: true })
+
+// 计算当前宝石总数
+const currentTotalGems = computed(() => {
+  if (!props.playerData?.gems) return 0
+  let total = 0
+  for (const gemType in props.playerData.gems) {
+    if (gemType !== '') {
+      total += props.playerData.gems[gemType] || 0
+    }
+  }
+  return total
+})
+
+// 计算丢弃后的宝石总数
+const getCurrentTotalAfterDiscard = computed(() => {
+  if (!props.playerData?.gems) return 0
+  let total = 0
+  for (const gemType in props.playerData.gems) {
+    if (gemType !== '') {
+      const originalCount = props.playerData.gems[gemType] || 0
+      const discardedCount = discardedGems.value[gemType] || 0
+      total += Math.max(0, originalCount - discardedCount)
+    }
+  }
+  return total
+})
+
+// 获取当前可丢弃的宝石数量
+const getCurrentGemCount = (gemType) => {
+  if (!props.playerData?.gems) return 0
+  const originalCount = props.playerData.gems[gemType] || 0
+  const discardedCount = discardedGems.value[gemType] || 0
+  return Math.max(0, originalCount - discardedCount)
+}
+
+// 获取宝石显示名称
+const getGemDisplayName = (gemType) => {
+  const nameMap = {
+    'white': '白色',
+    'blue': '蓝色',
+    'green': '绿色',
+    'red': '红色',
+    'black': '黑色',
+    'pearl': '珍珠',
+    'gold': '黄金'
+  }
+  return nameMap[gemType] || gemType
+}
 
 // 获取宝石图片名称
 const getGemImageName = (gemType) => {
@@ -561,6 +685,15 @@ const canConfirm = computed(() => {
       return selectedCard.value !== null
     case 'spendPrivilege':
       return privilegeCount.value > 0 && selectedGems.value.length === privilegeCount.value
+    case 'discardGems':
+      // 只有当宝石总数达到目标数量时才能确认
+      const canConfirmDiscard = getCurrentTotalAfterDiscard.value === (props.gemDiscardTarget || 10)
+      console.log('宝石丢弃确认检查:', {
+        currentTotal: getCurrentTotalAfterDiscard.value,
+        target: props.gemDiscardTarget || 10,
+        canConfirm: canConfirmDiscard
+      })
+      return canConfirmDiscard
     default:
       return true
   }
@@ -577,6 +710,24 @@ const handleConfirm = () => {
     paymentPlan: paymentPlan.value
   })
   
+  // 对于宝石丢弃操作，发送批量丢弃操作到后端
+  if (props.actionType === 'discardGems') {
+    console.log('确认宝石丢弃，发送批量丢弃操作:', discardedGems.value)
+    
+    // 检查是否达到目标数量
+    if (getCurrentTotalAfterDiscard.value > (props.gemDiscardTarget || 10)) {
+      console.log('宝石总数仍然超过目标，无法确认')
+      return
+    }
+    
+    // 发送批量丢弃操作到父组件
+    emit('discardGemsBatch', { gemDiscards: discardedGems.value })
+    
+    // 通知父组件宝石丢弃已完成
+    emit('confirm', { actionType: 'discardGems', completed: true })
+    return
+  }
+  
   const data = {
     actionType: props.actionType,
     selectedGems: selectedGems.value,
@@ -592,11 +743,26 @@ const handleConfirm = () => {
 
 // 处理取消
 const handleCancel = () => {
-  emit('cancel')
+  // 对于宝石丢弃操作，通知父组件对话框被关闭
+  if (props.actionType === 'discardGems') {
+    emit('cancel', { actionType: 'discardGems', closed: true })
+  } else {
+    emit('cancel')
+  }
+}
+
+// 处理重置（仅用于宝石丢弃）
+const handleReset = () => {
+  console.log('重置宝石丢弃选择')
+  // 清空本地丢弃状态
+  discardedGems.value = {}
+  originalGemCounts.value = {}
+  console.log('已重置丢弃状态')
 }
 
 // 处理遮罩点击
 const handleOverlayClick = () => {
+  // 允许所有操作类型都可以通过点击遮罩关闭
   handleCancel()
 }
 
@@ -628,18 +794,30 @@ const selectDeckCard = (level) => {
   selectedCard.value = { type: 'deck', level: level };
 };
 
-// 获取宝石显示名称
-const getGemDisplayName = (gemType) => {
-  const gemMap = {
-    'white': '白宝石',
-    'blue': '蓝宝石',
-    'green': '绿宝石',
-    'red': '红宝石',
-    'black': '黑宝石',
-    'pearl': '珍珠',
-    'gold': '黄金'
+
+
+// 丢弃宝石（本地状态管理）
+const discardGem = (gemType) => {
+  const currentCount = getCurrentGemCount(gemType)
+  if (currentCount <= 0) {
+    console.log('没有该类型的宝石可以丢弃:', gemType)
+    return
   }
-  return gemMap[gemType] || gemType
+  
+  console.log('选择丢弃宝石:', gemType)
+  
+  // 更新本地丢弃状态
+  if (!discardedGems.value[gemType]) {
+    discardedGems.value[gemType] = 0
+  }
+  discardedGems.value[gemType]++
+  
+  // 记录原始宝石数量（如果还没有记录）
+  if (Object.keys(originalGemCounts.value).length === 0) {
+    originalGemCounts.value = { ...props.playerData.gems }
+  }
+  
+  console.log('当前丢弃状态:', discardedGems.value)
 }
 
 // 获取卡牌总费用（从后端卡牌数据中获取）
@@ -1546,6 +1724,8 @@ const getRemainingTokens = (gemType) => {
 
 .payment-input-field[type="number"] {
   -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+  appearance: textfield;
 }
 
 .payment-summary {
@@ -1667,6 +1847,176 @@ const getRemainingTokens = (gemType) => {
 .payment-note p {
   margin: 0;
   line-height: 1.4;
+}
+
+/* 宝石丢弃对话框样式 */
+.gem-discard {
+  padding: 20px 0;
+}
+
+.discard-message {
+  text-align: center;
+  color: #dc3545;
+  font-weight: 500;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #f8d7da;
+  border-radius: 8px;
+  border: 1px solid #f5c6cb;
+}
+
+.gem-display {
+  margin-bottom: 20px;
+}
+
+.gem-row {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.gem-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px;
+  border: 2px solid #dee2e6;
+  border-radius: 12px;
+  background: #f8f9fa;
+  transition: all 0.2s;
+  min-width: 80px;
+  position: relative;
+}
+
+.gem-item.clickable {
+  cursor: pointer;
+  border-color: #dc3545;
+  background: #fff5f5;
+}
+
+.gem-item.clickable:hover {
+  background: #ffe6e6;
+  border-color: #c82333;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+}
+
+.gem-item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gem-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 50%;
+  margin-bottom: 8px;
+}
+
+.gem-count {
+  font-size: 18px;
+  font-weight: 600;
+  color: #495057;
+  margin-bottom: 4px;
+}
+
+.discard-hint {
+  font-size: 10px;
+  color: #dc3545;
+  text-align: center;
+  font-weight: 500;
+}
+
+.gem-summary {
+  text-align: center;
+  padding: 16px;
+  background: #e9ecef;
+  border-radius: 8px;
+  margin-top: 20px;
+}
+
+.gem-summary p {
+  margin: 8px 0;
+  font-weight: 500;
+}
+
+.total-count {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+.target-count {
+  color: #28a745;
+  font-weight: 600;
+}
+
+.discard-tip {
+  font-size: 12px;
+  color: #6c757d;
+  font-style: italic;
+  text-align: center;
+  margin-top: 12px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #007bff;
+}
+
+/* 按钮样式 */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  margin-left: 8px;
+}
+
+.btn:first-child {
+  margin-left: 0;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
 }
 </style>
 

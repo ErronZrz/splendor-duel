@@ -147,11 +147,6 @@ func GetCardsByLevel(level models.CardLevel) []DevelopmentCardData
 func GetCardByID(id string) *DevelopmentCardData
 ```
 
-### 4. 随机获取
-```go
-func GetRandomCards(level models.CardLevel, count int) []DevelopmentCardData
-```
-
 ## 📊 数据统计
 
 ### 总览

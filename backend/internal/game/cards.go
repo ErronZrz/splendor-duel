@@ -286,20 +286,3 @@ func GetCardByID(id string) *DevelopmentCardData {
 	return nil
 }
 
-// GetRandomCards 随机获取指定数量的发展卡
-func GetRandomCards(level models.CardLevel, count int) []DevelopmentCardData {
-	levelCards := GetCardsByLevel(level)
-	if len(levelCards) <= count {
-		return levelCards
-	}
-	
-	// 随机选择指定数量的卡牌
-	// 这里简化实现，实际应该使用随机算法
-	selectedCards := make([]DevelopmentCardData, count)
-	for i := 0; i < count; i++ {
-		selectedCards[i] = levelCards[i]
-	}
-	
-	return selectedCards
-}
-

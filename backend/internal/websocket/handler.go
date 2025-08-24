@@ -497,6 +497,41 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			} else {
 				log.Printf("补充版图成功")
 			}
+		case "discardGem":
+			if gemType, ok := data["gemType"].(string); ok {
+				log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)
+				if err := gl.DiscardGem(message.PlayerID, models.GemType(gemType)); err != nil {
+					log.Printf("丢弃宝石失败: %v", err)
+				} else {
+					log.Printf("丢弃宝石成功")
+				}
+			}
+			
+		case "discardGemsBatch":
+			if gemDiscardsData, ok := data["gemDiscards"].(map[string]interface{}); ok {
+				log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", gemDiscardsData)
+				
+				// 转换数据类型
+				gemDiscards := make(map[models.GemType]int)
+				for gemTypeStr, count := range gemDiscardsData {
+					if countFloat, ok := count.(float64); ok {
+						gemDiscards[models.GemType(gemTypeStr)] = int(countFloat)
+					}
+				}
+				
+				if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
+					log.Printf("批量丢弃宝石失败: %v", err)
+				} else {
+					log.Printf("批量丢弃宝石成功")
+				}
+			}
+		case "endTurn":
+			log.Printf("执行回合结束操作")
+			if err := gl.HandleTurnEnd(); err != nil {
+				log.Printf("回合结束处理失败: %v", err)
+			} else {
+				log.Printf("回合结束处理成功")
+			}
 		default:
 			log.Printf("未知的游戏动作类型: %s", actionType)
 		}

@@ -65,6 +65,14 @@ func (gl *GameLogic) StartGame() error {
 	// 初始化贵族卡
 	gl.initializeNobleCards()
 	
+	// 初始化待补充列表
+	gl.gameState.CardToRefill = models.PendingRefill{}
+	
+	// 初始化宝石丢弃相关字段
+	gl.gameState.NeedsGemDiscard = false
+	gl.gameState.GemDiscardTarget = 10
+	gl.gameState.GemDiscardPlayerID = ""
+	
 	// 设置游戏状态
 	gl.gameState.Status = models.GameStatusPlaying
 	gl.gameState.TurnNumber = 1
@@ -355,17 +363,18 @@ func (gl *GameLogic) calculateRequiredGems(card *DevelopmentCardData, player *mo
 
 
 
-// 从场上移除卡牌
-func (gl *GameLogic) removeCardFromBoard(cardID string) {
+// 从场上移除卡牌，返回被移除卡牌的等级和位置
+func (gl *GameLogic) removeCardFromBoard(cardID string) (models.CardLevel, int) {
 	// 从翻开的卡牌中移除
 	for level, cards := range gl.gameState.FlippedCards {
 		for i, id := range cards {
 			if id == cardID {
 				gl.gameState.FlippedCards[level] = append(cards[:i], cards[i+1:]...)
-				return
+				return level, i
 			}
 		}
 	}
+	return 0, -1
 }
 
 // 结算卡牌效果
@@ -399,8 +408,8 @@ func (gl *GameLogic) resolveCardEffects(card *DevelopmentCardData, playerID stri
 	}
 }
 
-// 补充翻开的卡牌
-func (gl *GameLogic) refillFlippedCards(level models.CardLevel) {
+// 统一的补充发展卡函数
+func (gl *GameLogic) refillDevelopmentCards(level models.CardLevel, removedCardIndex int) {
 	var targetCount int
 	switch level {
 	case models.Level2:
@@ -412,13 +421,198 @@ func (gl *GameLogic) refillFlippedCards(level models.CardLevel) {
 	}
 	
 	currentCount := len(gl.gameState.FlippedCards[level])
+	
+	// 只有当牌堆有剩余卡牌且场上卡牌数量少于目标数量时才补充
 	if currentCount < targetCount && gl.gameState.UnflippedCards[level] > 0 {
-		// 从牌堆中抽取卡牌
+		// 从牌堆中抽取一张卡牌
 		card := gl.drawCardFromDeck(level)
 		if card != nil {
-			gl.gameState.FlippedCards[level] = append(gl.gameState.FlippedCards[level], card.ID)
+			// 将新卡牌插入到被移除卡牌的位置，保持顺序
+			if removedCardIndex >= 0 && removedCardIndex < len(gl.gameState.FlippedCards[level]) {
+				// 在指定位置插入新卡牌
+				gl.gameState.FlippedCards[level] = append(gl.gameState.FlippedCards[level][:removedCardIndex], 
+					append([]string{card.ID}, gl.gameState.FlippedCards[level][removedCardIndex:]...)...)
+			} else {
+				// 如果位置无效，追加到末尾
+				gl.gameState.FlippedCards[level] = append(gl.gameState.FlippedCards[level], card.ID)
+			}
 		}
 	}
+}
+
+// 回合结束处理函数
+func (gl *GameLogic) HandleTurnEnd() error {
+	// 检查并获取贵族，待实现
+
+	// 处理待补充的发展卡
+	if gl.gameState.CardToRefill.Level != 0 {
+		gl.refillDevelopmentCards(gl.gameState.CardToRefill.Level, gl.gameState.CardToRefill.Index)
+		// 清空待补充列表
+		gl.gameState.CardToRefill = models.PendingRefill{
+			Level: 0,
+			Index: 0,
+		}
+	}
+	
+	// 检查当前玩家宝石数量是否超过限制
+	currentPlayer := &gl.gameState.Players[gl.gameState.CurrentPlayerIndex]
+	totalGems := gl.calculateTotalGems(currentPlayer)
+	
+	// 添加调试日志
+	fmt.Printf("回合结束检查 - 玩家ID: %s, 宝石总数: %d, 需要丢弃: %v\n", 
+		currentPlayer.ID, totalGems, totalGems > 10)
+	
+	if totalGems > 10 {
+		// 设置需要丢弃宝石的状态，并记录需要丢弃的玩家ID
+		gl.gameState.NeedsGemDiscard = true
+		gl.gameState.GemDiscardTarget = 10
+		gl.gameState.GemDiscardPlayerID = currentPlayer.ID
+		fmt.Printf("设置宝石丢弃状态 - 玩家ID: %s, NeedsGemDiscard: %v, Target: %d\n", 
+			currentPlayer.ID, gl.gameState.NeedsGemDiscard, gl.gameState.GemDiscardTarget)
+		return nil // 不切换回合，等待玩家丢弃宝石
+	}
+	
+	// 检查胜利条件，待实现
+	
+	// 切换到下一个玩家
+	gl.nextTurn()
+	
+	return nil
+}
+
+// 计算玩家总宝石数量
+func (gl *GameLogic) calculateTotalGems(player *models.Player) int {
+	total := 0
+	fmt.Printf("计算玩家 %s 的宝石总数:\n", player.ID)
+	for gemType, count := range player.Gems {
+		if gemType != "" { // 排除空字符串
+			fmt.Printf("  %s: %d\n", gemType, count)
+			total += count
+		}
+	}
+	fmt.Printf("总宝石数: %d\n", total)
+	return total
+}
+
+// 丢弃宝石
+func (gl *GameLogic) DiscardGem(playerID string, gemType models.GemType) error {
+	fmt.Printf("DiscardGem 被调用 - 玩家ID: %s, 宝石类型: %s\n", playerID, gemType)
+	
+	playerIndex := gl.getPlayerIndex(playerID)
+	if playerIndex == -1 {
+		return errors.New("玩家不存在")
+	}
+	
+	// 检查是否为当前玩家
+	if gl.gameState.CurrentPlayerIndex != playerIndex {
+		return errors.New("不是该玩家的回合")
+	}
+	
+	// 检查是否真的需要丢弃宝石
+	if !gl.gameState.NeedsGemDiscard {
+		fmt.Printf("当前不需要丢弃宝石 - NeedsGemDiscard: %v\n", gl.gameState.NeedsGemDiscard)
+		return errors.New("当前不需要丢弃宝石")
+	}
+	
+	player := &gl.gameState.Players[playerIndex]
+	
+	// 检查玩家是否有该类型的宝石
+	if player.Gems[gemType] <= 0 {
+		return errors.New("没有该类型的宝石可以丢弃")
+	}
+	
+	// 丢弃一个宝石
+	player.Gems[gemType]--
+	fmt.Printf("丢弃宝石成功 - 类型: %s, 剩余: %d\n", gemType, player.Gems[gemType])
+	
+	// 将宝石放回袋子
+	gl.gameState.GemBag = append(gl.gameState.GemBag, gemType)
+	
+	// 检查是否已经达到目标数量
+	totalGems := gl.calculateTotalGems(player)
+	fmt.Printf("丢弃后宝石总数: %d, 目标: %d\n", totalGems, gl.gameState.GemDiscardTarget)
+	
+	if totalGems <= gl.gameState.GemDiscardTarget {
+		// 重置丢弃状态
+		gl.gameState.NeedsGemDiscard = false
+		gl.gameState.GemDiscardTarget = 10
+		gl.gameState.GemDiscardPlayerID = ""
+		fmt.Printf("达到目标数量，重置状态\n")
+		
+		// 不自动切换回合，等待前端确认
+		// 前端确认后会调用 handleTurnEnd 来切换回合
+	}
+	
+	return nil
+}
+
+// DiscardGemsBatch 批量丢弃宝石
+func (gl *GameLogic) DiscardGemsBatch(playerID string, gemDiscards map[models.GemType]int) error {
+	fmt.Printf("DiscardGemsBatch 被调用 - 玩家ID: %s, 丢弃详情: %v\n", playerID, gemDiscards)
+	
+	playerIndex := gl.getPlayerIndex(playerID)
+	if playerIndex == -1 {
+		return errors.New("玩家不存在")
+	}
+	
+	// 检查是否为当前玩家
+	if gl.gameState.CurrentPlayerIndex != playerIndex {
+		return errors.New("不是该玩家的回合")
+	}
+	
+	// 检查是否真的需要丢弃宝石
+	if !gl.gameState.NeedsGemDiscard {
+		fmt.Printf("当前不需要丢弃宝石 - NeedsGemDiscard: %v\n", gl.gameState.NeedsGemDiscard)
+		return errors.New("当前不需要丢弃宝石")
+	}
+	
+	player := &gl.gameState.Players[playerIndex]
+	
+	// 验证丢弃操作是否有效
+	for gemType, count := range gemDiscards {
+		if count <= 0 {
+			continue
+		}
+		
+		// 检查玩家是否有足够的该类型宝石
+		if player.Gems[gemType] < count {
+			return fmt.Errorf("没有足够的 %s 宝石，需要 %d，实际有 %d", gemType, count, player.Gems[gemType])
+		}
+	}
+	
+	// 执行批量丢弃
+	for gemType, count := range gemDiscards {
+		if count <= 0 {
+			continue
+		}
+		
+		// 丢弃宝石
+		player.Gems[gemType] -= count
+		
+		// 将宝石放回袋子
+		for i := 0; i < count; i++ {
+			gl.gameState.GemBag = append(gl.gameState.GemBag, gemType)
+		}
+		
+		fmt.Printf("批量丢弃宝石 - 类型: %s, 数量: %d, 剩余: %d\n", gemType, count, player.Gems[gemType])
+	}
+	
+	// 检查是否已经达到目标数量
+	totalGems := gl.calculateTotalGems(player)
+	fmt.Printf("批量丢弃后宝石总数: %d, 目标: %d\n", totalGems, gl.gameState.GemDiscardTarget)
+	
+	if totalGems <= gl.gameState.GemDiscardTarget {
+		// 重置丢弃状态
+		gl.gameState.NeedsGemDiscard = false
+		gl.gameState.GemDiscardTarget = 10
+		gl.gameState.GemDiscardPlayerID = ""
+		fmt.Printf("达到目标数量，重置状态\n")
+		
+		// 不自动切换回合，等待前端确认
+		// 前端确认后会调用 handleTurnEnd 来切换回合
+	}
+	
+	return nil
 }
 
 // 从牌堆抽取一张卡牌
@@ -462,17 +656,24 @@ func (gl *GameLogic) drawCardFromDeck(level models.CardLevel) *DevelopmentCardDa
 
 // 切换到下一个玩家
 func (gl *GameLogic) nextTurn() {
+	fmt.Printf("nextTurn 被调用 - 当前玩家索引: %d\n", gl.gameState.CurrentPlayerIndex)
+	
 	// 检查是否有额外回合
 	currentPlayer := gl.gameState.Players[gl.gameState.CurrentPlayerIndex]
 	if gl.gameState.ExtraTurns[currentPlayer.ID] > 0 {
 		gl.gameState.ExtraTurns[currentPlayer.ID]--
+		fmt.Printf("玩家 %s 有额外回合，继续当前玩家回合\n", currentPlayer.ID)
 		// 继续当前玩家的回合
 		return
 	}
 	
 	// 切换到下一个玩家
+	oldIndex := gl.gameState.CurrentPlayerIndex
 	gl.gameState.CurrentPlayerIndex = (gl.gameState.CurrentPlayerIndex + 1) % len(gl.gameState.Players)
 	gl.gameState.TurnNumber++
+	
+	fmt.Printf("回合切换 - 从玩家 %d 切换到玩家 %d, 回合数: %d\n", 
+		oldIndex, gl.gameState.CurrentPlayerIndex, gl.gameState.TurnNumber)
 }
 
 
@@ -566,12 +767,15 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		// 将宝石添加到玩家手中
 		gl.gameState.Players[playerIndex].Gems[gemType]++
 		
-		// 从版图上移除宝石
-		gl.gameState.GemBoard[rowIndex][colIndex] = ""
+			// 从版图上移除宝石
+	gl.gameState.GemBoard[rowIndex][colIndex] = ""
 	}
 	
-	// 切换到下一个玩家
-	gl.nextTurn()
+	// 调用回合结束处理函数，检查宝石数量
+	if err := gl.HandleTurnEnd(); err != nil {
+		fmt.Printf("回合结束处理失败: %v\n", err)
+		return err
+	}
 	
 	return nil
 }
@@ -701,18 +905,21 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 		levelCards := gl.gameState.FlippedCards[cardLevel]
 		gl.gameState.FlippedCards[cardLevel] = append(levelCards[:cardIndex], levelCards[cardIndex+1:]...)
 		
-		// 从对应等级的未翻开牌堆中补充一张卡牌
-		if gl.gameState.UnflippedCards[cardLevel] > 0 {
-			card := gl.drawCardFromDeck(cardLevel)
-			gl.gameState.FlippedCards[cardLevel] = append(gl.gameState.FlippedCards[cardLevel], card.ID)
+		// 将位置信息存储到游戏状态中，供回合结束时使用
+		gl.gameState.CardToRefill = models.PendingRefill{
+			Level: cardLevel,
+			Index: cardIndex,
 		}
 	}
 	
 	// 将卡牌添加到玩家保留区
 	gl.gameState.Players[playerIndex].ReservedCards = append(gl.gameState.Players[playerIndex].ReservedCards, reservedCardID)
 	
-	// 切换到下一个玩家
-	gl.nextTurn()
+	// 调用回合结束处理函数
+	if err := gl.HandleTurnEnd(); err != nil {
+		fmt.Printf("回合结束处理失败: %v\n", err)
+		return err
+	}
 	
 	return nil
 }
@@ -764,6 +971,12 @@ func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPosi
 		
 		// 从版图上移除宝石
 		gl.gameState.GemBoard[rowIndex][colIndex] = ""
+	}
+	
+	// 调用回合结束处理函数，检查宝石数量
+	if err := gl.HandleTurnEnd(); err != nil {
+		fmt.Printf("回合结束处理失败: %v\n", err)
+		return err
 	}
 	
 	return nil
@@ -1029,9 +1242,13 @@ func (gl *GameLogic) BuyCardWithPaymentPlan(playerID string, data map[string]any
 	if gl.removeCardFromReserved(playerID, cardID) {
 		// 卡牌在保留区域，不需要补充翻开的卡牌
 	} else {
-		// 卡牌在场上，从场上移除并补充
-		gl.removeCardFromBoard(cardID)
-		gl.refillFlippedCards(card.Level)
+		// 卡牌在场上，从场上移除并记录位置信息
+		cardLevel, cardIndex := gl.removeCardFromBoard(cardID)
+		// 将位置信息存储到游戏状态中，供回合结束时使用
+		gl.gameState.CardToRefill = models.PendingRefill{
+			Level: cardLevel,
+			Index: cardIndex,
+		}
 	}
 	
 	// 结算一次性效果
@@ -1048,8 +1265,11 @@ func (gl *GameLogic) BuyCardWithPaymentPlan(playerID string, data map[string]any
 		IsSpecial: card.IsSpecial,
 	}, playerID)
 	
-	// 切换到下一个玩家
-	gl.nextTurn()
+	// 调用回合结束处理函数
+	if err := gl.HandleTurnEnd(); err != nil {
+		fmt.Printf("回合结束处理失败: %v\n", err)
+		return err
+	}
 	
 	return nil
 }
