@@ -15,37 +15,37 @@
       <button @click="leaveGame" class="btn btn-secondary">离开游戏</button>
     </div>
 
-         <!-- 游戏主体 -->
-     <div class="game-main">
-       <!-- 游戏版图区域 -->
-       <div class="game-board-area">
-         <div v-if="showWaitingArea" class="waiting-area">
-           <h3>等待其他玩家加入...</h3>
-           <div class="debug-info">
-             <p><strong>调试信息:</strong></p>
-             <p>房间ID: {{ roomId }}</p>
-             <p>当前玩家: {{ currentPlayer?.name || '未设置' }}</p>
-             <p>房间信息: {{ currentRoom?.name || '未设置' }}</p>
-             <p>连接状态: {{ isConnected ? '已连接' : '未连接' }}</p>
-           </div>
-           <div class="players-list">
-             <div v-for="player in waitingPlayers" :key="player.id" class="player-item">
-               {{ player.name }}
-             </div>
-           </div>
-           <button 
-             v-if="canStartGame" 
-             @click="startGame" 
-             class="btn btn-primary"
-           >
-             开始游戏
-           </button>
-           <button @click="debugGameState" class="btn btn-secondary" style="margin-left: 10px;">
-             调试状态
-           </button>
-         </div>
-         
-                 <div v-else class="game-area">
+    <!-- 游戏主体 -->
+    <div class="game-main">
+      <!-- 游戏版图区域 -->
+      <div class="game-board-area">
+        <div v-if="showWaitingArea" class="waiting-area">
+          <h3>等待其他玩家加入...</h3>
+          <div class="debug-info">
+            <p><strong>调试信息:</strong></p>
+            <p>房间ID: {{ roomId }}</p>
+            <p>当前玩家: {{ currentPlayer?.name || '未设置' }}</p>
+            <p>房间信息: {{ currentRoom?.name || '未设置' }}</p>
+            <p>连接状态: {{ isConnected ? '已连接' : '未连接' }}</p>
+          </div>
+          <div class="players-list">
+            <div v-for="player in waitingPlayers" :key="player.id" class="player-item">
+              {{ player.name }}
+            </div>
+          </div>
+          <button 
+            v-if="canStartGame" 
+            @click="startGame" 
+            class="btn btn-primary"
+          >
+            开始游戏
+          </button>
+          <button @click="debugGameState" class="btn btn-secondary" style="margin-left: 10px;">
+            调试状态
+          </button>
+        </div>
+        
+        <div v-else class="game-area">
           <div class="game-layout">
             <!-- 左侧：游戏版图 -->
             <div class="game-board">
@@ -74,7 +74,7 @@
                       class="gem-cell"
                       :class="{ 'has-gem': gem }"
                     >
-                                                                   <img 
+                      <img 
                         v-if="gem" 
                         :src="`/images/gems/${getGemImageName(gem)}.jpg`" 
                         :alt="gem"
@@ -95,19 +95,19 @@
                   <div v-for="level in [3, 2, 1]" :key="level" class="card-level">
                     <h5>等级 {{ level }}</h5>
                     <div class="cards-row">
-                                             <div 
-                         v-for="card in getCardsByLevel(level)" 
-                         :key="card.id"
-                         class="card-item"
-                         @click="handleCardClick(card)"
-                       >
-                         <img 
-                           :src="`/images/cards/${card.id}.jpg`" 
-                           :alt="card.name"
-                           class="card-image"
-                           @error="handleCardImageError"
-                         />
-                       </div>
+                      <div 
+                        v-for="card in getCardsByLevel(level)" 
+                        :key="card.id"
+                        class="card-item"
+                        @click="handleCardClick(card)"
+                      >
+                        <img 
+                          :src="`/images/cards/${card.id}.jpg`" 
+                          :alt="card.name"
+                          class="card-image"
+                          @error="handleCardImageError"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -267,74 +267,74 @@
             </div>
           </div>
         </div>
-       </div>
+      </div>
 
-       <!-- 底部面板区域 -->
-       <div class="bottom-panels">
-         <!-- 聊天面板 -->
-         <div class="chat-panel">
-           <h3>聊天</h3>
-           <div class="chat-messages" ref="chatMessagesRef">
-             <div 
-               v-for="(message, index) in chatMessages" 
-               :key="index" 
-               class="chat-message"
-               :class="{ 'own-message': message.playerId === currentPlayer?.id }"
-             >
-               <span class="player-name">{{ message.playerName }}:</span>
-               <span class="message-text">{{ message.message }}</span>
-             </div>
-           </div>
-           <div class="chat-input">
-             <input 
-               v-model="newMessage" 
-               @keyup.enter="sendMessage"
-               placeholder="输入消息..."
-               maxlength="100"
-             />
-             <button @click="sendMessage" class="btn btn-primary">发送</button>
-           </div>
-         </div>
+      <!-- 底部面板区域 -->
+      <div class="bottom-panels">
+        <!-- 聊天面板 -->
+        <div class="chat-panel">
+          <h3>聊天</h3>
+          <div class="chat-messages" ref="chatMessagesRef">
+            <div 
+              v-for="(message, index) in chatMessages" 
+              :key="index" 
+              class="chat-message"
+              :class="{ 'own-message': message.playerId === currentPlayer?.id }"
+            >
+              <span class="player-name">{{ message.playerName }}:</span>
+              <span class="message-text">{{ message.message }}</span>
+            </div>
+          </div>
+          <div class="chat-input">
+            <input 
+              v-model="newMessage" 
+              @keyup.enter="sendMessage"
+              placeholder="输入消息..."
+              maxlength="100"
+            />
+            <button @click="sendMessage" class="btn btn-primary">发送</button>
+          </div>
+        </div>
 
-         <!-- 历史记录面板 -->
-         <div class="history-panel">
-           <h3>操作历史</h3>
-           <div class="history-list">
-             <div 
-               v-for="(action, index) in gameHistory" 
-               :key="index" 
-               class="history-item"
-             >
-               <span class="action-time">{{ formatTime(action.timestamp) }}</span>
-               <span class="action-player">{{ action.playerName }}</span>
-               <span class="action-text">{{ action.description }}</span>
-             </div>
-           </div>
-         </div>
-       </div>
-     </div>
-     
-     <!-- 通知组件 -->
-     <GameNotification ref="notificationRef" />
-     
-     <!-- 操作确认对话框 -->
-     <ActionDialog
-       :visible="actionDialog.visible"
-       :action-type="actionDialog.actionType"
-       :title="actionDialog.title"
-       :message="actionDialog.message"
-       :gem-board="gameState?.gemBoard || []"
-       :available-privileges="getCurrentPlayerData().privilegeTokens || 0"
-       :flipped-cards="gameState?.flippedCards || {}"
-       :unflipped-cards="gameState?.unflippedCards || {}"
-       :selected-gold-position="actionDialog.selectedGold || null"
-       :initial-gem-position="actionDialog.initialGemPosition || null"
-       :player-data="actionDialog.playerData || null"
-       :selected-card="actionDialog.selectedCard || null"
-       :card-details="gameState?.cardDetails || {}"
-       @confirm="handleActionConfirm"
-       @cancel="handleActionCancel"
-     />
+        <!-- 历史记录面板 -->
+        <div class="history-panel">
+          <h3>操作历史</h3>
+          <div class="history-list">
+            <div 
+              v-for="(action, index) in gameHistory" 
+              :key="index" 
+              class="history-item"
+            >
+              <span class="action-time">{{ formatTime(action.timestamp) }}</span>
+              <span class="action-player">{{ action.playerName }}</span>
+              <span class="action-text">{{ action.description }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 通知组件 -->
+    <GameNotification ref="notificationRef" />
+    
+    <!-- 操作确认对话框 -->
+    <ActionDialog
+      :visible="actionDialog.visible"
+      :action-type="actionDialog.actionType"
+      :title="actionDialog.title"
+      :message="actionDialog.message"
+      :gem-board="gameState?.gemBoard || []"
+      :available-privileges="getCurrentPlayerData().privilegeTokens || 0"
+      :flipped-cards="gameState?.flippedCards || {}"
+      :unflipped-cards="gameState?.unflippedCards || {}"
+      :selected-gold-position="actionDialog.selectedGold || null"
+      :initial-gem-position="actionDialog.initialGemPosition || null"
+      :player-data="actionDialog.playerData || null"
+      :selected-card="actionDialog.selectedCard || null"
+      :card-details="gameState?.cardDetails || {}"
+      @confirm="handleActionConfirm"
+      @cancel="handleActionCancel"
+    />
   </div>
 </template>
 
@@ -398,8 +398,8 @@ const canStartGame = computed(() => {
   // 检查是否有足够的玩家，并且当前玩家是房主
   const players = gameState.value?.players || []
   return players.length >= 2 && 
-         currentPlayer?.value?.id === players[0]?.id &&
-         gameState.value?.status === 'waiting'
+        currentPlayer?.value?.id === players[0]?.id &&
+        gameState.value?.status === 'waiting'
 })
 
 // 等待玩家列表（从游戏状态中获取）
@@ -410,8 +410,8 @@ const waitingPlayers = computed(() => {
 // 是否显示等待区域
 const showWaitingArea = computed(() => {
   return !gameState.value || 
-         gameState.value.status === 'waiting' || 
-         gameState.value.status === 'waiting_for_players'
+        gameState.value.status === 'waiting' || 
+        gameState.value.status === 'waiting_for_players'
 })
 
 const isMyTurn = computed(() => {
@@ -1191,32 +1191,32 @@ watch(gameState, (newState, oldState) => {
   color: #721c24;
 }
 
- .game-main {
-   display: flex;
-   flex-direction: column;
-   gap: 24px;
-   padding: 24px;
-   max-width: 1400px;
-   margin: 0 auto;
- }
+.game-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
 
- .game-board-area {
-   background: white;
-   border-radius: 12px;
-   padding: 24px;
-   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-   min-height: 600px;
- }
+.game-board-area {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  min-height: 600px;
+}
 
- .game-layout {
-   display: flex;
-   gap: 24px;
-   align-items: flex-start;
- }
+.game-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
 
- .game-layout > *:first-child {
-   flex: 1;
- }
+.game-layout > *:first-child {
+  flex: 1;
+}
 
 /* 游戏版图样式 */
 .game-board {
@@ -1761,10 +1761,10 @@ watch(gameState, (newState, oldState) => {
   border: 2px solid #dee2e6;
 }
 
- .bottom-panels {
-   display: flex;
-   gap: 24px;
- }
+.bottom-panels {
+  display: flex;
+  gap: 24px;
+}
 
 .chat-panel, .history-panel {
   background: white;
@@ -1870,29 +1870,29 @@ watch(gameState, (newState, oldState) => {
   color: #6c757d;
 }
 
- @media (max-width: 1200px) {
-   .game-layout {
-     flex-direction: column;
-   }
-   
-   .bottom-panels {
-     flex-direction: column;
-   }
-   
-   .chat-panel, .history-panel {
-     width: 100%;
-   }
- }
+@media (max-width: 1200px) {
+  .game-layout {
+    flex-direction: column;
+  }
+  
+  .bottom-panels {
+    flex-direction: column;
+  }
+  
+  .chat-panel, .history-panel {
+    width: 100%;
+  }
+}
 
- @media (max-width: 768px) {
-   .game-header {
-     flex-direction: column;
-     gap: 16px;
-     text-align: center;
-   }
-   
-   .bottom-panels {
-     flex-direction: column;
-   }
- }
+@media (max-width: 768px) {
+  .game-header {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
+  
+  .bottom-panels {
+    flex-direction: column;
+  }
+}
 </style>
