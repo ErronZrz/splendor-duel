@@ -32,6 +32,15 @@ export const useGameStore = defineStore('game', () => {
           id: response.data.data.playerId,
           name: playerName
         }
+
+        // 持久化本地会话，便于断线重连
+        try {
+          const roomId = response.data.data.room.id
+          localStorage.setItem(`sd:room:${roomId}:playerId`, response.data.data.playerId)
+          localStorage.setItem(`sd:room:${roomId}:playerName`, playerName)
+        } catch (e) {
+          console.warn('持久化玩家身份失败:', e)
+        }
         
         console.log('Store: 设置后的状态:', { currentRoom: currentRoom.value, currentPlayer: currentPlayer.value })
         
@@ -58,6 +67,15 @@ export const useGameStore = defineStore('game', () => {
         currentPlayer.value = {
           id: response.data.data.playerId,
           name: playerName
+        }
+
+        // 持久化本地会话，便于断线重连
+        try {
+          const roomId = response.data.data.room.id
+          localStorage.setItem(`sd:room:${roomId}:playerId`, response.data.data.playerId)
+          localStorage.setItem(`sd:room:${roomId}:playerName`, playerName)
+        } catch (e) {
+          console.warn('持久化玩家身份失败:', e)
         }
         return { success: true, roomId: response.data.data.room.id }
       } else {
@@ -262,6 +280,28 @@ export const useGameStore = defineStore('game', () => {
     gameHistory.value = []
   }
 
+  // 从本地存储恢复玩家身份（断线重连）
+  const restoreSession = (roomId) => {
+    try {
+      const storedPlayerId = localStorage.getItem(`sd:room:${roomId}:playerId`)
+      const storedPlayerName = localStorage.getItem(`sd:room:${roomId}:playerName`)
+      if (storedPlayerId && storedPlayerName) {
+        // 若当前store缺失玩家信息，则恢复
+        if (!currentPlayer.value) {
+          currentPlayer.value = { id: storedPlayerId, name: storedPlayerName }
+        }
+        // 如果未连接，则直接连接WS，服务端会按玩家ID识别为原玩家
+        if (!isConnected.value) {
+          connectWebSocket(roomId)
+        }
+        return true
+      }
+    } catch (e) {
+      console.warn('恢复本地会话失败:', e)
+    }
+    return false
+  }
+
   // 清理状态
   const reset = () => {
     disconnect()
@@ -284,6 +324,7 @@ export const useGameStore = defineStore('game', () => {
     performGameAction,
     sendGameAction,
     disconnect,
-    reset
+    reset,
+    restoreSession
   }
 })

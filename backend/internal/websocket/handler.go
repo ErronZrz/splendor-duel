@@ -497,6 +497,13 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			} else {
 				log.Printf("补充版图成功")
 			}
+		case "grantOpponentPrivilege":
+			log.Printf("执行让对手获得特权指示物操作")
+			if err := gl.GrantOpponentPrivilege(message.PlayerID); err != nil {
+				log.Printf("让对手获得特权指示物失败: %v", err)
+			} else {
+				log.Printf("让对手获得特权指示物成功")
+			}
 		case "discardGem":
 			if gemType, ok := data["gemType"].(string); ok {
 				log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)

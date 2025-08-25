@@ -157,7 +157,10 @@ const selectedCard = ref(null)
 
 // 计算属性
 const canSpendPrivilege = computed(() => {
-  return props.currentPlayer?.privilegeTokens > 0
+  // 本回合若已补充版图，则不能使用特权
+  const hasPrivilege = props.currentPlayer?.privilegeTokens > 0
+  const blockedByRefill = !!props.gameState?.refilledThisTurn
+  return hasPrivilege && !blockedByRefill
 })
 
 const canTakeGems = computed(() => {

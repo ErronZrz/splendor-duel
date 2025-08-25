@@ -373,6 +373,9 @@ const actionDialog = ref({
   selectedCard: null
 })
 
+// 暂存需要在确认后执行的拿取宝石位置
+const pendingTakeGems = ref([])
+
 // Bonus工具提示状态
 const activeTooltip = ref({
   playerId: null,
@@ -756,6 +759,13 @@ const handleSpendPrivilege = () => {
     }
     return
   }
+  // 前置校验：本回合若已补充版图，则禁止使用特权
+  if (gameState.value?.refilledThisTurn) {
+    if (notificationRef.value) {
+      notificationRef.value.info('不可用', '本回合已补充版图，不能使用特权指示物')
+    }
+    return
+  }
   
   const currentPlayerData = getCurrentPlayerData()
   if (!currentPlayerData.privilegeTokens || currentPlayerData.privilegeTokens <= 0) {
@@ -776,15 +786,31 @@ const handleSpendPrivilege = () => {
   }
 }
 
-// 处理补充版图操作（向后端发送补充请求）
+// 处理补充版图操作（先确认对话框）
 const handleRefillBoard = () => {
   if (!isMyTurn.value) {
-    showNotification('不是你的回合', 'error')
+    if (notificationRef.value) {
+      notificationRef.value.error('错误', '不是你的回合')
+    }
     return
   }
-  
-  // 向后端发送补充版图请求，让后端处理所有补充逻辑
-  executeAction('refillBoard', {})
+
+  // 若有状态可读，先判断袋子是否为空
+  const bagCount = Array.isArray(gameState.value?.gemBag) ? gameState.value.gemBag.length : null
+  if (bagCount !== null && bagCount <= 0) {
+    if (notificationRef.value) {
+      notificationRef.value.info('无法补充', '袋子为空，无法补充版图')
+    }
+    return
+  }
+
+  actionDialog.value = {
+    visible: true,
+    actionType: 'refillBoard',
+    title: '确认补充版图',
+    message: '补充版图将允许对手获得一个特权指示物，是否继续？',
+    selectedCard: null
+  }
 }
 
 // 处理操作对话框确认
@@ -792,12 +818,39 @@ const handleActionConfirm = (data) => {
   console.log('操作确认:', data)
   
   switch (data.actionType) {
+    case 'confirmTakeGemsGrantPrivilege':
+      // 在上方 switch 已处理，此处兜底
+      if (pendingTakeGems.value && pendingTakeGems.value.length) {
+        executeAction('grantOpponentPrivilege', {})
+        executeAction('takeGems', { gemPositions: pendingTakeGems.value })
+        pendingTakeGems.value = []
+      }
+      break
     case 'takeGems':
       console.log('向后端发送拿取宝石请求:', data.selectedGems)
-      // 向后端发送拿取宝石请求，让后端处理所有验证和逻辑
-      executeAction('takeGems', {
-        gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
-      })
+      // 二次确认：3个同色或包含2个珍珠时提示对手获得P
+      if (shouldGrantPrivilegeForTakeGems(data.selectedGems)) {
+        actionDialog.value = {
+          visible: true,
+          actionType: 'confirmTakeGemsGrantPrivilege',
+          title: '确认操作',
+          message: getGrantPrivilegeMessage(data.selectedGems),
+          selectedCard: null
+        }
+        // 暂存本次选择，待确认后再执行
+        pendingTakeGems.value = data.selectedGems.map(g => ({ x: g.x, y: g.y }))
+        return
+      }
+      // 正常直接执行
+      executeAction('takeGems', { gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y })) })
+      break
+    case 'confirmTakeGemsGrantPrivilege':
+      // 先让对手拿取P，再执行拿取宝石
+      if (pendingTakeGems.value && pendingTakeGems.value.length) {
+        executeAction('grantOpponentPrivilege', {})
+        executeAction('takeGems', { gemPositions: pendingTakeGems.value })
+        pendingTakeGems.value = []
+      }
       break
     case 'buyCard':
       console.log('向后端发送购买发展卡请求:', data.selectedCard, data.paymentPlan)
@@ -838,6 +891,10 @@ const handleActionConfirm = (data) => {
         privilegeCount: data.privilegeCount,
         gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
       })
+      break
+    case 'refillBoard':
+      console.log('向后端发送补充版图请求')
+      executeAction('refillBoard', {})
       break
     case 'discardGems':
       if (data.completed) {
@@ -1039,6 +1096,47 @@ const handleGemClick = (rowIndex, colIndex, gemType) => {
   }
 }
 
+// 判断是否触发“让对手获得P”的条件
+const shouldGrantPrivilegeForTakeGems = (selectedGems) => {
+  if (!Array.isArray(selectedGems) || selectedGems.length === 0) return false
+  // 统计颜色数量
+  const colorCount = {}
+  let pearlCount = 0
+  for (const g of selectedGems) {
+    const t = g.type
+    if (t === 'pearl') pearlCount++
+    colorCount[t] = (colorCount[t] || 0) + 1
+  }
+  // 条件1：3个同色（排除黄金）
+  if (selectedGems.length === 3) {
+    for (const [t, c] of Object.entries(colorCount)) {
+      if (t !== 'gold' && c === 3) return true
+    }
+  }
+  // 条件2：包含2个珍珠
+  if (pearlCount >= 2) return true
+  return false
+}
+
+// 生成提示文案
+const getGrantPrivilegeMessage = (selectedGems) => {
+  // 判断是哪种情况
+  const colorCount = {}
+  let pearlCount = 0
+  for (const g of selectedGems) {
+    const t = g.type
+    if (t === 'pearl') pearlCount++
+    colorCount[t] = (colorCount[t] || 0) + 1
+  }
+  let reason = ''
+  for (const [t, c] of Object.entries(colorCount)) {
+    if (t !== 'gold' && c === 3) { reason = '拿取 3 个同色宝石'; break }
+  }
+  if (!reason && pearlCount >= 2) reason = '拿取 2 枚珍珠'
+  const msg = `${reason}将允许对手获得一个特权指示物，是否继续？`
+  return msg
+}
+
 // 统一的购买发展卡点击处理函数
 const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
   if (!isMyTurn.value) {
@@ -1227,8 +1325,12 @@ onMounted(async () => {
         initializeGame()
       } else if (attempts >= maxAttempts) {
         clearInterval(checkInterval)
-        console.warn('没有玩家或房间信息，重定向到首页')
-        router.push('/')
+        // 尝试从本地存储恢复并直接连接房间（断线重连）
+        const restored = gameStore.restoreSession(props.roomId)
+        if (!restored) {
+          console.warn('没有玩家或房间信息，重定向到首页')
+          router.push('/')
+        }
       }
     }, 100)
   }

@@ -114,6 +114,9 @@ type GameState struct {
 	
 	// 待补充的发展卡信息
 	CardToRefill              PendingRefill                `json:"cardToRefill"`             // 回合结束时需要补充的发展卡信息
+
+	// 可选动作顺序限制
+	RefilledThisTurn          bool                         `json:"refilledThisTurn"`         // 本回合是否已经执行过补充版图
 	
 	// 宝石丢弃相关
 	NeedsGemDiscard           bool                          `json:"needsGemDiscard"`          // 是否需要丢弃宝石

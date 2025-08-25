@@ -48,12 +48,15 @@ func (gl *GameLogic) StartGame() error {
 	}
 	
 	// 随机决定起始玩家
-	gl.gameState.CurrentPlayerIndex = 0 // 简化处理，总是从第一个玩家开始
+	if len(gl.gameState.Players) == 0 {
+		return errors.New("没有玩家，无法开始游戏")
+	}
+	gl.gameState.CurrentPlayerIndex = gl.getRandomInt(0, len(gl.gameState.Players)-1)
 	
-	// 后手玩家获得一个特权指示物
+	// 后手玩家获得一个特权指示物（统一使用拿取P函数）
 	if len(gl.gameState.Players) > 1 {
-		gl.gameState.Players[1].PrivilegeTokens++
-		gl.gameState.AvailablePrivilegeTokens--
+		opponentIndex := (gl.gameState.CurrentPlayerIndex + 1) % len(gl.gameState.Players)
+		_ = gl.TakePrivilegeToken(gl.gameState.Players[opponentIndex].ID)
 	}
 	
 	// 初始化宝石版图
@@ -67,6 +70,8 @@ func (gl *GameLogic) StartGame() error {
 	
 	// 初始化待补充列表
 	gl.gameState.CardToRefill = models.PendingRefill{}
+	// 初始化可选动作限制
+	gl.gameState.RefilledThisTurn = false
 	
 	// 初始化宝石丢弃相关字段
 	gl.gameState.NeedsGemDiscard = false
@@ -78,6 +83,54 @@ func (gl *GameLogic) StartGame() error {
 	gl.gameState.TurnNumber = 1
 	
 	return nil
+}
+
+// TakePrivilegeToken 统一的「拿取特权指示物（P）」函数
+// 规则：
+// 1) 若玩家已拥有3个P，则不变更，直接返回
+// 2) 若公共区有剩余P，则从公共区减1，玩家加1
+// 3) 否则，从对手处转移1个P到该玩家（若对手有的话）
+func (gl *GameLogic) TakePrivilegeToken(playerID string) error {
+    playerIndex := gl.getPlayerIndex(playerID)
+    if playerIndex == -1 {
+        return errors.New("玩家不存在")
+    }
+
+    // 最多3个
+    if gl.gameState.Players[playerIndex].PrivilegeTokens >= 3 {
+        return nil
+    }
+
+    // 先从公共区拿
+    if gl.gameState.AvailablePrivilegeTokens > 0 {
+        gl.gameState.Players[playerIndex].PrivilegeTokens++
+        gl.gameState.AvailablePrivilegeTokens--
+        return nil
+    }
+
+    // 否则从对手处获得
+    if len(gl.gameState.Players) > 1 {
+        opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
+        if gl.gameState.Players[opponentIndex].PrivilegeTokens > 0 {
+            gl.gameState.Players[opponentIndex].PrivilegeTokens--
+            gl.gameState.Players[playerIndex].PrivilegeTokens++
+        }
+    }
+
+    return nil
+}
+
+// GrantOpponentPrivilege 让对手获得一个特权指示物（根据当前玩家计算对手）
+func (gl *GameLogic) GrantOpponentPrivilege(playerID string) error {
+    playerIndex := gl.getPlayerIndex(playerID)
+    if playerIndex == -1 {
+        return errors.New("玩家不存在")
+    }
+    if len(gl.gameState.Players) < 2 {
+        return nil
+    }
+    opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
+    return gl.TakePrivilegeToken(gl.gameState.Players[opponentIndex].ID)
 }
 
 // 初始化宝石版图
@@ -255,14 +308,6 @@ func (gl *GameLogic) drawCardsFromDeck(level models.CardLevel, count int) []stri
 	return drawnCards
 }
 
-
-
-
-
-
-
-
-
 // 验证宝石是否在一条直线上且连续
 func (gl *GameLogic) validateGemLine(positions []any) bool {
 	if len(positions) < 2 {
@@ -387,23 +432,17 @@ func (gl *GameLogic) resolveCardEffects(card *DevelopmentCardData, playerID stri
 	for _, effect := range card.Effects {
 		switch effect {
 		case models.ExtraToken:
-			// 额外token效果
-			player.Gems[card.Bonus]++
+			// 额外token效果，待实现
 		case models.NewTurn:
 			// 新回合效果
 			gl.gameState.ExtraTurns[playerID]++
 		case models.Wildcard:
-			// 百搭效果
-			// 这里需要玩家选择颜色，暂时跳过
+			// 百搭颜色效果，待实现
 		case models.GetPrivilege:
-			// 获取特权效果
-			if player.PrivilegeTokens < 3 {
-				player.PrivilegeTokens++
-				gl.gameState.AvailablePrivilegeTokens--
-			}
+			// 获取特权效果（统一使用拿取P函数）
+			_ = gl.TakePrivilegeToken(playerID)
 		case models.Steal:
-			// 窃取效果
-			// 这里需要玩家选择要窃取的宝石，暂时跳过
+			// 窃取效果，待实现
 		}
 	}
 }
@@ -474,6 +513,8 @@ func (gl *GameLogic) HandleTurnEnd() error {
 	
 	// 检查胜利条件，待实现
 	
+	// 切换到下一个玩家前，重置本回合限制状态
+	gl.gameState.RefilledThisTurn = false
 	// 切换到下一个玩家
 	gl.nextTurn()
 	
@@ -646,14 +687,6 @@ func (gl *GameLogic) drawCardFromDeck(level models.CardLevel) *DevelopmentCardDa
 	return nil
 }
 
-
-
-
-
-
-
-
-
 // 切换到下一个玩家
 func (gl *GameLogic) nextTurn() {
 	fmt.Printf("nextTurn 被调用 - 当前玩家索引: %d\n", gl.gameState.CurrentPlayerIndex)
@@ -697,28 +730,6 @@ func (gl *GameLogic) getPlayer(playerID string) *models.Player {
 	}
 	return nil
 }
-
-
-
-
-
-// 执行强制行动（暂时注释掉，避免类型不匹配问题）
-/*
-func (gl *GameLogic) executeMandatoryAction(playerID string, action *models.GameAction) error {
-	switch action.Type {
-	case ActionTakeGems:
-		return gl.executeTakeGems(playerID, action)
-	case ActionBuyCard:
-		return gl.executeBuyCard(playerID, action)
-	case ActionReserveCard:
-		return gl.executeReserveCard(playerID, action)
-	default:
-		return errors.New("无效的强制行动类型")
-	}
-}
-*/
-
-
 
 // TakeGems 拿取宝石
 func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) error {
@@ -926,6 +937,10 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 
 // SpendPrivilege 花费特权指示物
 func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPositions []map[string]any) error {
+	// 可选动作顺序限制：若本回合已补充版图，则不能花费特权
+	if gl.gameState.RefilledThisTurn {
+		return errors.New("本回合已补充版图，不能使用特权指示物")
+	}
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
@@ -971,12 +986,6 @@ func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPosi
 		
 		// 从版图上移除宝石
 		gl.gameState.GemBoard[rowIndex][colIndex] = ""
-	}
-	
-	// 调用回合结束处理函数，检查宝石数量
-	if err := gl.HandleTurnEnd(); err != nil {
-		fmt.Printf("回合结束处理失败: %v\n", err)
-		return err
 	}
 	
 	return nil
@@ -1027,13 +1036,12 @@ func (gl *GameLogic) RefillBoard(playerID string) error {
 			}
 		}
 	}
-	
-	// 对手获得特权指示物
-	opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
-	if gl.gameState.AvailablePrivilegeTokens > 0 {
-		gl.gameState.Players[opponentIndex].PrivilegeTokens++
-		gl.gameState.AvailablePrivilegeTokens--
-	}
+
+	// 标记本回合已补充版图
+	gl.gameState.RefilledThisTurn = true
+
+	// 对手获得特权指示物（统一使用GrantOpponentPrivilege）
+	_ = gl.GrantOpponentPrivilege(gl.gameState.Players[playerIndex].ID)
 	
 	return nil
 }

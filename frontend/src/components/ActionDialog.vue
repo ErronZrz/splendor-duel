@@ -293,7 +293,7 @@
                   :class="{ 
                     'has-gem': gem, 
                     'selected': isGemSelected(rowIndex, colIndex),
-                    'clickable': gem && !isGemSelected(rowIndex, colIndex) && selectedGems.length < privilegeCount
+                    'clickable': gem && gem !== 'gold' && !isGemSelected(rowIndex, colIndex) && selectedGems.length < privilegeCount
                   }"
                   @click="selectGem(rowIndex, colIndex, gem)"
                 >
@@ -535,8 +535,8 @@ const getCardsByLevel = (level) => {
 const selectGem = (x, y, gemType) => {
   console.log('选择宝石:', { x, y, gemType, actionType: props.actionType })
   
-  // 在拿取宝石操作中，禁止选择黄金
-  if (props.actionType === 'takeGems' && gemType === 'gold') {
+  // 禁止选择黄金：拿取宝石与花费特权均不可选
+  if ((props.actionType === 'takeGems' || props.actionType === 'spendPrivilege') && gemType === 'gold') {
     console.log('拿取宝石操作中不能选择黄金')
     return
   }
