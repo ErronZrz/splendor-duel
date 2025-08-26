@@ -448,8 +448,8 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "buyCard":
 			if cardID, ok := data["cardId"].(string); ok {
 				log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
-				// 直接调用新的购买方法，传递支付计划
-				if err := gl.BuyCardWithPaymentPlan(message.PlayerID, data); err != nil {
+				// 调用扩展后的购买方法：一次性处理支付与需要确认的特效
+				if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
 					log.Printf("购买发展卡失败: %v", err)
 				} else {
 					log.Printf("购买发展卡成功")

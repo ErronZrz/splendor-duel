@@ -126,6 +126,8 @@
                   </div>
                 </div>
               </div>
+
+              
               
               <div class="payment-note">
                 <p>💡 点击建议支付中的非黄金token可以转换为黄金支付</p>
@@ -134,6 +136,43 @@
           </div>
         </div>
         
+        <!-- 选择额外token（复用选择网格，但强制仅1个且颜色匹配，按钮由父组件处理跳过） -->
+        <div v-if="actionType === 'takeExtraToken'" class="gem-selection">
+          <div class="gem-selection-controls">
+            <button 
+              v-if="selectedGems.length > 0"
+              @click="clearSelectedGems" 
+              class="clear-btn"
+            >
+              清除选择
+            </button>
+          </div>
+          <div class="gem-grid-preview">
+            <div v-for="(row, rowIndex) in gemBoard" :key="`extra-row-${rowIndex}`" class="gem-row">
+              <div 
+                v-for="(gem, colIndex) in row" 
+                :key="`extra-col-${colIndex}`"
+                class="gem-cell"
+                :class="{ 
+                  'has-gem': gem, 
+                  'selected': isGemSelected(rowIndex, colIndex),
+                  'clickable': gem && gem !== 'gold' && gem === (selectedCard?.bonus || selectedCard?.color) && !isGemSelected(rowIndex, colIndex) && selectedGems.length < 1,
+                  'disabled': !gem || gem === 'gold' || gem !== (selectedCard?.bonus || selectedCard?.color) || selectedGems.length >= 1
+                }"
+                @click="selectGem(rowIndex, colIndex, gem)"
+              >
+                <img 
+                  v-if="gem" 
+                  :src="`/images/gems/${getGemImageName(gem)}.jpg`" 
+                  :alt="gem"
+                  class="gem-image"
+                />
+                <span v-else class="empty-cell">空</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 丢弃宝石操作 -->
         <div v-if="actionType === 'discardGems'" class="gem-discard">
           <h4>丢弃宝石</h4>
@@ -327,10 +366,21 @@
         >
           取消
         </button>
+
+        <!-- takeExtraToken 的跳过按钮：右下角 -->
+        <button 
+          v-if="actionType === 'takeExtraToken'"
+          class="btn btn-light"
+          type="button"
+          @click="$emit('confirm', { actionType: 'takeExtraToken', selectedGems: [], selectedCard, paymentPlan })"
+        >
+          跳过
+        </button>
+
         <button 
           class="btn btn-primary" 
-          @click="handleConfirm"
-          :disabled="!canConfirm"
+          @click="actionType === 'takeExtraToken' ? $emit('confirm', { actionType: 'takeExtraToken', selectedGems, selectedCard, paymentPlan }) : handleConfirm()"
+          :disabled="actionType === 'takeExtraToken' ? selectedGems.length !== 1 : !canConfirm"
         >
           {{ actionType === 'discardGems' ? '完成丢弃' : '确认' }}
         </button>
@@ -366,6 +416,9 @@ const selectedCard = ref(null)
 const selectedGold = ref(null)
 const privilegeCount = ref(0)
 const paymentPlan = ref({})
+// 额外token相关本地状态
+const extraSelectedGem = ref(null) // {x, y, type} 或 null
+const skipExtraToken = ref(false)
 
 // 宝石丢弃的本地状态管理
 const discardedGems = ref({}) // 记录每种宝石已丢弃的数量
@@ -396,6 +449,9 @@ watch(() => props.visible, (newVal) => {
       if (props.playerData) {
         initializePaymentPlan()
       }
+      // 重置额外token选择
+      extraSelectedGem.value = null
+      skipExtraToken.value = false
     } else {
       selectedCard.value = null
     }
@@ -540,6 +596,18 @@ const selectGem = (x, y, gemType) => {
     console.log('拿取宝石操作中不能选择黄金')
     return
   }
+  // 额外token：只能选择与卡牌颜色一致且非黄金，且最多1枚
+  if (props.actionType === 'takeExtraToken') {
+    const cardColor = props.selectedCard?.bonus || props.selectedCard?.color
+    if (!gemType || gemType === 'gold' || gemType !== cardColor) {
+      console.log('额外token操作中只能选择与卡牌颜色一致且非黄金的宝石')
+      return
+    }
+    if (selectedGems.value.length >= 1) {
+      console.log('额外token已选择1枚，不能再选择')
+      return
+    }
+  }
   
   if (props.actionType === 'takeGems' && selectedGems.value.length >= 3) {
     console.log('已达到最大选择数量')
@@ -547,6 +615,11 @@ const selectGem = (x, y, gemType) => {
   }
   if (props.actionType === 'spendPrivilege' && selectedGems.value.length >= privilegeCount.value) {
     console.log('已达到特权数量限制')
+    return
+  }
+  // 额外token数量上限
+  if (props.actionType === 'takeExtraToken' && selectedGems.value.length >= 1) {
+    console.log('额外token已选择1枚，不能再选择')
     return
   }
   
@@ -677,9 +750,13 @@ const canConfirm = computed(() => {
         totalPaid += paymentPlan.value[gemType] || 0
       }
       
+      // 额外token效果下，需满足：未包含该效果或（已选1个或选择跳过）
       const canConfirm = totalPaid >= totalRequired
       console.log('canConfirm buyCard:', { totalPaid, totalRequired, canConfirm })
       return canConfirm
+    case 'takeExtraToken':
+      // 允许0或1个；确认即提交，取消即跳过
+      return selectedGems.value.length <= 1
     case 'reserveCard':
       // 对于保留发展卡，只需要选择卡牌即可，黄金位置已经通过点击确定
       return selectedCard.value !== null
@@ -698,6 +775,24 @@ const canConfirm = computed(() => {
       return true
   }
 })
+// 计算：该卡是否包含额外token效果
+const hasExtraTokenEffect = computed(() => {
+  const effects = props.selectedCard?.effects || []
+  return effects.includes('extra_token')
+})
+
+// 额外token选择逻辑
+const isExtraGemSelected = (x, y) => {
+  return !!extraSelectedGem.value && extraSelectedGem.value.x === x && extraSelectedGem.value.y === y
+}
+
+const selectExtraGem = (x, y, gemType) => {
+  // 仅允许与卡牌颜色一致，且不是黄金
+  const cardColor = props.selectedCard?.bonus || props.selectedCard?.color
+  if (!gemType || gemType === 'gold' || gemType !== cardColor) return
+  extraSelectedGem.value = { x, y, type: gemType }
+  skipExtraToken.value = false
+}
 
 // 处理确认
 const handleConfirm = () => {

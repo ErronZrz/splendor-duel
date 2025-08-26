@@ -375,6 +375,8 @@ const actionDialog = ref({
 
 // 暂存需要在确认后执行的拿取宝石位置
 const pendingTakeGems = ref([])
+// 暂存一次购买的支付方案与卡，用于额外token二次确认后统一提交
+const pendingPurchase = ref(null)
 
 // Bonus工具提示状态
 const activeTooltip = ref({
@@ -853,17 +855,69 @@ const handleActionConfirm = (data) => {
       }
       break
     case 'buyCard':
-      console.log('向后端发送购买发展卡请求:', data.selectedCard, data.paymentPlan)
+      console.log('准备购买发展卡（第一步：确认支付方案）:', data.selectedCard, data.paymentPlan)
       if (!data.selectedCard?.id) {
         if (notificationRef.value) {
           notificationRef.value.error('错误', '没有选择要购买的发展卡')
         }
         return
       }
-      // 向后端发送购买发展卡请求，让后端处理所有购买逻辑
+      // 暂存购买参数
+      const selectedCard = data.selectedCard
+      const paymentPlan = data.paymentPlan || {}
+      const effects = data.effects || undefined
+
+      // 判断是否需要额外token对话框（优先从 cardDetails 读取完整 effects）
+      const detail = gameState.value?.cardDetails?.[selectedCard.id]
+      const effectsArr = (detail?.effects) || (selectedCard.effects) || []
+      const hasExtra = Array.isArray(effectsArr) && effectsArr.includes('extra_token')
+      if (hasExtra) {
+        // 缓存购买信息，二次确认后再一次性请求
+        pendingPurchase.value = { card: selectedCard, paymentPlan }
+
+        // 弹出额外token对话框（第二步）：重用 takeGems 视图，但限制选择1个且色彩匹配
+        actionDialog.value = {
+          visible: true,
+          actionType: 'takeExtraToken',
+          title: '选择额外 token',
+          message: `请选择一个${getGemDisplayName(selectedCard.bonus || selectedCard.color)} token，若场上无${getGemDisplayName(selectedCard.bonus || selectedCard.color)} token 可点击跳过`,
+          playerData: getCurrentPlayerData(),
+          selectedCard: selectedCard
+        }
+        // 在统一确认回调中处理：见下方 'takeExtraToken'
+        return
+      } else {
+        // 无需额外token，直接一次性请求
+        executeAction('buyCard', {
+          cardId: selectedCard.id,
+          paymentPlan,
+          effects
+        })
+      }
+      break
+    case 'takeExtraToken':
+      // 二次对话框：提交最终一次性购买请求（选了1个则带坐标，否则视为跳过）
+      if (!pendingPurchase.value?.card?.id) {
+        actionDialog.value.visible = false
+        break
+      }
+      executeAction('buyCard', {
+        cardId: pendingPurchase.value.card.id,
+        paymentPlan: pendingPurchase.value.paymentPlan || {},
+        effects: data.selectedGems?.[0] ? { extraToken: { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } } : { extraToken: { skipped: true } }
+      })
+      pendingPurchase.value = null
+      break
+    case 'takeExtraToken':
+      // 二次对话框：提交最终一次性购买请求（选了1个则带坐标，否则视为跳过）
+      if (!data.selectedCard?.id) {
+        actionDialog.value.visible = false
+        break
+      }
       executeAction('buyCard', {
         cardId: data.selectedCard.id,
-        paymentPlan: data.paymentPlan || {}
+        paymentPlan: data.paymentPlan || {},
+        effects: data.selectedGems?.[0] ? { extraToken: { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } } : { extraToken: { skipped: true } }
       })
       break
     case 'reserveCard':

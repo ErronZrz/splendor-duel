@@ -1172,8 +1172,8 @@ func (gl *GameLogic) deductPaymentFromPlayer(player *models.Player, paymentPlan 
 	}
 }
 
-// BuyCardWithPaymentPlan 购买发展卡（带支付计划）
-func (gl *GameLogic) BuyCardWithPaymentPlan(playerID string, data map[string]any) error {
+// BuyCardWithPaymentPlanAndEffects 购买发展卡（带支付计划与特效一次性结算）
+func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[string]any) error {
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
@@ -1259,7 +1259,21 @@ func (gl *GameLogic) BuyCardWithPaymentPlan(playerID string, data map[string]any
 		}
 	}
 	
-	// 结算一次性效果
+	// 先结算需要玩家即时确认的一次性效果（本次仅额外token）
+	gl.resolveImmediateEffects(&DevelopmentCardData{
+		ID:        card.ID,
+		Level:     card.Level,
+		Code:      card.Code,
+		Color:     card.Color,
+		Points:    card.Points,
+		Crowns:    card.Crowns,
+		Bonus:     card.Bonus,
+		Cost:      card.Cost,
+		Effects:   card.Effects,
+		IsSpecial: card.IsSpecial,
+	}, playerID, data)
+
+	// 再结算无需确认的效果（新回合、获得特权等）
 	gl.resolveCardEffects(&DevelopmentCardData{
 		ID:        card.ID,
 		Level:     card.Level,
@@ -1280,6 +1294,79 @@ func (gl *GameLogic) BuyCardWithPaymentPlan(playerID string, data map[string]any
 	}
 	
 	return nil
+}
+
+// 处理需要玩家二次确认的特效（额外token/窃取/百搭颜色）
+// 本次仅实现额外token
+func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID string, data map[string]any) {
+    player := gl.getPlayer(playerID)
+    if player == nil {
+        return
+    }
+
+    var effectsData map[string]any
+    if v, ok := data["effects"].(map[string]any); ok {
+        effectsData = v
+    } else {
+        effectsData = map[string]any{}
+    }
+
+    for _, effect := range card.Effects {
+        switch effect {
+        case models.ExtraToken:
+            gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
+        default:
+            // 其他需要确认的效果后续实现
+        }
+    }
+}
+
+// handleExtraTokenEffect 处理额外token效果：
+// - 前端可在effects.extraToken传入 { selectedGem: {x:int, y:int} } 或 { skipped: true }
+// - 只允许拿取与卡牌颜色相同的一个token
+func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.GemType, effectsData map[string]any) bool {
+    extraRaw, ok := effectsData["extraToken"].(map[string]any)
+    // 未提供数据则视为无效
+    if !ok {
+        return false
+    }
+
+	// 跳过则直接返回成功
+    if skipped, ok := extraRaw["skipped"].(bool); ok && skipped {
+        return true
+    }
+
+    sel, ok := extraRaw["selectedGem"].(map[string]any)
+    if !ok {
+        return false
+    }
+
+    var x, y int
+    if xv, ok := sel["x"].(float64); ok { x = int(xv) }
+    if yv, ok := sel["y"].(float64); ok { y = int(yv) }
+
+    if x < 0 || y < 0 || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[0]) {
+        return false
+    }
+
+	// 判断宝石位置有效性
+    gem := gl.gameState.GemBoard[x][y]
+    if gem == "" {
+        return false
+    }
+
+	// 判断宝石颜色是否匹配
+    if gem != cardColor || gem == models.GemGold {
+        return false
+    }
+
+    gl.gameState.GemBoard[x][y] = ""
+    player := gl.getPlayer(playerID)
+    if player == nil {
+        return false
+    }
+    player.Gems[gem]++
+    return true
 }
 
 // 从玩家的保留区域移除卡牌
