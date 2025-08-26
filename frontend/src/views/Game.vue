@@ -378,6 +378,14 @@ const pendingTakeGems = ref([])
 // 暂存一次购买的支付方案与卡，用于额外token二次确认后统一提交
 const pendingPurchase = ref(null)
 
+// 构建窃取对话框所需数据（包含对手宝石持有情况）
+const buildStealDialogPlayerData = () => {
+  const players = gameState.value?.players || []
+  const meId = getCurrentPlayerData()?.id
+  const opponent = players.find(p => p.id !== meId) || {}
+  return { opponent: { gems: opponent.gems || {} } }
+}
+
 // Bonus工具提示状态
 const activeTooltip = ref({
   playerId: null,
@@ -871,6 +879,7 @@ const handleActionConfirm = (data) => {
       const detail = gameState.value?.cardDetails?.[selectedCard.id]
       const effectsArr = (detail?.effects) || (selectedCard.effects) || []
       const hasExtra = Array.isArray(effectsArr) && effectsArr.includes('extra_token')
+      const hasSteal = Array.isArray(effectsArr) && effectsArr.includes('steal')
       if (hasExtra) {
         // 缓存购买信息，二次确认后再一次性请求
         pendingPurchase.value = { card: selectedCard, paymentPlan }
@@ -886,8 +895,20 @@ const handleActionConfirm = (data) => {
         }
         // 在统一确认回调中处理：见下方 'takeExtraToken'
         return
+      } else if (hasSteal) {
+        // 窃取对话框：展示对手可被窃取的非黄金token
+        pendingPurchase.value = { card: selectedCard, paymentPlan }
+        actionDialog.value = {
+          visible: true,
+          actionType: 'stealToken',
+          title: '选择要窃取的宝石',
+          message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过',
+          playerData: buildStealDialogPlayerData(),
+          selectedCard: selectedCard
+        }
+        return
       } else {
-        // 无需额外token，直接一次性请求
+        // 无需额外token/窃取，直接一次性请求
         executeAction('buyCard', {
           cardId: selectedCard.id,
           paymentPlan,
@@ -905,6 +926,18 @@ const handleActionConfirm = (data) => {
         cardId: pendingPurchase.value.card.id,
         paymentPlan: pendingPurchase.value.paymentPlan || {},
         effects: data.selectedGems?.[0] ? { extraToken: { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } } : { extraToken: { skipped: true } }
+      })
+      pendingPurchase.value = null
+      break
+    case 'stealToken':
+      if (!pendingPurchase.value?.card?.id) {
+        actionDialog.value.visible = false
+        break
+      }
+      executeAction('buyCard', {
+        cardId: pendingPurchase.value.card.id,
+        paymentPlan: pendingPurchase.value.paymentPlan || {},
+        effects: data.stealGemType ? { steal: { gemType: data.stealGemType } } : { steal: { skipped: true } }
       })
       pendingPurchase.value = null
       break

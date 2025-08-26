@@ -1315,6 +1315,8 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
         switch effect {
         case models.ExtraToken:
             gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
+        case models.Steal:
+            gl.handleStealEffect(playerID, effectsData)
         default:
             // 其他需要确认的效果后续实现
         }
@@ -1366,6 +1368,50 @@ func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.Ge
         return false
     }
     player.Gems[gem]++
+    return true
+}
+
+// handleStealEffect 处理窃取效果：
+// - 前端通过 effects.steal 传入 { gemType: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
+// - 从对手处窃取一个对应的非黄金token
+func (gl *GameLogic) handleStealEffect(playerID string, effectsData map[string]any) bool {
+    stealRaw, ok := effectsData["steal"].(map[string]any)
+    if !ok {
+        return false
+    }
+
+    if skipped, ok := stealRaw["skipped"].(bool); ok && skipped {
+        return true
+    }
+
+    gemStr, ok := stealRaw["gemType"].(string)
+    if !ok {
+        return false
+    }
+    gemType := models.GemType(gemStr)
+    if gemType == models.GemGold || gemType == "" {
+		return false
+    }
+
+    // 找到对手
+    opponentIdx := 1 - gl.getPlayerIndex(playerID)
+    if opponentIdx < 0 || opponentIdx >= len(gl.gameState.Players) {
+        return false
+    }
+    opponent := &gl.gameState.Players[opponentIdx]
+    if opponent.Gems[gemType] <= 0 {
+        return false
+    }
+
+    // 执行窃取
+    opponent.Gems[gemType]--
+    player := gl.getPlayer(playerID)
+    if player == nil {
+        // 回滚
+        opponent.Gems[gemType]++
+        return false
+    }
+    player.Gems[gemType]++
     return true
 }
 

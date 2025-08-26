@@ -173,6 +173,37 @@
           </div>
         </div>
 
+        <!-- 窃取消费对话框：展示对手拥有的可被窃取的非黄金token -->
+        <div v-if="actionType === 'stealToken'" class="gem-selection">
+          <h4>选择要窃取的宝石</h4>
+          <div class="gem-display">
+            <div class="gem-row">
+              <div 
+                v-for="gemType in ['white','blue','green']"
+                :key="`steal-${gemType}`"
+                class="gem-item"
+                :class="{ 'clickable': (opponentGemCount(gemType) > 0) && !isSelectedGemType(gemType), 'disabled': opponentGemCount(gemType) <= 0, 'selected': isSelectedGemType(gemType) }"
+                @click="selectStealGemType(gemType)"
+              >
+                <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
+                <span class="gem-count">×{{ opponentGemCount(gemType) }}</span>
+              </div>
+            </div>
+            <div class="gem-row">
+              <div 
+                v-for="gemType in ['red','black','pearl']"
+                :key="`steal-${gemType}`"
+                class="gem-item"
+                :class="{ 'clickable': (opponentGemCount(gemType) > 0) && !isSelectedGemType(gemType), 'disabled': opponentGemCount(gemType) <= 0, 'selected': isSelectedGemType(gemType) }"
+                @click="selectStealGemType(gemType)"
+              >
+                <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
+                <span class="gem-count">×{{ opponentGemCount(gemType) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 丢弃宝石操作 -->
         <div v-if="actionType === 'discardGems'" class="gem-discard">
           <h4>丢弃宝石</h4>
@@ -419,6 +450,8 @@ const paymentPlan = ref({})
 // 额外token相关本地状态
 const extraSelectedGem = ref(null) // {x, y, type} 或 null
 const skipExtraToken = ref(false)
+// 窃取消费本地状态
+const selectedStealGemType = ref(null) // 'white'|'blue'|'green'|'red'|'black'|'pearl'
 
 // 宝石丢弃的本地状态管理
 const discardedGems = ref({}) // 记录每种宝石已丢弃的数量
@@ -455,6 +488,8 @@ watch(() => props.visible, (newVal) => {
     } else {
       selectedCard.value = null
     }
+    // 重置窃取选择
+    selectedStealGemType.value = null
     
     // 对于拿取宝石操作，自动选中初始宝石
     if (props.actionType === 'takeGems' && props.initialGemPosition) {
@@ -529,16 +564,16 @@ const getCurrentGemCount = (gemType) => {
 
 // 获取宝石显示名称
 const getGemDisplayName = (gemType) => {
-  const nameMap = {
-    'white': '白色',
-    'blue': '蓝色',
-    'green': '绿色',
-    'red': '红色',
-    'black': '黑色',
+  const gemMap = {
+    'white': '白宝石',
+    'blue': '蓝宝石',
+    'green': '绿宝石',
+    'red': '红宝石',
+    'black': '黑宝石',
     'pearl': '珍珠',
     'gold': '黄金'
   }
-  return nameMap[gemType] || gemType
+  return gemMap[gemType] || gemType
 }
 
 // 获取宝石图片名称
@@ -639,6 +674,22 @@ const selectGem = (x, y, gemType) => {
   
   selectedGems.value.push({ x, y, type: gemType })
   console.log('宝石选择成功，当前选择:', selectedGems.value)
+}
+// 窃取消费：对手宝石计数
+const opponentGemCount = (gemType) => {
+  // 对手数据从 playerData 推断：当前 playerData 是自己，需从父级传入对手数据，这里简化：
+  // 直接从 props.playerData.opponentGems 或 props.playerData?.opponent?.gems 读取（若存在）
+  const opp = props.playerData?.opponent || {}
+  const alt = props.playerData?.opponentGems || {}
+  const pool = opp.gems || alt
+  return (pool && pool[gemType]) || 0
+}
+
+const isSelectedGemType = (gemType) => selectedStealGemType.value === gemType
+const selectStealGemType = (gemType) => {
+  if (gemType === 'gold') return
+  if (opponentGemCount(gemType) <= 0) return
+  selectedStealGemType.value = gemType
 }
 
 // 移除宝石
@@ -757,6 +808,9 @@ const canConfirm = computed(() => {
     case 'takeExtraToken':
       // 允许0或1个；确认即提交，取消即跳过
       return selectedGems.value.length <= 1
+    case 'stealToken':
+      // 仅在选择了一个可窃取的宝石类型后才能确认
+      return !!selectedStealGemType.value
     case 'reserveCard':
       // 对于保留发展卡，只需要选择卡牌即可，黄金位置已经通过点击确定
       return selectedCard.value !== null
@@ -829,7 +883,8 @@ const handleConfirm = () => {
     selectedCard: selectedCard.value,
     selectedGold: selectedGold.value,
     privilegeCount: privilegeCount.value,
-    paymentPlan: paymentPlan.value
+    paymentPlan: paymentPlan.value,
+    stealGemType: selectedStealGemType.value
   }
   
   console.log('ActionDialog: 发送确认事件:', data)
@@ -1978,43 +2033,60 @@ const getRemainingTokens = (gemType) => {
   padding: 12px;
   border: 2px solid #dee2e6;
   border-radius: 12px;
-  background: #f8f9fa;
+  background: #ffffff;
   transition: all 0.2s;
-  min-width: 80px;
+  min-width: 88px;
   position: relative;
 }
 
 .gem-item.clickable {
   cursor: pointer;
-  border-color: #dc3545;
-  background: #fff5f5;
+  border-color: #0d6efd; /* 可选：蓝色边框 */
+  box-shadow: 0 0 0 2px rgba(13,110,253,0.15) inset;
 }
 
 .gem-item.clickable:hover {
-  background: #ffe6e6;
-  border-color: #c82333;
+  background: #f0f6ff;
+  border-color: #0b5ed7;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.25);
 }
 
 .gem-item.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  border-color: #e9ecef; /* 不可选：浅灰边框 */
+}
+
+/* 已选中：使用不同于可选的绿色边框，矩形边框明显可见 */
+.gem-item.selected {
+  border-color: #198754; /* 已选中：绿色边框 */
+  box-shadow: 0 0 0 2px rgba(25,135,84,0.18) inset;
+  background: #f6fff8;
+}
+.gem-item.selected:hover {
+  border-color: #146c43;
 }
 
 .gem-icon {
-  width: 40px;
-  height: 40px;
+  width: 56px;
+  height: 56px;
   object-fit: cover;
   border-radius: 50%;
   margin-bottom: 8px;
+  border: 3px solid transparent;
+}
+
+.gem-item.selected .gem-icon {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .gem-count {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: #495057;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .discard-hint {
