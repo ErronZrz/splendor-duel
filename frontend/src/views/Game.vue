@@ -880,6 +880,7 @@ const handleActionConfirm = (data) => {
       const effectsArr = (detail?.effects) || (selectedCard.effects) || []
       const hasExtra = Array.isArray(effectsArr) && effectsArr.includes('extra_token')
       const hasSteal = Array.isArray(effectsArr) && effectsArr.includes('steal')
+      const hasWildcard = Array.isArray(effectsArr) && effectsArr.includes('wildcard')
       if (hasExtra) {
         // 缓存购买信息，二次确认后再一次性请求
         pendingPurchase.value = { card: selectedCard, paymentPlan }
@@ -904,6 +905,18 @@ const handleActionConfirm = (data) => {
           title: '选择要窃取的宝石',
           message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过',
           playerData: buildStealDialogPlayerData(),
+          selectedCard: selectedCard
+        }
+        return
+      } else if (hasWildcard) {
+        // 百搭颜色对话框：依据玩家bonus可选颜色
+        pendingPurchase.value = { card: selectedCard, paymentPlan }
+        actionDialog.value = {
+          visible: true,
+          actionType: 'chooseWildcardColor',
+          title: '选择百搭颜色',
+          message: '请选择一个你已拥有优惠的颜色作为本卡的百搭颜色',
+          playerData: { bonus: getCurrentPlayerData()?.bonus || {} },
           selectedCard: selectedCard
         }
         return
@@ -938,6 +951,18 @@ const handleActionConfirm = (data) => {
         cardId: pendingPurchase.value.card.id,
         paymentPlan: pendingPurchase.value.paymentPlan || {},
         effects: data.stealGemType ? { steal: { gemType: data.stealGemType } } : { steal: { skipped: true } }
+      })
+      pendingPurchase.value = null
+      break
+    case 'chooseWildcardColor':
+      if (!pendingPurchase.value?.card?.id) {
+        actionDialog.value.visible = false
+        break
+      }
+      executeAction('buyCard', {
+        cardId: pendingPurchase.value.card.id,
+        paymentPlan: pendingPurchase.value.paymentPlan || {},
+        effects: { wildcard: { color: data.wildcardColor } }
       })
       pendingPurchase.value = null
       break
@@ -1248,6 +1273,20 @@ const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
   const canAfford = checkCanAffordCard(card.id)
   if (!canAfford) {
     return
+  }
+
+  // 购买百搭颜色卡的附加前置判断：若卡含 wildcard 且玩家没有任何颜色的 bonus，则提示并不弹支付对话框
+  const detail = gameState.value?.cardDetails?.[card.id]
+  const hasWildcard = Array.isArray(detail?.effects) && detail.effects.includes('wildcard')
+  if (hasWildcard) {
+    const myBonus = getCurrentPlayerData()?.bonus || {}
+    const bonusSum = (myBonus.white||0)+(myBonus.blue||0)+(myBonus.green||0)+(myBonus.red||0)+(myBonus.black||0)
+    if (bonusSum <= 0) {
+      if (notificationRef.value) {
+        notificationRef.value.error('无法购买', '请在获得优惠后再购买百搭颜色发展卡')
+      }
+      return
+    }
   }
 
   // 打开购买发展卡对话框

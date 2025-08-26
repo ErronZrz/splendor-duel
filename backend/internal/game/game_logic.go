@@ -1317,6 +1317,8 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
             gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
         case models.Steal:
             gl.handleStealEffect(playerID, effectsData)
+        case models.Wildcard:
+            gl.handleWildcardEffect(playerID, card, effectsData)
         default:
             // 其他需要确认的效果后续实现
         }
@@ -1412,6 +1414,60 @@ func (gl *GameLogic) handleStealEffect(playerID string, effectsData map[string]a
         return false
     }
     player.Gems[gemType]++
+    return true
+}
+
+// handleWildcardEffect 处理百搭颜色效果：
+// - 前端通过 effects.wildcard 传入 { color: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
+// - 调整玩家bonus：将本卡默认计入的灰色bonus转移到所选颜色
+func (gl *GameLogic) handleWildcardEffect(playerID string, card *DevelopmentCardData, effectsData map[string]any) bool {
+    wildRaw, ok := effectsData["wildcard"].(map[string]any)
+    if !ok {
+        return false
+    }
+    if skipped, ok := wildRaw["skipped"].(bool); ok && skipped {
+        return true
+    }
+    colorStr, ok := wildRaw["color"].(string)
+    if !ok {
+        return false
+    }
+    chosen := models.GemType(colorStr)
+    switch chosen {
+    case models.GemWhite, models.GemBlue, models.GemGreen, models.GemRed, models.GemBlack:
+        // ok
+    default:
+        return false
+    }
+
+    player := gl.getPlayer(playerID)
+    if player == nil {
+        return false
+    }
+
+    // 将灰色bonus（若已加）转移为所选颜色
+    if card.Bonus == models.GemGray {
+        if player.Bonus[models.GemGray] > 0 {
+            player.Bonus[models.GemGray]--
+        }
+    }
+    card.Color = chosen
+    card.Bonus = chosen
+    player.Bonus[chosen]++
+
+    // 同步运行时卡牌详情映射，便于前端tooltip正确归类
+    if cd, ok := gl.gameState.CardDetails[card.ID]; ok {
+        cd.Bonus = chosen
+        cd.Color = chosen
+        gl.gameState.CardDetails[card.ID] = cd
+    }
+    if cm, ok := gl.gameState.CardMap[card.ID]; ok {
+        cm.Bonus = chosen
+        cm.Color = chosen
+        gl.gameState.CardMap[card.ID] = cm
+    }
+    // 移除灰色奖励显示
+    delete(player.Bonus, models.GemGray)
     return true
 }
 

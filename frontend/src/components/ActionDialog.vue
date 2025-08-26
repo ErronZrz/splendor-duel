@@ -175,7 +175,6 @@
 
         <!-- 窃取消费对话框：展示对手拥有的可被窃取的非黄金token -->
         <div v-if="actionType === 'stealToken'" class="gem-selection">
-          <h4>选择要窃取的宝石</h4>
           <div class="gem-display">
             <div class="gem-row">
               <div 
@@ -199,6 +198,36 @@
               >
                 <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
                 <span class="gem-count">×{{ opponentGemCount(gemType) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 百搭颜色对话框：展示一般颜色，依据玩家是否拥有该颜色bonus决定可选/禁用；数量显示为当前bonus数 -->
+        <div v-if="actionType === 'chooseWildcardColor'" class="gem-selection">
+          <div class="gem-display">
+            <div class="gem-row">
+              <div 
+                v-for="gemType in ['white','blue','green']"
+                :key="`wild-${gemType}`"
+                class="gem-item"
+                :class="{ 'clickable': (getPlayerBonus(gemType) > 0) && !isSelectedWildcardColor(gemType), 'disabled': getPlayerBonus(gemType) <= 0, 'selected': isSelectedWildcardColor(gemType) }"
+                @click="selectWildcardColor(gemType)"
+              >
+                <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
+                <span class="gem-count">×{{ getPlayerBonus(gemType) }}</span>
+              </div>
+            </div>
+            <div class="gem-row">
+              <div 
+                v-for="gemType in ['red','black']"
+                :key="`wild-${gemType}`"
+                class="gem-item"
+                :class="{ 'clickable': (getPlayerBonus(gemType) > 0) && !isSelectedWildcardColor(gemType), 'disabled': getPlayerBonus(gemType) <= 0, 'selected': isSelectedWildcardColor(gemType) }"
+                @click="selectWildcardColor(gemType)"
+              >
+                <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
+                <span class="gem-count">×{{ getPlayerBonus(gemType) }}</span>
               </div>
             </div>
           </div>
@@ -408,10 +437,22 @@
           跳过
         </button>
 
+        <!-- stealToken 的跳过按钮：无可窃取时允许跳过 -->
+        <button 
+          v-if="actionType === 'stealToken'"
+          class="btn btn-light"
+          type="button"
+          @click="$emit('confirm', { actionType: 'stealToken', stealGemType: null, selectedCard, paymentPlan })"
+        >
+          跳过
+        </button>
+
+        
+
         <button 
           class="btn btn-primary" 
-          @click="actionType === 'takeExtraToken' ? $emit('confirm', { actionType: 'takeExtraToken', selectedGems, selectedCard, paymentPlan }) : handleConfirm()"
-          :disabled="actionType === 'takeExtraToken' ? selectedGems.length !== 1 : !canConfirm"
+          @click="actionType === 'takeExtraToken' ? $emit('confirm', { actionType: 'takeExtraToken', selectedGems, selectedCard, paymentPlan }) : (actionType === 'stealToken' ? $emit('confirm', { actionType: 'stealToken', stealGemType: selectedStealGemType, selectedCard, paymentPlan }) : (actionType === 'chooseWildcardColor' ? $emit('confirm', { actionType: 'chooseWildcardColor', wildcardColor: selectedWildcardColor, selectedCard, paymentPlan }) : handleConfirm()))"
+          :disabled="actionType === 'takeExtraToken' ? selectedGems.length !== 1 : (actionType === 'stealToken' ? !selectedStealGemType : (actionType === 'chooseWildcardColor' ? !selectedWildcardColor : !canConfirm))"
         >
           {{ actionType === 'discardGems' ? '完成丢弃' : '确认' }}
         </button>
@@ -452,6 +493,8 @@ const extraSelectedGem = ref(null) // {x, y, type} 或 null
 const skipExtraToken = ref(false)
 // 窃取消费本地状态
 const selectedStealGemType = ref(null) // 'white'|'blue'|'green'|'red'|'black'|'pearl'
+// 百搭颜色本地状态
+const selectedWildcardColor = ref(null)
 
 // 宝石丢弃的本地状态管理
 const discardedGems = ref({}) // 记录每种宝石已丢弃的数量
@@ -490,6 +533,8 @@ watch(() => props.visible, (newVal) => {
     }
     // 重置窃取选择
     selectedStealGemType.value = null
+    // 重置百搭颜色选择
+    selectedWildcardColor.value = null
     
     // 对于拿取宝石操作，自动选中初始宝石
     if (props.actionType === 'takeGems' && props.initialGemPosition) {
@@ -692,6 +737,16 @@ const selectStealGemType = (gemType) => {
   selectedStealGemType.value = gemType
 }
 
+// 百搭颜色：读取玩家bonus
+const getPlayerBonus = (gemType) => {
+  return (props.playerData?.bonus && props.playerData.bonus[gemType]) || 0
+}
+const isSelectedWildcardColor = (gemType) => selectedWildcardColor.value === gemType
+const selectWildcardColor = (gemType) => {
+  if (getPlayerBonus(gemType) <= 0) return
+  selectedWildcardColor.value = gemType
+}
+
 // 移除宝石
 const removeGem = (index) => {
   selectedGems.value.splice(index, 1)
@@ -811,6 +866,9 @@ const canConfirm = computed(() => {
     case 'stealToken':
       // 仅在选择了一个可窃取的宝石类型后才能确认
       return !!selectedStealGemType.value
+    case 'chooseWildcardColor':
+      // 仅在选择了一个允许的颜色后才能确认
+      return !!selectedWildcardColor.value
     case 'reserveCard':
       // 对于保留发展卡，只需要选择卡牌即可，黄金位置已经通过点击确定
       return selectedCard.value !== null
