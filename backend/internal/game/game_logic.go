@@ -1114,6 +1114,8 @@ func getGemDisplayName(gemType models.GemType) string {
 		return "珍珠"
 	case models.GemGold:
 		return "黄金"
+	case models.GemGray:
+		return "无色"
 	default:
 		return string(gemType)
 	}
@@ -1323,6 +1325,56 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
             // 其他需要确认的效果后续实现
         }
     }
+
+    // 处理贵族选择（若传入）
+    if nobleRaw, ok := effectsData["noble"].(map[string]any); ok {
+        gl.handleNobleSelection(playerID, nobleRaw)
+    }
+}
+
+// 处理贵族选择与效果结算（noble2: +2分+新回合；noble3: +2分+特权；noble4: +3分）
+func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]any) bool {
+    id, _ := nobleData["id"].(string)
+    if id == "" {
+        return false
+    }
+    player := gl.getPlayer(playerID)
+    if player == nil {
+        return false
+    }
+
+    for _, n := range player.Nobles {
+        if n == id {
+            return false
+        }
+    }
+
+    switch id {
+    case "noble2":
+        player.Points += 2
+        if gl.gameState.ExtraTurns == nil {
+            gl.gameState.ExtraTurns = map[string]int{}
+        }
+        gl.gameState.ExtraTurns[playerID]++
+    case "noble3":
+        player.Points += 2
+        _ = gl.TakePrivilegeToken(playerID)
+    case "noble4":
+        player.Points += 3
+    default:
+        return false
+    }
+
+    player.Nobles = append(player.Nobles, id)
+    // 从场上可用贵族中移除
+    var filtered []string
+    for _, nid := range gl.gameState.AvailableNobles {
+        if nid != id {
+            filtered = append(filtered, nid)
+        }
+    }
+    gl.gameState.AvailableNobles = filtered
+    return true
 }
 
 // handleExtraTokenEffect 处理额外token效果：

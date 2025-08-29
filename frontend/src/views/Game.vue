@@ -377,6 +377,37 @@ const actionDialog = ref({
 const pendingTakeGems = ref([])
 // 暂存一次购买的支付方案与卡，用于额外token二次确认后统一提交
 const pendingPurchase = ref(null)
+const pendingEffects = ref({})
+const openedFollowupDialog = ref(false)
+
+// 在特效确认后再检查是否需要弹出贵族选择
+const maybeOpenNobleDialogAfterEffects = () => {
+  const me = getCurrentPlayerData()
+  const detail = gameState.value?.cardDetails?.[pendingPurchase.value?.card?.id]
+  if (!me || !detail) {
+    pendingPurchase.value = null
+    return
+  }
+  const crownsBefore = me.crowns || 0
+  const crownsAfter = crownsBefore + (detail.crowns || 0)
+  const owned = me.nobles?.length || 0
+  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
+  if (canChooseNoble) {
+    actionDialog.value = {
+      visible: true,
+      actionType: 'chooseNoble',
+      title: '选择贵族',
+      message: '请选择一个可获得的贵族',
+      playerData: { 
+        ownedNobles: me.nobles || [],
+        availableNobles: gameState.value?.availableNobles || []
+      },
+      selectedCard: pendingPurchase.value.card
+    }
+  } else {
+    pendingPurchase.value = null
+  }
+}
 
 // 构建窃取对话框所需数据（包含对手宝石持有情况）
 const buildStealDialogPlayerData = () => {
@@ -384,6 +415,45 @@ const buildStealDialogPlayerData = () => {
   const meId = getCurrentPlayerData()?.id
   const opponent = players.find(p => p.id !== meId) || {}
   return { opponent: { gems: opponent.gems || {} } }
+}
+
+// 在特效链条结束时决定是否弹贵族或直接购买
+const maybeOpenNobleOrBuyNow = () => {
+  const me = getCurrentPlayerData()
+  const detail = gameState.value?.cardDetails?.[pendingPurchase.value?.card?.id]
+  if (!me || !detail) {
+    pendingPurchase.value = null
+    pendingEffects.value = {}
+    openedFollowupDialog.value = false
+    return
+  }
+  const crownsBefore = me.crowns || 0
+  const crownsAfter = crownsBefore + (detail.crowns || 0)
+  const owned = me.nobles?.length || 0
+  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
+  if (canChooseNoble) {
+    actionDialog.value = {
+      visible: true,
+      actionType: 'chooseNoble',
+      title: '选择贵族',
+      message: '请选择一个可获得的贵族',
+      playerData: { 
+        ownedNobles: me.nobles || [],
+        availableNobles: gameState.value?.availableNobles || []
+      },
+      selectedCard: pendingPurchase.value.card
+    }
+    openedFollowupDialog.value = true
+  } else {
+    executeAction('buyCard', {
+      cardId: pendingPurchase.value.card.id,
+      paymentPlan: pendingPurchase.value.paymentPlan || {},
+      effects: pendingEffects.value
+    })
+    pendingPurchase.value = null
+    pendingEffects.value = {}
+    openedFollowupDialog.value = false
+  }
 }
 
 // Bonus工具提示状态
@@ -501,7 +571,8 @@ const getGemDisplayName = (gemType) => {
     'red': '红宝石',
     'black': '黑宝石',
     'pearl': '珍珠',
-    'gold': '黄金'
+    'gold': '黄金',
+    'gray': '无色'
   }
   return gemMap[gemType] || gemType
 }
@@ -884,6 +955,7 @@ const handleActionConfirm = (data) => {
       if (hasExtra) {
         // 缓存购买信息，二次确认后再一次性请求
         pendingPurchase.value = { card: selectedCard, paymentPlan }
+        pendingEffects.value = {}
 
         // 弹出额外token对话框（第二步）：重用 takeGems 视图，但限制选择1个且色彩匹配
         actionDialog.value = {
@@ -899,6 +971,7 @@ const handleActionConfirm = (data) => {
       } else if (hasSteal) {
         // 窃取对话框：展示对手可被窃取的非黄金token
         pendingPurchase.value = { card: selectedCard, paymentPlan }
+        pendingEffects.value = {}
         actionDialog.value = {
           visible: true,
           actionType: 'stealToken',
@@ -911,6 +984,7 @@ const handleActionConfirm = (data) => {
       } else if (hasWildcard) {
         // 百搭颜色对话框：依据玩家bonus可选颜色
         pendingPurchase.value = { card: selectedCard, paymentPlan }
+        pendingEffects.value = {}
         actionDialog.value = {
           visible: true,
           actionType: 'chooseWildcardColor',
@@ -921,62 +995,76 @@ const handleActionConfirm = (data) => {
         }
         return
       } else {
-        // 无需额外token/窃取，直接一次性请求
+        // 判断是否需要选择贵族（前端判定条件）
+        const me = getCurrentPlayerData()
+        const crownsBefore = me?.crowns || 0
+        const crownsAfter = crownsBefore + (detail?.crowns || 0)
+        const owned = me?.nobles?.length || 0
+        const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
+        if (canChooseNoble) {
+          pendingPurchase.value = { card: selectedCard, paymentPlan }
+          pendingEffects.value = {}
+          actionDialog.value = {
+            visible: true,
+            actionType: 'chooseNoble',
+            title: '选择贵族',
+            message: '请选择一个可获得的贵族',
+            playerData: { ownedNobles: me?.nobles || [] },
+            selectedCard: selectedCard
+          }
+          return
+        }
+        // 无需特效/贵族，直接一次性请求
         executeAction('buyCard', {
           cardId: selectedCard.id,
           paymentPlan,
-          effects
+          effects: {}
         })
       }
       break
     case 'takeExtraToken':
-      // 二次对话框：提交最终一次性购买请求（选了1个则带坐标，否则视为跳过）
-      if (!pendingPurchase.value?.card?.id) {
-        actionDialog.value.visible = false
-        break
+      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
+      pendingEffects.value = {
+        ...pendingEffects.value,
+        extraToken: data.selectedGems?.[0] ? { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } : { skipped: true }
       }
-      executeAction('buyCard', {
-        cardId: pendingPurchase.value.card.id,
-        paymentPlan: pendingPurchase.value.paymentPlan || {},
-        effects: data.selectedGems?.[0] ? { extraToken: { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } } : { extraToken: { skipped: true } }
-      })
-      pendingPurchase.value = null
+      maybeOpenNobleOrBuyNow()
       break
     case 'stealToken':
-      if (!pendingPurchase.value?.card?.id) {
-        actionDialog.value.visible = false
-        break
+      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
+      pendingEffects.value = {
+        ...pendingEffects.value,
+        steal: data.stealGemType ? { gemType: data.stealGemType } : { skipped: true }
+      }
+      maybeOpenNobleOrBuyNow()
+      break
+    case 'chooseNoble':
+      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
+      pendingEffects.value = {
+        ...pendingEffects.value,
+        noble: { id: data.nobleId }
       }
       executeAction('buyCard', {
         cardId: pendingPurchase.value.card.id,
         paymentPlan: pendingPurchase.value.paymentPlan || {},
-        effects: data.stealGemType ? { steal: { gemType: data.stealGemType } } : { steal: { skipped: true } }
+        effects: pendingEffects.value
       })
       pendingPurchase.value = null
+      pendingEffects.value = {}
       break
     case 'chooseWildcardColor':
-      if (!pendingPurchase.value?.card?.id) {
-        actionDialog.value.visible = false
-        break
+      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
+      pendingEffects.value = {
+        ...pendingEffects.value,
+        wildcard: { color: data.wildcardColor }
       }
-      executeAction('buyCard', {
-        cardId: pendingPurchase.value.card.id,
-        paymentPlan: pendingPurchase.value.paymentPlan || {},
-        effects: { wildcard: { color: data.wildcardColor } }
-      })
-      pendingPurchase.value = null
+      // 关闭当前对话框后，再异步检查（确保UI已更新），避免被对话框closing覆盖
+      setTimeout(() => {
+        maybeOpenNobleOrBuyNow()
+      }, 0)
       break
     case 'takeExtraToken':
-      // 二次对话框：提交最终一次性购买请求（选了1个则带坐标，否则视为跳过）
-      if (!data.selectedCard?.id) {
-        actionDialog.value.visible = false
-        break
-      }
-      executeAction('buyCard', {
-        cardId: data.selectedCard.id,
-        paymentPlan: data.paymentPlan || {},
-        effects: data.selectedGems?.[0] ? { extraToken: { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } } : { extraToken: { skipped: true } }
-      })
+      // 保留旧分支作为兜底（不应走到这里）
       break
     case 'reserveCard':
       console.log('向后端发送保留发展卡请求:', data.selectedCard, actionDialog.value.selectedGold)
@@ -1193,6 +1281,14 @@ const handleGemClick = (rowIndex, colIndex, gemType) => {
   
   // 如果点击的是黄金，打开保留发展卡对话框
   if (gemType === 'gold') {
+    const me = getCurrentPlayerData()
+    const reserved = me?.reservedCards?.length || 0
+    if (reserved >= 3) {
+      if (notificationRef.value) {
+        notificationRef.value.error('无法保留', '已经保留 3 张发展卡')
+      }
+      return
+    }
     handleReserveCard(rowIndex, colIndex)
   } else {
     // 如果点击的是其他宝石，直接打开拿取宝石对话框

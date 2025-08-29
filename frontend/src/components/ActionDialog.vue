@@ -233,6 +233,23 @@
           </div>
         </div>
 
+        <!-- 选择贵族对话框：只展示版图上剩余的贵族 -->
+        <div v-if="actionType === 'chooseNoble'" class="gem-selection">
+          <div class="gem-display">
+            <div class="gem-row">
+              <div 
+                v-for="nobleId in getAvailableNobles()"
+                :key="`noble-${nobleId}`"
+                class="gem-item"
+                :class="{ 'clickable': selectedNobleId !== nobleId, 'selected': selectedNobleId === nobleId }"
+                @click="selectNoble(nobleId)"
+              >
+                <img :src="`/images/nobles/${nobleId}.jpg`" :alt="nobleId" class="noble-thumb" />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 丢弃宝石操作 -->
         <div v-if="actionType === 'discardGems'" class="gem-discard">
           <h4>丢弃宝石</h4>
@@ -451,8 +468,8 @@
 
         <button 
           class="btn btn-primary" 
-          @click="actionType === 'takeExtraToken' ? $emit('confirm', { actionType: 'takeExtraToken', selectedGems, selectedCard, paymentPlan }) : (actionType === 'stealToken' ? $emit('confirm', { actionType: 'stealToken', stealGemType: selectedStealGemType, selectedCard, paymentPlan }) : (actionType === 'chooseWildcardColor' ? $emit('confirm', { actionType: 'chooseWildcardColor', wildcardColor: selectedWildcardColor, selectedCard, paymentPlan }) : handleConfirm()))"
-          :disabled="actionType === 'takeExtraToken' ? selectedGems.length !== 1 : (actionType === 'stealToken' ? !selectedStealGemType : (actionType === 'chooseWildcardColor' ? !selectedWildcardColor : !canConfirm))"
+          @click="actionType === 'takeExtraToken' ? $emit('confirm', { actionType: 'takeExtraToken', selectedGems, selectedCard, paymentPlan }) : (actionType === 'stealToken' ? $emit('confirm', { actionType: 'stealToken', stealGemType: selectedStealGemType, selectedCard, paymentPlan }) : (actionType === 'chooseWildcardColor' ? $emit('confirm', { actionType: 'chooseWildcardColor', wildcardColor: selectedWildcardColor, selectedCard, paymentPlan }) : (actionType === 'chooseNoble' ? $emit('confirm', { actionType: 'chooseNoble', nobleId: selectedNobleId, selectedCard, paymentPlan }) : handleConfirm())))"
+          :disabled="actionType === 'takeExtraToken' ? selectedGems.length !== 1 : (actionType === 'stealToken' ? !selectedStealGemType : (actionType === 'chooseWildcardColor' ? !selectedWildcardColor : (actionType === 'chooseNoble' ? !selectedNobleId : !canConfirm)))"
         >
           {{ actionType === 'discardGems' ? '完成丢弃' : '确认' }}
         </button>
@@ -495,6 +512,8 @@ const skipExtraToken = ref(false)
 const selectedStealGemType = ref(null) // 'white'|'blue'|'green'|'red'|'black'|'pearl'
 // 百搭颜色本地状态
 const selectedWildcardColor = ref(null)
+// 贵族选择
+const selectedNobleId = ref(null)
 
 // 宝石丢弃的本地状态管理
 const discardedGems = ref({}) // 记录每种宝石已丢弃的数量
@@ -535,6 +554,8 @@ watch(() => props.visible, (newVal) => {
     selectedStealGemType.value = null
     // 重置百搭颜色选择
     selectedWildcardColor.value = null
+    // 重置贵族选择
+    selectedNobleId.value = null
     
     // 对于拿取宝石操作，自动选中初始宝石
     if (props.actionType === 'takeGems' && props.initialGemPosition) {
@@ -616,7 +637,8 @@ const getGemDisplayName = (gemType) => {
     'red': '红宝石',
     'black': '黑宝石',
     'pearl': '珍珠',
-    'gold': '黄金'
+    'gold': '黄金',
+    'gray': '无色'
   }
   return gemMap[gemType] || gemType
 }
@@ -747,6 +769,14 @@ const selectWildcardColor = (gemType) => {
   selectedWildcardColor.value = gemType
 }
 
+// 贵族选择：获取版图上剩余的贵族
+const getAvailableNobles = () => {
+  return props.playerData?.availableNobles || []
+}
+const selectNoble = (nobleId) => {
+  selectedNobleId.value = nobleId
+}
+
 // 移除宝石
 const removeGem = (index) => {
   selectedGems.value.splice(index, 1)
@@ -869,6 +899,8 @@ const canConfirm = computed(() => {
     case 'chooseWildcardColor':
       // 仅在选择了一个允许的颜色后才能确认
       return !!selectedWildcardColor.value
+    case 'chooseNoble':
+      return !!selectedNobleId.value
     case 'reserveCard':
       // 对于保留发展卡，只需要选择卡牌即可，黄金位置已经通过点击确定
       return selectedCard.value !== null
@@ -2133,6 +2165,14 @@ const getRemainingTokens = (gemType) => {
   border-radius: 50%;
   margin-bottom: 8px;
   border: 3px solid transparent;
+}
+
+.noble-thumb {
+  width: 80px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: 10px; /* 圆角矩形 */
+  margin-bottom: 8px;
 }
 
 .gem-item.selected .gem-icon {
