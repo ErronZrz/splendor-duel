@@ -92,6 +92,9 @@ func (gl *GameLogic) StartGame() error {
 // 2) 若公共区有剩余P，则从公共区减1，玩家加1
 // 3) 否则，从对手处转移1个P到该玩家（若对手有的话）
 func (gl *GameLogic) TakePrivilegeToken(playerID string) error {
+    if gl.gameState.Status == models.GameStatusFinished {
+        return errors.New("游戏已结束")
+    }
     playerIndex := gl.getPlayerIndex(playerID)
     if playerIndex == -1 {
         return errors.New("玩家不存在")
@@ -442,9 +445,57 @@ func (gl *GameLogic) refillDevelopmentCards(level models.CardLevel, removedCardI
 	}
 }
 
+// 检查胜利条件，返回是否胜利以及原因列表
+func (gl *GameLogic) checkVictoryForPlayer(p *models.Player) (bool, []string) {
+	reasons := []string{}
+	// 条件1：总分达到20
+	if p.Points >= 20 {
+		reasons = append(reasons, "总分达到 20 分")
+	}
+	// 条件2：皇冠达到10
+	if p.Crowns >= 10 {
+		reasons = append(reasons, "皇冠数达到 10 个")
+	}
+	// 条件3：任一颜色的发展卡总分达到10（白/蓝/绿/红/黑），含百搭改色
+	if gl != nil && gl.gameState != nil {
+		colorPoints := map[models.GemType]int{
+			models.GemWhite: 0,
+			models.GemBlue:  0,
+			models.GemGreen: 0,
+			models.GemRed:   0,
+			models.GemBlack: 0,
+		}
+		for _, cardID := range p.DevelopmentCards {
+			if cd, ok := gl.gameState.CardDetails[cardID]; ok {
+				// 使用卡牌当前 Color（百搭会在结算时写回到 CardDetails）
+				if _, tracked := colorPoints[cd.Color]; tracked {
+					colorPoints[cd.Color] += cd.Points
+				}
+			}
+		}
+		// 检查是否有任一颜色 >= 10（可能不止一个）
+		for color, pts := range colorPoints {
+			if pts >= 10 {
+				cn := map[models.GemType]string{
+					models.GemWhite: "白色发展卡总分达到 10 分",
+					models.GemBlue:  "蓝色发展卡总分达到 10 分",
+					models.GemGreen: "绿色发展卡总分达到 10 分",
+					models.GemRed:   "红色发展卡总分达到 10 分",
+					models.GemBlack: "黑色发展卡总分达到 10 分",
+				}[color]
+				reasons = append(reasons, cn)
+			}
+		}
+	}
+	return len(reasons) > 0, reasons
+}
+
 // 回合结束处理函数
 func (gl *GameLogic) HandleTurnEnd() error {
-	// 检查并获取贵族，待实现
+	// 若游戏已结束，忽略后续处理
+	if gl.gameState.Status == models.GameStatusFinished {
+		return nil
+	}
 
 	// 处理待补充的发展卡
 	if gl.gameState.CardToRefill.Level != 0 {
@@ -474,7 +525,14 @@ func (gl *GameLogic) HandleTurnEnd() error {
 		return nil // 不切换回合，等待玩家丢弃宝石
 	}
 	
-	// 检查胜利条件，待实现
+	// 检查胜利条件
+	if won, reasons := gl.checkVictoryForPlayer(currentPlayer); won {
+		gl.gameState.Status = models.GameStatusFinished
+		gl.gameState.Winner = currentPlayer.ID
+		gl.gameState.VictoryReasons = reasons
+		fmt.Printf("游戏结束，胜者: %s，原因: %v\n", currentPlayer.Name, reasons)
+		return nil
+	}
 	
 	// 切换到下一个玩家前，重置本回合限制状态
 	gl.gameState.RefilledThisTurn = false
@@ -500,6 +558,10 @@ func (gl *GameLogic) calculateTotalGems(player *models.Player) int {
 
 // 丢弃宝石
 func (gl *GameLogic) DiscardGem(playerID string, gemType models.GemType) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	fmt.Printf("DiscardGem 被调用 - 玩家ID: %s, 宝石类型: %s\n", playerID, gemType)
 	
 	playerIndex := gl.getPlayerIndex(playerID)
@@ -552,6 +614,10 @@ func (gl *GameLogic) DiscardGem(playerID string, gemType models.GemType) error {
 
 // DiscardGemsBatch 批量丢弃宝石
 func (gl *GameLogic) DiscardGemsBatch(playerID string, gemDiscards map[models.GemType]int) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	fmt.Printf("DiscardGemsBatch 被调用 - 玩家ID: %s, 丢弃详情: %v\n", playerID, gemDiscards)
 	
 	playerIndex := gl.getPlayerIndex(playerID)
@@ -696,6 +762,9 @@ func (gl *GameLogic) getPlayer(playerID string) *models.Player {
 
 // TakeGems 拿取宝石
 func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
@@ -756,6 +825,10 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 
 // ReserveCard 保留发展卡
 func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY int) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
@@ -900,6 +973,10 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 
 // SpendPrivilege 花费特权指示物
 func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPositions []map[string]any) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	// 可选动作顺序限制：若本回合已补充版图，则不能花费特权
 	if gl.gameState.RefilledThisTurn {
 		return errors.New("本回合已补充版图，不能使用特权指示物")
@@ -956,6 +1033,10 @@ func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPosi
 
 // RefillBoard 补充版图
 func (gl *GameLogic) RefillBoard(playerID string) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	if len(gl.gameState.GemBag) == 0 {
 		return errors.New("宝石袋子为空，无法补充版图")
 	}
@@ -1139,6 +1220,10 @@ func (gl *GameLogic) deductPaymentFromPlayer(player *models.Player, paymentPlan 
 
 // BuyCardWithPaymentPlanAndEffects 购买发展卡（带支付计划与特效一次性结算）
 func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[string]any) error {
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")

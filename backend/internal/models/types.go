@@ -91,6 +91,7 @@ type GameState struct {
 	TurnNumber                int                           `json:"turnNumber"`                // 回合数
 	Players                   []Player                      `json:"players"`                   // 玩家列表
 	Winner                    string                        `json:"winner,omitempty"`          // 获胜者ID
+	VictoryReasons            []string                      `json:"victoryReasons,omitempty"`  // 获胜原因说明
 	
 	// 宝石版图 (5x5网格)
 	GemBoard                  [][]GemType                   `json:"gemBoard"`                  // 宝石版图

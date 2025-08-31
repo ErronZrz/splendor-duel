@@ -339,6 +339,21 @@
         @discard-gems-batch="handleDiscardGemsBatch"
       @reset="handleReset"
     />
+
+    <!-- 胜利对话框（全局） -->
+    <div v-if="victoryDialog.visible" class="victory-overlay">
+      <div class="victory-dialog">
+        <div class="victory-header">
+          <h3>游戏结束</h3>
+        </div>
+        <div class="victory-body">
+          <p>{{ victoryDialog.message }}</p>
+        </div>
+        <div class="victory-footer">
+          <button class="btn btn-primary" @click="victoryDialog.visible = false">知道了</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -363,6 +378,9 @@ const gameStore = useGameStore()
 const newMessage = ref('')
 const chatMessagesRef = ref(null)
 const notificationRef = ref(null)
+
+// 胜利对话框
+const victoryDialog = ref({ visible: false, message: '' })
 
 // 操作对话框状态
 const actionDialog = ref({
@@ -503,6 +521,8 @@ const showWaitingArea = computed(() => {
 
 const isMyTurn = computed(() => {
   if (!gameState?.value || !currentPlayer?.value) return false
+  // 游戏结束后，任何人都不能操作
+  if (gameState.value.status === 'finished') return false
   const currentPlayerIndex = gameState.value.currentPlayerIndex || 0
   const players = gameState.value.players || []
   const currentGamePlayer = players[currentPlayerIndex]
@@ -1655,13 +1675,17 @@ watch(gameState, (newState, oldState) => {
     notificationRef.value.game('游戏开始', 'Splendor Duel 正式开始！', 5000)
   }
   
-  // 游戏结束
+  // 游戏结束：弹出胜利对话框，禁止继续操作
   if (newState?.status === 'finished' && oldState?.status !== 'finished') {
-    const isWinner = newState.winner === currentPlayer.value?.id
-    if (isWinner) {
-      notificationRef.value.success('恭喜获胜！', '你赢得了这场游戏！', 0)
-    } else {
-      notificationRef.value.info('游戏结束', '很遗憾，这次没有获胜', 0)
+    const winnerId = newState?.winner
+    const players = newState?.players || []
+    const winner = players.find(p => p.id === winnerId)
+    const playerName = winner?.name || '未知玩家'
+    const reasons = Array.isArray(newState?.victoryReasons) ? newState.victoryReasons : []
+    const reasonsStr = reasons.length ? reasons.join('；') : '达成胜利条件'
+    victoryDialog.value = {
+      visible: true,
+      message: `${playerName} 因为 ${reasonsStr} 获得本局游戏胜利！`
     }
   }
   
@@ -2457,4 +2481,24 @@ watch(gameState, (newState, oldState) => {
     flex-direction: column;
   }
 }
+.victory-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.victory-dialog {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 420px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+.victory-header h3 { margin: 0 0 8px 0; }
+.victory-body { margin: 8px 0 16px 0; font-size: 14px; color: #333; }
+.victory-footer { text-align: right; }
+
 </style>

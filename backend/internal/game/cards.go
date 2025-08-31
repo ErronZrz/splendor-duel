@@ -40,7 +40,7 @@ var normalCardFormulas = map[string]string{
 	"e": "3Z 2B",
 	
 	// 2级普通卡
-	"h": "2X 2V 2B 1P",
+	"h": "2Z 2X 2B 1P",
 	"i": "4C 2X 1P",
 	"j": "4V 3Z",
 	"k": "5V 2B",
