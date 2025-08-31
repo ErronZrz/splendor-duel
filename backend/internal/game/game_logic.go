@@ -3,6 +3,7 @@ package game
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"splendor-duel-backend/internal/models"
 	"strconv"
 	"strings"
@@ -310,86 +311,48 @@ func (gl *GameLogic) drawCardsFromDeck(level models.CardLevel, count int) []stri
 
 // 验证宝石是否在一条直线上且连续
 func (gl *GameLogic) validateGemLine(positions []any) bool {
-	if len(positions) < 2 {
+	// 少于2个位置，视为有效（前端已限制最多3个）
+	n := len(positions)
+	if n < 2 {
 		return true
 	}
-	
-	// 获取第一个位置
-	firstPos, ok := positions[0].(map[string]any)
-	if !ok {
-		return false
-	}
-	
-	x1, ok := firstPos["x"].(float64)
-	if !ok {
-		return false
-	}
-	
-	y1, ok := firstPos["y"].(float64)
-	if !ok {
-		return false
-	}
-	
-	// 检查是否在一条直线上
-	isHorizontal := true
-	isVertical := true
-	isDiagonal := true
-	
-	for i := 1; i < len(positions); i++ {
-		pos, ok := positions[i].(map[string]any)
-		if !ok {
-			return false
-		}
-		
-		x2, ok := pos["x"].(float64)
-		if !ok {
-			return false
-		}
-		
-		y2, ok := pos["y"].(float64)
-		if !ok {
-			return false
-		}
-		
-		// 检查水平线
-		if y1 != y2 {
-			isHorizontal = false
-		}
-		
-		// 检查垂直线
-		if x1 != x2 {
-			isVertical = false
-		}
-		
-		// 检查对角线
-		if x1-x2 != y1-y2 && x1-x2 != -(y1-y2) {
-			isDiagonal = false
-		}
-		
-		// 检查连续性（简化处理）
-		if !gl.arePositionsAdjacent(int(x1), int(y1), int(x2), int(y2)) {
-			return false
-		}
-		
-		x1, y1 = x2, y2
-	}
-	
-	return isHorizontal || isVertical || isDiagonal
-}
 
-// 检查两个位置是否相邻
-func (gl *GameLogic) arePositionsAdjacent(x1, y1, x2, y2 int) bool {
-	dx := abs(x1 - x2)
-	dy := abs(y1 - y2)
-	return (dx == 1 && dy == 0) || (dx == 0 && dy == 1) || (dx == 1 && dy == 1)
-}
-
-// 绝对值函数
-func abs(x int) int {
-	if x < 0 {
-		return -x
+	// 解析为整型坐标切片，忽略传入顺序
+	type pt struct{ x, y int }
+	pts := make([]pt, 0, n)
+	for _, p := range positions {
+		m, ok := p.(map[string]any)
+		if !ok {
+			return false
+		}
+		xf, okx := m["x"].(float64)
+		yf, oky := m["y"].(float64)
+		if !okx || !oky {
+			return false
+		}
+		pts = append(pts, pt{ x: int(xf), y: int(yf) })
 	}
-	return x
+
+	// 判定是否同一条线（横/竖/两条对角线）
+	sameRow, sameCol, diag1, diag2 := true, true, true, true
+	for i := 1; i < n; i++ {
+		if pts[i].x != pts[0].x { sameCol = false }
+		if pts[i].y != pts[0].y { sameRow = false }
+		if (pts[i].x-pts[i].y) != (pts[0].x-pts[0].y) { diag1 = false }
+		if (pts[i].x+pts[i].y) != (pts[0].x+pts[0].y) { diag2 = false }
+	}
+	if !(sameRow || sameCol || diag1 || diag2) {
+		return false
+	}
+
+	// 检查是否连续
+	sort.Slice(pts, func(i, j int) bool {
+		return pts[i].x < pts[j].x || (pts[i].x == pts[j].x && pts[i].y < pts[j].y)
+	})
+	if n == 2 {
+		return pts[1].x - pts[0].x <= 1 && pts[1].y - pts[0].y <= 1
+	}
+	return pts[1].x * 2 == pts[0].x + pts[2].x && pts[1].y * 2 == pts[0].y + pts[2].y
 }
 
 // 计算应支付费用
@@ -1244,7 +1207,12 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	
 	// 将卡牌添加到玩家手中
 	player.DevelopmentCards = append(player.DevelopmentCards, cardID)
-	player.Bonus[card.Bonus]++
+	cardBonus := 1
+	// 对于 cardID 以 k 开头的卡牌，bonus=2
+	if strings.HasPrefix(cardID, "k") {
+		cardBonus = 2
+	}
+	player.Bonus[card.Bonus] += cardBonus
 	player.Points += card.Points
 	player.Crowns += card.Crowns
 	
