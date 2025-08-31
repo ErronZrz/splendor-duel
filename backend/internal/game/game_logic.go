@@ -1313,16 +1313,27 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
         effectsData = map[string]any{}
     }
 
+    // 标记卡牌本身是否包含对应效果
+    hasSteal := false
+
     for _, effect := range card.Effects {
         switch effect {
         case models.ExtraToken:
             gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
         case models.Steal:
+            hasSteal = true
             gl.handleStealEffect(playerID, effectsData)
         case models.Wildcard:
             gl.handleWildcardEffect(playerID, card, effectsData)
         default:
             // 其他需要确认的效果后续实现
+        }
+    }
+
+    // 若卡牌本身不含窃取效果，但前端传来了窃取（例如 noble1 触发），也应结算一次
+    if !hasSteal {
+        if _, ok := effectsData["steal"].(map[string]any); ok {
+            gl.handleStealEffect(playerID, effectsData)
         }
     }
 
@@ -1350,6 +1361,9 @@ func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]
     }
 
     switch id {
+    case "noble1":
+        player.Points += 2
+        // noble1 的窃取效果在购买卡牌时处理，这里只处理分数
     case "noble2":
         player.Points += 2
         if gl.gameState.ExtraTurns == nil {

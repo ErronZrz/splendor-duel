@@ -515,6 +515,13 @@ const getCurrentPlayerData = () => {
   return players.find(p => p.id === currentPlayer.value.id) || {}
 }
 
+// 获取对手数据
+const getOpponentData = () => {
+  if (!gameState?.value || !currentPlayer?.value) return {}
+  const players = gameState.value.players || []
+  return players.find(p => p.id !== currentPlayer.value.id) || {}
+}
+
 // 获取当前玩家名称
 const getCurrentPlayerName = () => {
   if (!gameState?.value || gameState.value.currentPlayerIndex === undefined) return ''
@@ -1009,7 +1016,10 @@ const handleActionConfirm = (data) => {
             actionType: 'chooseNoble',
             title: '选择贵族',
             message: '请选择一个可获得的贵族',
-            playerData: { ownedNobles: me?.nobles || [] },
+            playerData: { 
+            ownedNobles: me?.nobles || [],
+            availableNobles: gameState.value?.availableNobles || []
+          },
             selectedCard: selectedCard
           }
           return
@@ -1036,7 +1046,21 @@ const handleActionConfirm = (data) => {
         ...pendingEffects.value,
         steal: data.stealGemType ? { gemType: data.stealGemType } : { skipped: true }
       }
-      maybeOpenNobleOrBuyNow()
+      
+      // 检查是否已经选择了贵族（noble1），如果是则直接购买，不再检查贵族选择
+      if (pendingEffects.value.noble?.id === 'noble1') {
+        executeAction('buyCard', {
+          cardId: pendingPurchase.value.card.id,
+          paymentPlan: pendingPurchase.value.paymentPlan || {},
+          effects: pendingEffects.value
+        })
+        pendingPurchase.value = null
+        pendingEffects.value = {}
+        openedFollowupDialog.value = false
+      } else {
+        // 普通的窃取效果，继续检查贵族选择
+        maybeOpenNobleOrBuyNow()
+      }
       break
     case 'chooseNoble':
       if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
@@ -1044,13 +1068,30 @@ const handleActionConfirm = (data) => {
         ...pendingEffects.value,
         noble: { id: data.nobleId }
       }
-      executeAction('buyCard', {
-        cardId: pendingPurchase.value.card.id,
-        paymentPlan: pendingPurchase.value.paymentPlan || {},
-        effects: pendingEffects.value
-      })
-      pendingPurchase.value = null
-      pendingEffects.value = {}
+      
+      // 如果选择的是 noble1，需要先弹出窃取对话框（无论对手是否有宝石）
+      if (data.nobleId === 'noble1') {
+        actionDialog.value = {
+          visible: true,
+          actionType: 'stealToken',
+          title: '选择要窃取的宝石',
+          message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过',
+          playerData: buildStealDialogPlayerData(),
+          selectedCard: pendingPurchase.value.card
+        }
+        openedFollowupDialog.value = true
+        return
+      } else {
+        // 其他贵族直接购买
+        executeAction('buyCard', {
+          cardId: pendingPurchase.value.card.id,
+          paymentPlan: pendingPurchase.value.paymentPlan || {},
+          effects: pendingEffects.value
+        })
+        pendingPurchase.value = null
+        pendingEffects.value = {}
+        openedFollowupDialog.value = false
+      }
       break
     case 'chooseWildcardColor':
       if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
@@ -1120,13 +1161,39 @@ const handleActionConfirm = (data) => {
 // 处理操作对话框取消
 const handleActionCancel = (data) => {
   console.log('取消操作:', data)
-  
+
+  const canceledType = data?.actionType || actionDialog.value?.actionType
+
   // 如果是宝石丢弃对话框被关闭，记录状态但不重置游戏状态
-  if (data?.actionType === 'discardGems' && data?.closed) {
+  if (canceledType === 'discardGems' && data?.closed) {
     console.log('宝石丢弃对话框被关闭，但游戏状态仍需要丢弃')
     // 对话框关闭，但游戏状态仍然需要丢弃宝石
     // 设置一个定时器，定期检查是否需要重新打开对话框
     startDiscardDialogCheck()
+    actionDialog.value.visible = false
+    return
+  }
+
+  // noble1 场景：从贵族触发的窃取对话框，允许玩家取消并返回贵族选择
+  if (canceledType === 'stealToken' && pendingEffects.value?.noble?.id === 'noble1' && pendingPurchase.value?.card?.id) {
+    console.log('取消 noble1 的窃取选择，返回贵族选择对话框')
+    // 清除已暂存的 noble 选择，让玩家可重新选择
+    const { noble, ...rest } = pendingEffects.value
+    pendingEffects.value = { ...rest }
+
+    const me = getCurrentPlayerData()
+    actionDialog.value = {
+      visible: true,
+      actionType: 'chooseNoble',
+      title: '选择贵族',
+      message: '请选择一个可获得的贵族',
+      playerData: {
+        ownedNobles: me?.nobles || [],
+        availableNobles: gameState.value?.availableNobles || []
+      },
+      selectedCard: pendingPurchase.value.card
+    }
+    return
   }
   
   actionDialog.value.visible = false
