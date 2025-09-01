@@ -148,6 +148,7 @@ export const useGameStore = defineStore('game', () => {
             playerId: data.action.playerId,
             playerName: data.action.playerName,
             description: data.action.description || `执行了${data.action.type}操作`,
+            descriptionHtml: data.action.descriptionHtml || '',
             timestamp: data.action.timestamp || new Date()
           })
         }

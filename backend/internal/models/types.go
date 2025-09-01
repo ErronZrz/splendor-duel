@@ -149,13 +149,14 @@ type ChatMessage struct {
 
 // 游戏动作
 type GameAction struct {
-	ID          string                 `json:"id"`
-	PlayerID    string                 `json:"playerId"`
-	PlayerName  string                 `json:"playerName"`
-	Type        string                 `json:"type"`
-	Data        map[string]any `json:"data"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Description string                 `json:"description"`
+	ID              string                 `json:"id"`
+	PlayerID        string                 `json:"playerId"`
+	PlayerName      string                 `json:"playerName"`
+	Type            string                 `json:"type"`
+	Data            map[string]any         `json:"data"`
+	Timestamp       time.Time              `json:"timestamp"`
+	Description     string                 `json:"description"`
+	DescriptionHTML string                 `json:"descriptionHtml,omitempty"`
 }
 
 // API 响应

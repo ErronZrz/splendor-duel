@@ -299,7 +299,7 @@
         <!-- 历史记录面板 -->
         <div class="history-panel">
           <h3>操作历史</h3>
-          <div class="history-list">
+          <div class="history-list" ref="historyListRef">
             <div 
               v-for="(action, index) in gameHistory" 
               :key="index" 
@@ -307,7 +307,11 @@
             >
               <span class="action-time">{{ formatTime(action.timestamp) }}</span>
               <span class="action-player">{{ action.playerName }}</span>
-              <span class="action-text">{{ action.description }}</span>
+              <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
+              <span class="action-text" v-else v-html="getActionHtml(action)"></span>
+            </div>
+            <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }">
+              <img :src="preview.image" alt="预览" />
             </div>
           </div>
         </div>
@@ -359,6 +363,47 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
+
+// 历史记录悬停预览状态
+const historyListRef = ref(null)
+const preview = ref({ visible: false, image: '', x: 0, y: 0 })
+
+const getActionHtml = (action) => action?.descriptionHtml || ''
+
+onMounted(() => {
+  // 悬停预览：监听包含 data-preview 的链接
+  const el = historyListRef.value
+  if (!el) return
+
+  const onMouseOver = (e) => {
+    const t = e.target.closest('[data-preview]')
+    if (!t) return
+    const img = t.getAttribute('data-preview')
+    if (!img) return
+    preview.value = { visible: true, image: img, x: e.clientX + 12, y: e.clientY + 12 }
+  }
+  const onMouseMove = (e) => {
+    if (!preview.value.visible) return
+    preview.value = { ...preview.value, x: e.clientX + 12, y: e.clientY + 12 }
+  }
+  const onMouseOut = (e) => {
+    const t = e.target.closest('[data-preview]')
+    if (t) {
+      preview.value = { ...preview.value, visible: false }
+    }
+  }
+
+  el.addEventListener('mouseover', onMouseOver)
+  el.addEventListener('mousemove', onMouseMove)
+  el.addEventListener('mouseout', onMouseOut)
+
+  // 清理函数
+  onUnmounted(() => {
+    el.removeEventListener('mouseover', onMouseOver)
+    el.removeEventListener('mousemove', onMouseMove)
+    el.removeEventListener('mouseout', onMouseOut)
+  })
+})
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/game'
 import { storeToRefs } from 'pinia'
@@ -2500,5 +2545,39 @@ watch(gameState, (newState, oldState) => {
 .victory-header h3 { margin: 0 0 8px 0; }
 .victory-body { margin: 8px 0 16px 0; font-size: 14px; color: #333; }
 .victory-footer { text-align: right; }
+
+/* 历史记录富文本内的宝石小图标 */
+:deep(.hist-gem) {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 50%;
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 2px;
+}
+/* 历史记录悬停图片预览 */
+.history-preview-tooltip {
+  position: fixed;
+  z-index: 3000;
+  background: rgba(255,255,255,0.98);
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  pointer-events: none; /* 不拦截鼠标，避免闪烁 */
+}
+.history-preview-tooltip img {
+  max-width: 150px;
+  max-height: 220px;
+  display: block;
+  border-radius: 8px;
+}
+/* 悬停可预览的文字样式 */
+.hist-link {
+  cursor: pointer;
+  color: #0d6efd;
+  text-decoration: underline;
+}
 
 </style>
