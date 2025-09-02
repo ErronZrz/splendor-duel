@@ -444,17 +444,29 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				log.Printf("执行拿取宝石操作，位置: %+v", gemPositions)
 				var positions []map[string]any
 				for _, pos := range gemPositions { if posMap, ok := pos.(map[string]any); ok { positions = append(positions, posMap) } }
-				// 预生成图片（使用操作前的版图）
+				// 预生成图片与类型（使用操作前的版图）
 				var pics []string
+				var types []string
 				for _, p := range positions {
 					x := int(p["x"].(float64)); y := int(p["y"].(float64))
-					g := roomData.GameState.GemBoard[x][y]
-					pics = append(pics, histGemImg(string(g)))
+					g := string(roomData.GameState.GemBoard[x][y])
+					types = append(types, g)
+					pics = append(pics, histGemImg(g))
 				}
 				if err := gl.TakeGems(message.PlayerID, positions); err != nil {
 					log.Printf("拿取宝石失败: %v", err)
 				} else {
+					// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
+					grant := false
+					if len(types) == 3 {
+						same := (types[0] == types[1] && types[1] == types[2] && types[0] != "gold")
+						grant = grant || same
+					}
+					pearl := 0
+					for _, t := range types { if t == "pearl" { pearl++ } }
+					if pearl >= 2 { grant = true }
 					html := fmt.Sprintf("拿取宝石：%s", strings.Join(pics, ""))
+					if grant { html += "，允许对手获取一个特权指示物" }
 					desc := "拿取宝石"
 					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 				}
@@ -509,14 +521,21 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					var html, desc string
 					if totalPay <= 0 {
 						html = fmt.Sprintf("免费拿取一张等级 %d 的%s", level, histCardLink(cardID))
-						desc = fmt.Sprintf("%s 免费拿取发展卡", message.PlayerName)
+						desc = "免费拿取发展卡"
 					} else {
 						source := "购买一张"
 						if wasReserved { source = "从保留的发展卡购买一张" }
-						html = fmt.Sprintf("%s 花费 %s，%s等级 %d 的%s", message.PlayerName, strings.Join(pics, ""), source, level, histCardLink(cardID))
-						desc = fmt.Sprintf("%s 购买发展卡", message.PlayerName)
+						html = fmt.Sprintf("花费 %s，%s等级 %d 的%s", strings.Join(pics, ""), source, level, histCardLink(cardID))
+						desc = "购买发展卡"
 					}
 					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+					// 获得贵族
+					if nobleId != "" {
+						// 判定是第3还是第6皇冠（根据已有贵族数量）
+						owned := len(before.Nobles)
+						threshold := 3; if owned >= 1 { threshold = 6 }
+						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得贵族", fmt.Sprintf("因皇冠数达到 %d 获得%s", threshold, histNobleLink(nobleId)))
+					}
 					// 特殊效果历史
 					// 额外token
 					if extraPic != "" {
@@ -532,24 +551,18 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 						cn := map[string]string{"white":"白色","blue":"蓝色","green":"绿色","red":"红色","black":"黑色"}[wildColor]
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "百搭颜色", fmt.Sprintf("将百搭颜色卡放置在%s组中", cn))
 					}
-					// 新的回合/获取特权/获得贵族
+					// 新的回合/获取特权
 					// 依据卡效果或贵族
 					effArr := cd.Effects
 					for _, e := range effArr {
 						if e == models.NewTurn { broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因发展卡效果，获得额外的回合") }
-						if e == models.GetPrivilege { broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一枚特权指示物") }
+						if e == models.GetPrivilege { broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一个特权指示物") }
 					}
 					if nobleId == "noble2" {
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因贵族效果，获得额外的回合")
 					}
 					if nobleId == "noble3" {
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因贵族效果，获得一枚特权指示物")
-					}
-					if nobleId != "" {
-						// 判定是第3还是第6皇冠（根据已有贵族数量）
-						owned := len(before.Nobles)
-						threshold := 3; if owned >= 1 { threshold = 6 }
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得贵族", fmt.Sprintf("因皇冠数达到 %d 获得%s", threshold, histNobleLink(nobleId)))
+						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因贵族效果，获得一个特权指示物")
 					}
 				}
 			}
@@ -622,6 +635,11 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					log.Printf("丢弃宝石失败: %v", err)
 				} else {
 					log.Printf("丢弃宝石成功")
+					// 记录丢弃宝石，支持单枚
+					pic := histGemImg(gemType)
+					html := fmt.Sprintf("丢弃宝石 %s", pic)
+					desc := "丢弃宝石"
+					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 				}
 			}
 		case "discardGemsBatch":
@@ -633,6 +651,14 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					log.Printf("批量丢弃宝石失败: %v", err)
 				} else {
 					log.Printf("批量丢弃宝石成功")
+					// 记录批量丢弃
+					var pics []string
+					for gt, ct := range gemDiscards {
+						for i := 0; i < ct; i++ { pics = append(pics, histGemImg(string(gt))) }
+					}
+					html := fmt.Sprintf("丢弃宝石 %s", strings.Join(pics, ""))
+					desc := "丢弃宝石"
+					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 				}
 			}
 		case "endTurn":

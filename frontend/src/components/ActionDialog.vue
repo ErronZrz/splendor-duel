@@ -631,11 +631,11 @@ const getCurrentGemCount = (gemType) => {
 // 获取宝石显示名称
 const getGemDisplayName = (gemType) => {
   const gemMap = {
-    'white': '白宝石',
-    'blue': '蓝宝石',
-    'green': '绿宝石',
-    'red': '红宝石',
-    'black': '黑宝石',
+    'white': '白色',
+    'blue': '蓝色',
+    'green': '绿色',
+    'red': '红色',
+    'black': '黑色',
     'pearl': '珍珠',
     'gold': '黄金',
     'gray': '无色'

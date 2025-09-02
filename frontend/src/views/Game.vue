@@ -149,68 +149,59 @@
                   >
                     <div class="player-header">
                       <span class="player-name">{{ player.name }}</span>
-                      <span class="player-score">{{ player.points || 0 }}分</span>
-                    </div>
-                    
-                    <!-- 宝石 -->
-                    <div class="player-gems">
-                      <h5>宝石:</h5>
-                      <div class="gems-list">
-                        <span v-for="(count, gemType) in player.gems || {}" :key="gemType" class="gem-count">
-                          {{ gemType }}: {{ count }}
-                        </span>
+                      <div class="player-metrics">
+                        <span class="metric-badge">{{ player.privilegeTokens || 0 }}♟</span>
+                        <span class="metric-badge">{{ player.points || 0 }}🔸{{ getMaxSameColorPoints(player.id) }}</span>
+                        <span class="metric-badge">{{ player.crowns || 0 }}👑</span>
                       </div>
                     </div>
                     
-                    <!-- 奖励 -->
-                    <div class="player-bonuses">
-                      <h5>奖励:</h5>
-                      <div class="bonuses-list">
-                        <div 
-                          v-for="(count, color) in player.bonus || {}" 
-                          :key="color" 
-                          class="bonus-item"
-                          @mouseenter="showBonusTooltip($event, player.id, color)"
-                          @mouseleave="hideBonusTooltip"
-                        >
-                          <span class="bonus-count">
-                            {{ getGemDisplayName(color) }}: {{ count }}
-                          </span>
-                          <!-- Bonus悬停提示 -->
-                          <div 
-                            v-if="activeTooltip.playerId === player.id && activeTooltip.color === color"
-                            class="bonus-tooltip"
-                            :style="tooltipStyle"
-                          >
-                            <h6>{{ getGemDisplayName(color) }} Bonus ({{ count }})</h6>
-                            <div class="bonus-cards">
-                              <img 
-                                v-for="cardId in getBonusCards(player.id, color)" 
-                                :key="cardId"
-                                :src="`/images/cards/${cardId}.jpg`"
-                                :alt="`Bonus卡${cardId}`"
-                                class="bonus-card-image"
-                                @error="handleCardImageError"
-                              />
-                            </div>
+                    <!-- 宝石（10位容量提示 + 溢出换行显示） -->
+                    <div class="player-gems">
+                      <h5>宝石</h5>
+                      <div class="token-board">
+                        <div class="token-row">
+                          <div v-for="(cell, idx) in getFirstTenCells(player)" :key="`cell-1-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
+                            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" @error="handleGemImageError" />
+                          </div>
+                        </div>
+                        <div class="token-row">
+                          <div v-for="(cell, idx) in getSecondTenCells(player)" :key="`cell-2-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
+                            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" @error="handleGemImageError" />
+                          </div>
+                        </div>
+                        <div v-for="(row, rIdx) in getOverflowRows(player)" :key="`overflow-${rIdx}`" class="token-row overflow">
+                          <div v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" class="token-cell no-placeholder">
+                            <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="gem" @error="handleGemImageError" />
                           </div>
                         </div>
                       </div>
                     </div>
                     
-                    <!-- 皇冠 -->
-                    <div class="player-crowns">
-                      <h5>皇冠: {{ player.crowns || 0 }}</h5>
-                    </div>
-                    
-                    <!-- 特权指示物 -->
-                    <div class="player-privileges">
-                      <h5>特权: {{ player.privilegeTokens || 0 }}</h5>
+                    <!-- 奖励（按颜色叠放发展卡，仅显示上方四分之一） -->
+                    <div class="player-bonuses">
+                      <h5>购买的发展卡</h5>
+                      <div class="bonus-stacks">
+                        <div v-for="color in ['white','blue','green']" :key="`col-${player.id}-${color}`" class="bonus-column">
+                          <div class="bonus-stack">
+                            <img v-for="(cardId, i) in getOwnedBonusCards(player.id, color)" :key="cardId" :src="`/images/cards/${cardId}.jpg`" :alt="`卡${cardId}`" class="bonus-card-image" :style="{ marginTop: i === 0 ? '0' : '-120%' }" @error="handleCardImageError" />
+                          </div>
+                          <div class="bonus-label">{{ getGemDisplayName(color) }}</div>
+                        </div>
+                      </div>
+                      <div class="bonus-stacks">
+                        <div v-for="color in ['red','black','gray']" :key="`col-${player.id}-${color}`" class="bonus-column">
+                          <div class="bonus-stack">
+                            <img v-for="(cardId, i) in getOwnedBonusCards(player.id, color)" :key="cardId" :src="`/images/cards/${cardId}.jpg`" :alt="`卡${cardId}`" class="bonus-card-image" :style="{ marginTop: i === 0 ? '0' : '-120%' }" @error="handleCardImageError" />
+                          </div>
+                          <div class="bonus-label">{{ getGemDisplayName(color) }}</div>
+                        </div>
+                      </div>
                     </div>
                     
                     <!-- 保留的发展卡 -->
                     <div class="player-reserved-cards">
-                      <h5>保留的发展卡 ({{ player.reservedCards?.length || 0 }}/3):</h5>
+                      <h5>保留的发展卡</h5>
                       <div class="reserved-cards-list">
                         <div 
                           v-for="(cardId, index) in player.reservedCards || []" 
@@ -637,11 +628,11 @@ const getCardsByLevel = (level) => {
 // 获取宝石显示名称
 const getGemDisplayName = (gemType) => {
   const gemMap = {
-    'white': '白宝石',
-    'blue': '蓝宝石',
-    'green': '绿宝石',
-    'red': '红宝石',
-    'black': '黑宝石',
+    'white': '白色',
+    'blue': '蓝色',
+    'green': '绿色',
+    'red': '红色',
+    'black': '黑色',
     'pearl': '珍珠',
     'gold': '黄金',
     'gray': '无色'
@@ -661,6 +652,73 @@ const getGemImageName = (gemType) => {
     'gold': 'gold'
   }
   return gemMap[gemType] || gemType
+}
+
+// 计算某玩家“同色发展卡最高分”
+const getMaxSameColorPoints = (playerId) => {
+  try {
+    const players = gameState.value?.players || []
+    const player = players.find(p => p.id === playerId)
+    if (!player || !gameState.value?.cardDetails) return 0
+    const colorPoints = { white:0, blue:0, green:0, red:0, black:0 }
+    for (const cardId of (player.developmentCards || [])) {
+      const cd = gameState.value.cardDetails[cardId]
+      if (!cd) continue
+      const color = cd.color
+      if (colorPoints[color] !== undefined) {
+        colorPoints[color] += (cd.points || 0)
+      }
+    }
+    return Math.max(...Object.values(colorPoints))
+  } catch(e) { return 0 }
+}
+
+// 构建按顺序的token列表（白、蓝、绿、红、黑、珍珠、黄金）
+const buildSortedTokens = (player) => {
+  const order = ['white','blue','green','red','black','pearl','gold']
+  const gems = player?.gems || {}
+  const arr = []
+  for (const t of order) {
+    const cnt = gems[t] || 0
+    for (let i=0;i<cnt;i++) arr.push(t)
+  }
+  return arr
+}
+
+// 前两行的10个占位（5+5），填入前10个token，否则为null
+const getFirstTenCells = (player) => {
+  const tokens = buildSortedTokens(player)
+  const cells = []
+  for (let i=0;i<5;i++) cells.push(tokens[i] || null)
+  return cells
+}
+const getSecondTenCells = (player) => {
+  const tokens = buildSortedTokens(player)
+  const cells = []
+  for (let i=5;i<10;i++) cells.push(tokens[i] || null)
+  return cells
+}
+// 超出10个的部分分组为每行最多5个，仅显示token，不显示占位
+const getOverflowRows = (player) => {
+  const tokens = buildSortedTokens(player)
+  if (tokens.length <= 10) return []
+  const rest = tokens.slice(10)
+  const rows = []
+  for (let i=0;i<rest.length; i+=5) {
+    rows.push(rest.slice(i, i+5))
+  }
+  return rows
+}
+
+// 获取玩家按颜色拥有的bonus卡（用于叠放显示）
+const getOwnedBonusCards = (playerId, color) => {
+  const players = gameState.value?.players || []
+  const player = players.find(p => p.id === playerId)
+  if (!player || !gameState.value?.cardDetails) return []
+  return (player.developmentCards || []).filter(id => {
+    const cd = gameState.value.cardDetails[id]
+    return cd && cd.bonus === color
+  })
 }
 
 // 显示Bonus工具提示
@@ -1991,8 +2049,8 @@ watch(gameState, (newState, oldState) => {
 }
 
 .card-image {
-  width: 80px;
-  height: 120px;
+  width: 96px;
+  height: 144px;
   object-fit: cover;
   border-radius: 8px;
 }
@@ -2058,7 +2116,7 @@ watch(gameState, (newState, oldState) => {
   width: 60px;
   height: 90px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .noble-info {
@@ -2175,10 +2233,10 @@ watch(gameState, (newState, oldState) => {
 }
 
 .reserved-card-item {
-  width: 40px;
-  height: 60px;
+  width: 48px;
+  height: 72px;
   border: 2px solid #e9ecef;
-  border-radius: 6px;
+  border-radius: 5px;
   overflow: hidden;
   position: relative;
   transition: all 0.3s ease;
@@ -2279,10 +2337,10 @@ watch(gameState, (newState, oldState) => {
 }
 
 .bonus-card-image {
-  width: 30px;
-  height: 45px;
+  width: 60px;
+  height: 90px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: 6px;
   border: 1px solid #dee2e6;
 }
 
@@ -2579,5 +2637,55 @@ watch(gameState, (newState, oldState) => {
   color: #0d6efd;
   text-decoration: underline;
 }
+
+/* 玩家信息头部指标 */
+.player-metrics {
+  display: flex;
+  gap: 6px;
+}
+.metric-badge {
+  background: #ffffff;
+  color: #495057;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  border: 1px solid #dee2e6;
+}
+
+/* token 容器（两行5个占位符 + 溢出换行） */
+.token-board { display: flex; flex-direction: column; gap: 6px; }
+.token-row { display: flex; gap: 6px; }
+.token-row.overflow { margin-top: 6px; }
+.token-cell {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 2px dashed #ced4da; /* 占位外观 */
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+}
+.token-cell.has-token {
+  border: 2px solid transparent; /* 有宝石时不显示占位边框 */
+}
+.token-cell.no-placeholder { border: none; }
+.token-gem-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+/* 奖励叠放 */
+.bonus-stacks { 
+  display: flex; 
+  gap: 20px; 
+  align-items: flex-end; 
+  margin-bottom: 16px; /* 增加行间距 */
+}
+.bonus-stacks:last-child { margin-bottom: 0; } /* 最后一行不需要底部间距 */
+.bonus-column { 
+  display: flex; 
+  flex-direction: column; 
+  align-items: center; 
+  min-width: 60px; /* 确保每列有固定宽度，保持间距一致 */
+}
+.bonus-stack { display: flex; flex-direction: column; align-items: center; }
+.bonus-label { margin-top: 4px; font-size: 11px; color: #6c757d; }
 
 </style>

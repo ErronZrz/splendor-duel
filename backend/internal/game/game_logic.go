@@ -1145,15 +1145,15 @@ func (gl *GameLogic) CanPlayerBuyCard(playerID string, cardID string) (bool, str
 func getGemDisplayName(gemType models.GemType) string {
 	switch gemType {
 	case models.GemWhite:
-		return "白宝石"
+		return "白色"
 	case models.GemBlue:
-		return "蓝宝石"
+		return "蓝色"
 	case models.GemGreen:
-		return "绿宝石"
+		return "绿色"
 	case models.GemRed:
-		return "红宝石"
+		return "红色"
 	case models.GemBlack:
-		return "黑宝石"
+		return "黑色"
 	case models.GemPearl:
 		return "珍珠"
 	case models.GemGold:
