@@ -56,6 +56,21 @@
                   <span v-if="gameState?.currentPlayerIndex !== undefined">
                     当前玩家: {{ getCurrentPlayerName() }}
                   </span>
+                  <div 
+                    class="bag-container"
+                    @mouseenter="bagHover = true"
+                    @mouseleave="bagHover = false"
+                  >
+                    <span class="bag-pill" @click.stop="handleRefillBoard" title="点击补充版图">袋中宝石</span>
+                    <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
+                      <div class="bag-row">
+                        <div v-for="item in bagCounts" :key="`bag-${item.type}`" class="bag-item">
+                          <span class="bag-count">{{ item.count }}×</span>
+                          <img :src="`/images/gems/${getGemImageName(item.type)}.jpg`" :alt="item.type" class="bag-gem" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
               
@@ -142,15 +157,24 @@
                 <h3>玩家状态</h3>
                 <div class="players-list">
                   <div 
-                    v-for="player in gameState?.players || []" 
+                    v-for="player in orderedPlayers" 
                     :key="player.id"
                     class="player-card"
                     :class="{ 'current-player': player.id === currentPlayer?.id, 'active-turn': isCurrentPlayerTurn(player.id) }"
                   >
                     <div class="player-header">
-                      <span class="player-name">{{ player.name }}</span>
-                      <div class="player-metrics">
-                        <span class="metric-badge">{{ player.privilegeTokens || 0 }}♟</span>
+                      <div class="player-header-top">
+                        <span class="player-name">{{ player.name }}</span>
+                      </div>
+                      <div class="player-metrics player-metrics-row">
+                        <span 
+                          class="metric-badge privilege-badge"
+                          :class="{ clickable: isMyTurn && (player.id === currentPlayer?.id) }"
+                          :title="isMyTurn && (player.id === currentPlayer?.id) ? '点击花费特权' : ''"
+                          @click="(isMyTurn && player.id === currentPlayer?.id) ? handleSpendPrivilege() : null"
+                        >
+                          {{ player.privilegeTokens || 0 }}♟
+                        </span>
                         <span class="metric-badge">{{ player.points || 0 }}🔸{{ getMaxSameColorPoints(player.id) }}</span>
                         <span class="metric-badge">{{ player.crowns || 0 }}👑</span>
                       </div>
@@ -244,12 +268,17 @@
               <div class="action-panel">
                 <h3>游戏操作</h3>
                 <div v-if="isMyTurn" class="available-actions">
-                  <button @click="handleSpendPrivilege" class="btn btn-secondary">
-                    花费特权
-                  </button>
-                  <button @click="handleRefillBoard" class="btn btn-secondary">
-                    补充版图
-                  </button>
+                  <!-- 可选行动入口迁移至：
+                      - 玩家卡片右上角特权徽标（花费特权）
+                      - “袋中宝石”标签（补充版图）
+                  -->
+                  <span class="hint-text">
+                    点击你的特权徽标可花费特权；
+                    <br>点击袋中宝石按钮可补充版图；
+                    <br>点击版图上的宝石或珍珠可拿取宝石；
+                    <br>点击版图上的黄金可保留发展卡；
+                    <br>点击翻开或保留的发展卡可购买发展卡。
+                  </span>
                 </div>
                 <div v-else class="waiting-turn">
                   <p>等待其他玩家操作...</p>
@@ -301,7 +330,7 @@
               <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
               <span class="action-text" v-else v-html="getActionHtml(action)"></span>
             </div>
-            <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }">
+            <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef">
               <img :src="preview.image" alt="预览" />
             </div>
           </div>
@@ -358,8 +387,18 @@ import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 // 历史记录悬停预览状态
 const historyListRef = ref(null)
 const preview = ref({ visible: false, image: '', x: 0, y: 0 })
+const historyPreviewRef = ref(null)
 
 const getActionHtml = (action) => action?.descriptionHtml || ''
+// 根据本地玩家优先展示自己的卡片
+const orderedPlayers = computed(() => {
+  const list = gameState.value?.players || []
+  const meId = currentPlayer.value?.id
+  if (!meId) return list
+  const mine = list.filter(p => p.id === meId)
+  const others = list.filter(p => p.id !== meId)
+  return [...mine, ...others]
+})
 
 onMounted(() => {
   // 悬停预览：监听包含 data-preview 的链接
@@ -371,11 +410,35 @@ onMounted(() => {
     if (!t) return
     const img = t.getAttribute('data-preview')
     if (!img) return
+    // 初次出现时先放到鼠标右下，随后在 mousemove 中校正
     preview.value = { visible: true, image: img, x: e.clientX + 12, y: e.clientY + 12 }
   }
   const onMouseMove = (e) => {
     if (!preview.value.visible) return
-    preview.value = { ...preview.value, x: e.clientX + 12, y: e.clientY + 12 }
+    // 计算卡片尺寸与视口，做位置防溢出
+    const tooltipEl = historyPreviewRef.value
+    const padding = 12
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    let tx = e.clientX + 12
+    let ty = e.clientY + 12
+    if (tooltipEl) {
+      const rect = tooltipEl.getBoundingClientRect()
+      const tw = rect.width
+      const th = rect.height
+      // 若会溢出右侧，则放到左侧
+      if (tx + tw + padding > vw) {
+        tx = e.clientX - tw - 12
+      }
+      // 若会溢出底部，则上移
+      if (ty + th + padding > vh) {
+        ty = e.clientY - th - 12
+      }
+      // 防止再次越界
+      tx = Math.max(padding, Math.min(vw - tw - padding, tx))
+      ty = Math.max(padding, Math.min(vh - th - padding, ty))
+    }
+    preview.value = { ...preview.value, x: tx, y: ty }
   }
   const onMouseOut = (e) => {
     const t = e.target.closest('[data-preview]')
@@ -524,6 +587,25 @@ const tooltipStyle = ref({
 
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, chatMessages, gameHistory } = storeToRefs(gameStore)
+
+// 袋中宝石：悬停状态
+const bagHover = ref(false)
+// 袋中宝石：顺序与映射
+const bagOrder = ['white','blue','green','red','black','pearl','gold']
+const bagCounts = computed(() => {
+  const bag = gameState.value?.gemBag || []
+  if (!Array.isArray(bag) || bag.length === 0) return []
+  const counts = {}
+  for (const t of bag) {
+    if (!t) continue
+    counts[t] = (counts[t] || 0) + 1
+  }
+  const result = []
+  for (const t of bagOrder) {
+    if (counts[t] > 0) result.push({ type: t, count: counts[t] })
+  }
+  return result
+})
 
 // 添加调试信息
 console.log('Game.vue 初始化:', {
@@ -1936,6 +2018,38 @@ watch(gameState, (newState, oldState) => {
   color: #6c757d;
 }
 
+/* 袋中宝石浮层与触发器 */
+.bag-container { position: relative; }
+.bag-pill { 
+  background: #ffffff; 
+  color: #495057; 
+  border: 1px solid #dee2e6; 
+  border-radius: 999px; 
+  padding: 2px 8px; 
+  font-size: 12px; 
+  font-weight: 600; 
+  cursor: pointer;
+}
+.metric-badge.clickable { cursor: pointer; box-shadow: 0 0 0 0 rgba(13,110,253,0); transition: box-shadow .2s ease; }
+.metric-badge.clickable:hover { box-shadow: 0 0 0 3px rgba(13,110,253,0.25); }
+.hint-text { font-size: 12px; color: #6c757d; }
+.bag-tooltip {
+  position: absolute;
+  top: 150%;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 8px 10px;
+  z-index: 1200;
+  min-width: 180px;
+}
+.bag-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bag-item { display: flex; align-items: center; gap: 4px; }
+.bag-count { font-weight: 700; color: #495057; font-size: 12px; }
+.bag-gem { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
+
 /* 宝石版图样式 */
 .gem-board {
   margin-bottom: 24px;
@@ -2186,8 +2300,8 @@ watch(gameState, (newState, oldState) => {
 
 .player-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   margin-bottom: 12px;
 }
 
@@ -2460,6 +2574,7 @@ watch(gameState, (newState, oldState) => {
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  flex: 1 1 0%;
 }
 
 .chat-panel h3, .history-panel h3 {
@@ -2519,7 +2634,7 @@ watch(gameState, (newState, oldState) => {
 }
 
 .history-list {
-  height: 200px;
+  height: 320px;
   overflow-y: auto;
   border: 1px solid #dee2e6;
   border-radius: 8px;
@@ -2643,6 +2758,17 @@ watch(gameState, (newState, oldState) => {
   display: flex;
   gap: 6px;
 }
+.player-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.player-metrics-row {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
 .metric-badge {
   background: #ffffff;
   color: #495057;
@@ -2676,7 +2802,7 @@ watch(gameState, (newState, oldState) => {
   display: flex; 
   gap: 20px; 
   align-items: flex-end; 
-  margin-bottom: 16px; /* 增加行间距 */
+  margin-bottom: 8px; /* 增加行间距 */
 }
 .bonus-stacks:last-child { margin-bottom: 0; } /* 最后一行不需要底部间距 */
 .bonus-column { 

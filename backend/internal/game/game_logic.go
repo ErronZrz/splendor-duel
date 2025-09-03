@@ -1,13 +1,14 @@
 package game
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"splendor-duel-backend/internal/models"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // GameActionType 游戏行动类型
@@ -272,7 +273,17 @@ func (gl *GameLogic) initializeNobleCards() {
 
 // 获取随机整数
 func (gl *GameLogic) getRandomInt(min, max int) int {
-	return min + int(time.Now().UnixNano())%(max-min+1)
+	if max < min {
+		return min
+	}
+	n := int64(max - min + 1)
+	if n <= 0 {
+		return min
+	}
+	if rb, err := rand.Int(rand.Reader, big.NewInt(n)); err == nil {
+		return min + int(rb.Int64())
+	}
+	return min
 }
 
 // 洗乱牌堆

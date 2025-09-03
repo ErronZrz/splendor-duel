@@ -356,8 +356,10 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 
 	// 广播聊天消息
 	room.broadcastToAll(models.WSMessage{
-		Type:    "chat_message",
-		Message: chatMessage.Message,
+		Type:       "chat_message",
+		PlayerID:   chatMessage.PlayerID,
+		PlayerName: chatMessage.PlayerName,
+		Message:    chatMessage.Message,
 	})
 }
 

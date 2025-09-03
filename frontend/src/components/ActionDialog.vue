@@ -693,6 +693,12 @@ const getCardsByLevel = (level) => {
 const selectGem = (x, y, gemType) => {
   console.log('选择宝石:', { x, y, gemType, actionType: props.actionType })
   
+  // 禁止选择空位置（无宝石）
+  if (!gemType) {
+    console.log('该位置没有宝石，忽略点击')
+    return
+  }
+
   // 禁止选择黄金：拿取宝石与花费特权均不可选
   if ((props.actionType === 'takeGems' || props.actionType === 'spendPrivilege') && gemType === 'gold') {
     console.log('拿取宝石操作中不能选择黄金')
@@ -1526,11 +1532,6 @@ const getRemainingTokens = (gemType) => {
 .gem-row {
   display: flex;
   justify-content: center;
-  margin-bottom: 4px;
-}
-
-.gem-row:last-child {
-  margin-bottom: 0;
 }
 
 .gem-cell {
@@ -1540,7 +1541,7 @@ const getRemainingTokens = (gemType) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 2px;
+  margin: 2px; /* 四向一致的外边距，保证横纵间距相同 */
   border-radius: 50%;
   position: relative;
 }
@@ -2109,7 +2110,7 @@ const getRemainingTokens = (gemType) => {
   margin-bottom: 20px;
 }
 
-.gem-row {
+.gem-display .gem-row {
   display: flex;
   gap: 16px;
   justify-content: center;
