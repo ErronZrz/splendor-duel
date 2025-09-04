@@ -2301,7 +2301,7 @@ watch(gameState, (newState, oldState) => {
 .player-header {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
+  align-items: center;
   margin-bottom: 12px;
 }
 
@@ -2761,13 +2761,13 @@ watch(gameState, (newState, oldState) => {
 .player-header-top {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
 }
 .player-metrics-row {
-  margin-top: 6px;
+  margin-top: 12px;
   display: flex;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 8px;
+  justify-content: center;
 }
 .metric-badge {
   background: #ffffff;

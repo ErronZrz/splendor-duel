@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,9 @@ type Room struct {
 	Clients map[*Client]bool
 	Manager *game.Manager
 	mutex   sync.RWMutex
+	// 历史缓存：仅用于客户端重连回放
+	ChatMessages []models.ChatMessage
+	GameHistory  []models.GameAction
 }
 
 // Hub WebSocket 中心
@@ -124,6 +128,19 @@ func (r *Room) registerClient(client *Client) {
 		Type: "room_info",
 		Data: r.Manager.GetRoom(r.ID),
 	})
+
+	// 回放历史（仅此客户端）
+	if len(r.ChatMessages) > 0 || len(r.GameHistory) > 0 {
+		// 聊天与历史快照（仅给当前客户端）
+		snapshot := map[string]any{
+			"chat":    r.ChatMessages,
+			"history": r.GameHistory,
+		}
+		r.broadcastToClient(client, models.WSMessage{
+			Type: "history_snapshot",
+			Data: snapshot,
+		})
+	}
 }
 
 // unregisterClient 注销客户端
@@ -354,6 +371,11 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 		Timestamp:  time.Now(),
 	}
 
+	// 保存到房间聊天历史（用于重连回放）
+	room.mutex.Lock()
+	room.ChatMessages = append(room.ChatMessages, chatMessage)
+	room.mutex.Unlock()
+
 	// 广播聊天消息
 	room.broadcastToAll(models.WSMessage{
 		Type:       "chat_message",
@@ -388,6 +410,12 @@ func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 		Description:     desc,
 		DescriptionHTML: html,
 	}
+
+	// 保存到房间历史（用于重连回放）
+	room.mutex.Lock()
+	room.GameHistory = append(room.GameHistory, ga)
+	room.mutex.Unlock()
+
 	room.broadcastToAll(models.WSMessage{ Type: "game_action", Action: &ga })
 }
 
@@ -589,11 +617,21 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					for _, id := range before { m[id] = true }
 					for _, id := range after { if !m[id] { actual = id; break } }
 					if actual == "" && len(after) > 0 { actual = after[len(after)-1] }
-					level := 0
-					if cd, ok := roomData.GameState.CardDetails[actual]; ok { level = int(cd.Level) }
-					html := fmt.Sprintf("保留一张等级 %d 的%s，并获得 1 枚黄金", level, histCardLink(actual))
-					desc := "保留发展卡并获得黄金"
-					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+					// 区分来源：若 cardID 形如 deck_level_X，则为从牌堆保留，隐藏具体卡信息
+					if strings.HasPrefix(cardID, "deck_level_") {
+						lvlStr := strings.TrimPrefix(cardID, "deck_level_")
+						level := 0
+						if v, err := strconv.Atoi(lvlStr); err == nil { level = v }
+						html := fmt.Sprintf("从牌堆保留一张等级 %d 的发展卡，并获得 1 枚黄金", level)
+						desc := "保留发展卡并获得黄金"
+						broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+					} else {
+						level := 0
+						if cd, ok := roomData.GameState.CardDetails[actual]; ok { level = int(cd.Level) }
+						html := fmt.Sprintf("保留一张等级 %d 的%s，并获得 1 枚黄金", level, histCardLink(actual))
+						desc := "保留发展卡并获得黄金"
+						broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+					}
 				}
 			}
 		case "spendPrivilege":

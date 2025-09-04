@@ -125,6 +125,30 @@ export const useGameStore = defineStore('game', () => {
     console.log('收到WebSocket消息:', data)
     
     switch (data.type) {
+      case 'history_snapshot': {
+        const chat = (data.data && data.data.chat) || []
+        const history = (data.data && data.data.history) || []
+        if (Array.isArray(chat)) {
+          // 覆盖填充聊天记录
+          chatMessages.value = chat.map(m => ({
+            playerId: m.playerId,
+            playerName: m.playerName,
+            message: m.message,
+            timestamp: m.timestamp ? new Date(m.timestamp) : new Date()
+          }))
+        }
+        if (Array.isArray(history)) {
+          // 覆盖填充操作历史
+          gameHistory.value = history.map(a => ({
+            playerId: a.playerId,
+            playerName: a.playerName,
+            description: a.description || `执行了${a.type}操作` ,
+            descriptionHtml: a.descriptionHtml || '',
+            timestamp: a.timestamp ? new Date(a.timestamp) : new Date()
+          }))
+        }
+        break
+      }
       case 'game_state_update':
         console.log('收到游戏状态更新:', data.gameState)
         if (data.gameState) {

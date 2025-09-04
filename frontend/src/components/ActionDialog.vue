@@ -1,6 +1,6 @@
 <template>
   <div v-if="visible" class="dialog-overlay" @click="handleOverlayClick">
-    <div class="dialog-content" @click.stop>
+    <div class="dialog-content" :class="{ 'wide-reserve': actionType === 'reserveCard' }" @click.stop>
       <div class="dialog-header">
         <h3>{{ title }}</h3>
         <!-- 对于宝石丢弃操作，不显示关闭按钮 -->
@@ -1445,6 +1445,11 @@ const getRemainingTokens = (gemType) => {
   max-height: 80vh;
   overflow-y: auto;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.dialog-content.wide-reserve {
+  width: 540px;
+  max-width: calc(100vw - 48px);
 }
 
 .dialog-header {
