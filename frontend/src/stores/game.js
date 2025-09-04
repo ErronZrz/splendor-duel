@@ -89,7 +89,9 @@ export const useGameStore = defineStore('game', () => {
 
   // 连接 WebSocket
   const connectWebSocket = (roomId) => {
-    const wsUrl = `ws://${window.location.hostname}:8080/ws/${roomId}`
+    // 使用相对路径，让 Caddy/Nginx 处理 WebSocket 升级
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}`
     websocket.value = new WebSocket(wsUrl)
 
     websocket.value.onopen = () => {
