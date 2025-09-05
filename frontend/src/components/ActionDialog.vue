@@ -2117,9 +2117,14 @@ const getRemainingTokens = (gemType) => {
 
 .gem-display .gem-row {
   display: flex;
-  gap: 16px;
+  gap: 22px;
   justify-content: center;
   flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.gem-display .gem-row:last-child {
+  margin-bottom: 0;
 }
 
 .gem-item {

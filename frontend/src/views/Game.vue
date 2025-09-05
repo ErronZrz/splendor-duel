@@ -110,6 +110,26 @@
                   <div v-for="level in [3, 2, 1]" :key="level" class="card-level">
                     <h5>等级 {{ level }}</h5>
                     <div class="cards-row">
+                      <!-- 牌堆显示 -->
+                      <div 
+                        class="deck-item"
+                        :class="{ 'deck-empty': getDeckRemainingCount(level) === 0 }"
+                      >
+                        <img 
+                          v-if="getDeckRemainingCount(level) > 0"
+                          :src="`/images/cards/back${level}.jpg`" 
+                          :alt="`等级${level}牌堆`"
+                          class="deck-image"
+                          @error="handleDeckImageError"
+                        />
+                        <div 
+                          v-if="getDeckRemainingCount(level) > 0"
+                          class="deck-count"
+                        >
+                          {{ getDeckRemainingCount(level) }}
+                        </div>
+                      </div>
+                      <!-- 已翻开的发展卡 -->
                       <div 
                         v-for="card in getCardsByLevel(level)" 
                         :key="card.id"
@@ -176,7 +196,30 @@
                           {{ player.privilegeTokens || 0 }}♟
                         </span>
                         <span class="metric-badge">{{ player.points || 0 }}🔸{{ getMaxSameColorPoints(player.id) }}</span>
-                        <span class="metric-badge">{{ player.crowns || 0 }}👑</span>
+                        <span 
+                          class="metric-badge crown-badge"
+                          :class="{ 'has-nobles': getPlayerNobles(player.id).length > 0 }"
+                          @mouseenter="showNobleTooltip = player.id"
+                          @mouseleave="showNobleTooltip = null"
+                        >
+                          {{ player.crowns || 0 }}👑
+                          <!-- 贵族悬停提示 -->
+                          <div 
+                            v-if="showNobleTooltip === player.id && getPlayerNobles(player.id).length > 0"
+                            class="noble-tooltip"
+                          >
+                            <div class="noble-tooltip-content">
+                              <img 
+                                v-for="nobleId in getPlayerNobles(player.id)" 
+                                :key="nobleId"
+                                :src="`/images/nobles/${nobleId}.jpg`" 
+                                :alt="getNobleName(nobleId)"
+                                class="noble-tooltip-image"
+                                @error="handleNobleImageError"
+                              />
+                            </div>
+                          </div>
+                        </span>
                       </div>
                     </div>
                     
@@ -321,8 +364,8 @@
           <h3>操作历史</h3>
           <div class="history-list" ref="historyListRef">
             <div 
-              v-for="(action, index) in gameHistory" 
-              :key="index" 
+              v-for="(action, index) in gameHistory.slice().reverse()" 
+              :key="gameHistory.length - 1 - index" 
               class="history-item"
             >
               <span class="action-time">{{ formatTime(action.timestamp) }}</span>
@@ -388,6 +431,9 @@ import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue'
 const historyListRef = ref(null)
 const preview = ref({ visible: false, image: '', x: 0, y: 0 })
 const historyPreviewRef = ref(null)
+
+// 贵族悬停提示状态
+const showNobleTooltip = ref(null)
 
 const getActionHtml = (action) => action?.descriptionHtml || ''
 // 根据本地玩家优先展示自己的卡片
@@ -736,7 +782,7 @@ const getGemImageName = (gemType) => {
   return gemMap[gemType] || gemType
 }
 
-// 计算某玩家“同色发展卡最高分”
+// 计算某玩家"同色发展卡最高分"
 const getMaxSameColorPoints = (playerId) => {
   try {
     const players = gameState.value?.players || []
@@ -753,6 +799,18 @@ const getMaxSameColorPoints = (playerId) => {
     }
     return Math.max(...Object.values(colorPoints))
   } catch(e) { return 0 }
+}
+
+// 获取玩家已获得的贵族
+const getPlayerNobles = (playerId) => {
+  try {
+    const players = gameState.value?.players || []
+    const player = players.find(p => p.id === playerId)
+    return player?.nobles || []
+  } catch (e) {
+    console.error('获取玩家贵族失败:', e)
+    return []
+  }
 }
 
 // 构建按顺序的token列表（白、蓝、绿、红、黑、珍珠、黄金）
@@ -2166,7 +2224,74 @@ watch(gameState, (newState, oldState) => {
   width: 96px;
   height: 144px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 10px;
+}
+
+/* 牌堆样式 */
+.deck-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  margin-right: 36px; /* 牌堆与发展卡之间的间距 */
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deck-item:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.deck-image {
+  width: 96px;
+  height: 144px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 4px solid #ccccdd; /* 深色边框 */
+}
+
+.deck-count {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  background: #ffffff;
+  border: 2px solid #445566;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: #334455;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.deck-item:hover .deck-count {
+  opacity: 1;
+}
+
+/* 空牌堆样式 */
+.deck-item.deck-empty {
+  cursor: default;
+  /* 确保空牌堆也占据相同的宽度，包括padding和border */
+  width: 104px; /* 96px (deck-image) + 4px (border) + 4px (padding) */
+  height: 152px; /* 144px (deck-image) + 4px (border) + 4px (padding) */
+  /* 添加一个透明的占位边框 */
+  border: 4px solid transparent;
+  border-radius: 10px;
+  box-sizing: border-box;
+}
+
+.deck-item.deck-empty:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .card-info {
@@ -2227,10 +2352,10 @@ watch(gameState, (newState, oldState) => {
 }
 
 .noble-image {
-  width: 60px;
-  height: 90px;
+  width: 80px;
+  height: 120px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 .noble-info {
@@ -2777,6 +2902,70 @@ watch(gameState, (newState, oldState) => {
   font-size: 12px;
   font-weight: 600;
   line-height: 1.4;
+  border: 1px solid #dee2e6;
+}
+
+/* 皇冠徽章悬停提示样式 */
+.crown-badge {
+  position: relative;
+}
+
+.crown-badge.has-nobles {
+  cursor: pointer;
+}
+
+.noble-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 8px;
+  z-index: 1000;
+  margin-top: 8px;
+}
+
+.noble-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #ffffff;
+}
+
+.noble-tooltip::after {
+  content: '';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 7px solid #dee2e6;
+  z-index: -1;
+}
+
+.noble-tooltip-content {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.noble-tooltip-image {
+  width: 60px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 4px;
   border: 1px solid #dee2e6;
 }
 
