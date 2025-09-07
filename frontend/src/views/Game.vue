@@ -344,7 +344,7 @@
               class="chat-message"
               :class="{ 'own-message': message.playerId === currentPlayer?.id }"
             >
-              <span class="player-name">{{ message.playerName }}:</span>
+              <span class="chat-player-name">{{ message.playerName }}:</span>
               <span class="message-text">{{ message.message }}</span>
             </div>
           </div>
@@ -367,6 +367,7 @@
               v-for="(action, index) in gameHistory.slice().reverse()" 
               :key="gameHistory.length - 1 - index" 
               class="history-item"
+              :class="{ 'own-history-item': action.playerId === currentPlayer?.id }"
             >
               <span class="action-time">{{ formatTime(action.timestamp) }}</span>
               <span class="action-player">{{ action.playerName }}</span>
@@ -2731,7 +2732,7 @@ watch(gameState, (newState, oldState) => {
   text-align: right;
 }
 
-.player-name {
+.chat-player-name {
   font-weight: 600;
   color: #495057;
   margin-right: 8px;
@@ -2763,18 +2764,27 @@ watch(gameState, (newState, oldState) => {
   overflow-y: auto;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  padding: 12px;
+  /*padding: 12px;*/
   background: #f8f9fa;
 }
 
 .history-item {
-  padding: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
   border-bottom: 1px solid #e9ecef;
+  /*border-radius: 16px;
+  max-width: 80%;*/
   font-size: 14px;
 }
 
 .history-item:last-child {
   border-bottom: none;
+}
+
+.history-item.own-history-item {
+  background: #e3f2fd;
+  /*margin-left: auto;
+  text-align: right;*/
 }
 
 .action-time {
@@ -2887,6 +2897,7 @@ watch(gameState, (newState, oldState) => {
   display: flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
 }
 .player-metrics-row {
   margin-top: 12px;

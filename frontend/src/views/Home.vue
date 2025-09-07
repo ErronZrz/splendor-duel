@@ -15,7 +15,7 @@
           v-model="roomName" 
           type="text" 
           placeholder="输入房间名称，例如：我的游戏"
-          maxlength="20"
+          maxlength="25"
         />
       </div>
 
@@ -26,7 +26,7 @@
           v-model="playerName" 
           type="text" 
           placeholder="输入你的名字"
-          maxlength="15"
+          maxlength="25"
         />
       </div>
 
