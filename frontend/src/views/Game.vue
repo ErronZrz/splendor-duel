@@ -397,7 +397,7 @@
       :unflipped-cards="gameState?.unflippedCards || {}"
       :selected-gold-position="actionDialog.selectedGold || null"
       :initial-gem-position="actionDialog.initialGemPosition || null"
-      :player-data="actionDialog.playerData || null"
+      :player-data="actionDialog.actionType === 'buyCard' ? getCurrentPlayerData() : actionDialog.playerData || null"
       :selected-card="actionDialog.selectedCard || null"
       :card-details="gameState?.cardDetails || {}"
       :gem-discard-target="gameState?.gemDiscardTarget || 10"

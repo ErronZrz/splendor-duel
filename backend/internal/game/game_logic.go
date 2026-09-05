@@ -325,10 +325,9 @@ func (gl *GameLogic) drawCardsFromDeck(level models.CardLevel, count int) []stri
 
 // 验证宝石是否在一条直线上且连续
 func (gl *GameLogic) validateGemLine(positions []any) bool {
-	// 少于2个位置，视为有效（前端已限制最多3个）
 	n := len(positions)
-	if n < 2 {
-		return true
+	if n < 1 || n > 3 {
+		return false
 	}
 
 	// 解析为整型坐标切片，忽略传入顺序
@@ -339,12 +338,11 @@ func (gl *GameLogic) validateGemLine(positions []any) bool {
 		if !ok {
 			return false
 		}
-		xf, okx := m["x"].(float64)
-		yf, oky := m["y"].(float64)
-		if !okx || !oky {
+		x, y, ok := parseGemPosition(m)
+		if !ok {
 			return false
 		}
-		pts = append(pts, pt{ x: int(xf), y: int(yf) })
+		pts = append(pts, pt{x: x, y: y})
 	}
 
 	// 判定是否同一条线（横/竖/两条对角线）
@@ -363,10 +361,24 @@ func (gl *GameLogic) validateGemLine(positions []any) bool {
 	sort.Slice(pts, func(i, j int) bool {
 		return pts[i].x < pts[j].x || (pts[i].x == pts[j].x && pts[i].y < pts[j].y)
 	})
-	if n == 2 {
-		return pts[1].x - pts[0].x <= 1 && pts[1].y - pts[0].y <= 1
+	for i := 1; i < n; i++ {
+		dx, dy := pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y
+		if dx > 1 || dy < -1 || dy > 1 || (dx == 0 && dy == 0) {
+			return false
+		}
 	}
-	return pts[1].x * 2 == pts[0].x + pts[2].x && pts[1].y * 2 == pts[0].y + pts[2].y
+	return true
+}
+
+// Validate coordinates before converting JSON numbers to array indices.
+func parseGemPosition(pos map[string]any) (int, int, bool) {
+	x, xOK := pos["x"].(float64)
+	y, yOK := pos["y"].(float64)
+	if !xOK || !yOK || !(x >= 0 && x < 5 && y >= 0 && y < 5) {
+		return 0, 0, false
+	}
+	row, col := int(x), int(y)
+	return row, col, x == float64(row) && y == float64(col)
 }
 
 // 计算应支付费用
@@ -800,16 +812,14 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		return errors.New("宝石不在同一直线上或不相邻")
 	}
 	
-	// 从版图上移除宝石并添加到玩家手中
+	// Validate the entire action before moving any tokens. A rejected request
+	// must leave both the board and player resources unchanged.
 	for _, pos := range gemPositions {
-		x, xOk := pos["x"].(float64)
-		y, yOk := pos["y"].(float64)
-		if !xOk || !yOk {
+		rowIndex, colIndex, ok := parseGemPosition(pos)
+		if !ok {
 			return errors.New("无效的宝石位置")
 		}
-		
-		rowIndex, colIndex := int(x), int(y)
-		if rowIndex < 0 || rowIndex >= 5 || colIndex < 0 || colIndex >= 5 {
+		if rowIndex >= len(gl.gameState.GemBoard) || colIndex >= len(gl.gameState.GemBoard[rowIndex]) {
 			return errors.New("宝石位置超出范围")
 		}
 		
@@ -817,12 +827,18 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		if gemType == "" {
 			return errors.New("该位置没有宝石")
 		}
-		
+		if gemType == models.GemGold {
+			return errors.New("普通拿取不能选择黄金")
+		}
+	}
+	for _, pos := range gemPositions {
+		rowIndex, colIndex, _ := parseGemPosition(pos)
+		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
 		// 将宝石添加到玩家手中
 		gl.gameState.Players[playerIndex].Gems[gemType]++
 		
-			// 从版图上移除宝石
-	gl.gameState.GemBoard[rowIndex][colIndex] = ""
+		// 从版图上移除宝石
+		gl.gameState.GemBoard[rowIndex][colIndex] = ""
 	}
 	
 	// 调用回合结束处理函数，检查宝石数量

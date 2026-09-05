@@ -473,18 +473,32 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			if gemPositions, ok := data["gemPositions"].([]any); ok {
 				log.Printf("执行拿取宝石操作，位置: %+v", gemPositions)
 				var positions []map[string]any
-				for _, pos := range gemPositions { if posMap, ok := pos.(map[string]any); ok { positions = append(positions, posMap) } }
+				for _, pos := range gemPositions {
+					posMap, ok := pos.(map[string]any)
+					if !ok {
+						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+						return
+					}
+					positions = append(positions, posMap)
+				}
 				// 预生成图片与类型（使用操作前的版图）
 				var pics []string
 				var types []string
 				for _, p := range positions {
-					x := int(p["x"].(float64)); y := int(p["y"].(float64))
+					xf, xOK := p["x"].(float64)
+					yf, yOK := p["y"].(float64)
+					if !xOK || !yOK || !(xf >= 0 && xf < 5 && yf >= 0 && yf < 5) || xf != float64(int(xf)) || yf != float64(int(yf)) {
+						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+						return
+					}
+					x, y := int(xf), int(yf)
 					g := string(roomData.GameState.GemBoard[x][y])
 					types = append(types, g)
 					pics = append(pics, histGemImg(g))
 				}
 				if err := gl.TakeGems(message.PlayerID, positions); err != nil {
 					log.Printf("拿取宝石失败: %v", err)
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 				} else {
 					// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
 					grant := false

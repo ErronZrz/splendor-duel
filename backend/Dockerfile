@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Build
-RUN go build -o server ./cmd
+RUN go test ./... && go vet ./... && go build -o server ./cmd
 
 # Run stage
 FROM alpine:3.19

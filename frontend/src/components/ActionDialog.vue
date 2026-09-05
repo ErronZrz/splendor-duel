@@ -479,7 +479,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   visible: Boolean,
@@ -578,16 +578,22 @@ watch(() => props.selectedGoldPosition, (newVal) => {
   }
 }, { immediate: true })
 
-// 调试：监听 selectedCard 变化
-watch(() => selectedCard.value, (newVal) => {
-  console.log('selectedCard 变化:', newVal)
-  if (newVal && props.actionType === 'buyCard') {
-    console.log('准备初始化支付计划...')
-    nextTick(() => {
-      initializePaymentPlan()
-    })
+// Recompute from the latest resources, including delayed privilege results.
+// Compare values rather than object identity so identical server snapshots do
+// not overwrite a player's deliberate gold substitution.
+watch(() => JSON.stringify([
+  selectedCard.value?.id,
+  Object.entries(selectedCard.value?.cost || {}).sort(([a], [b]) => a.localeCompare(b)),
+  props.playerData?.id,
+  ...['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold'].map(type => [
+    props.playerData?.gems?.[type] || 0,
+    props.playerData?.bonus?.[type] || 0,
+  ]),
+]), () => {
+  if (props.visible && selectedCard.value && props.actionType === 'buyCard') {
+    initializePaymentPlan()
   }
-}, { deep: true })
+})
 
 // 调试：监听 paymentPlan 变化
 watch(() => paymentPlan.value, (newVal) => {
@@ -2295,7 +2301,5 @@ const getRemainingTokens = (gemType) => {
   background-color: #e0a800;
 }
 </style>
-
-
 
 
