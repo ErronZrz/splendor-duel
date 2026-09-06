@@ -111,6 +111,33 @@ describe('game store WebSocket lifecycle', () => {
     expect(store.gameState.players.map(player => player.id)).toEqual(['p1', 'p2'])
   })
 
+  it('accepts the backend game-state shape and ignores malformed replacements', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const state = {
+      status: 'waiting', currentPlayerIndex: 0, turnNumber: 0,
+      players: [{
+        id: 'p1', name: 'Player 1', gems: {}, bonus: {}, reservedCards: [],
+        developmentCards: [], privilegeTokens: 0, crowns: 0, nobles: [], points: 0,
+        isHost: true, lastActive: '2026-09-06T00:00:00Z'
+      }],
+      gemBoard: [], gemBag: [], availablePrivilegeTokens: 3,
+      unflippedCards: {}, flippedCards: {}, level1Deck: [], level2Deck: [], level3Deck: [],
+      cardDetails: {}, cardMap: {}, availableNobles: [], extraTurns: {},
+      cardToRefill: { level: 0, index: 0 }, refilledThisTurn: false,
+      needsGemDiscard: false, gemDiscardTarget: 10, gemDiscardPlayerID: '',
+      createdAt: '2026-09-06T00:00:00Z', startedAt: '0001-01-01T00:00:00Z'
+    }
+
+    socket.onmessage({ data: JSON.stringify({ type: 'game_state_update', gameState: state }) })
+    expect(store.gameState).toEqual(state)
+
+    socket.onmessage({
+      data: JSON.stringify({ type: 'game_state_update', gameState: { ...state, players: [{ id: 'bad' }] } })
+    })
+    expect(store.gameState).toEqual(state)
+  })
+
   it('ignores callbacks from a socket that has been replaced', () => {
     store = useGameStore(createPinia())
     store.currentPlayer = { id: 'p1', name: 'Player 1' }
