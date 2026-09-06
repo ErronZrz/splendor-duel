@@ -57,11 +57,16 @@ func TestGetRoomReturnsDetachedDeepSnapshot(t *testing.T) {
 	})
 
 	snapshot := manager.GetRoom(created.Room.ID)
+	originalBoardGem := snapshot.GameState.GemBoard[0][0]
+	changedBoardGem := models.GemGold
+	if originalBoardGem == changedBoardGem {
+		changedBoardGem = models.GemBlue
+	}
 	snapshot.Name = "changed"
 	snapshot.GameState.VictoryReasons[0] = "changed"
 	snapshot.GameState.Players[0].Gems[models.GemBlue] = 99
 	snapshot.GameState.Players[0].ReservedCards[0] = "changed"
-	snapshot.GameState.GemBoard[0][0] = models.GemGold
+	snapshot.GameState.GemBoard[0][0] = changedBoardGem
 	snapshot.GameState.ExtraTurns[created.PlayerID] = 99
 	snapshot.GameState.FlippedCards[models.Level1][0] = "changed"
 	card := snapshot.GameState.CardDetails["card"]
@@ -76,7 +81,7 @@ func TestGetRoomReturnsDetachedDeepSnapshot(t *testing.T) {
 	if fresh.GameState.Players[0].Gems[models.GemBlue] != 2 || fresh.GameState.Players[0].ReservedCards[0] != "reserved" {
 		t.Fatal("player snapshot mutation changed authoritative room")
 	}
-	if fresh.GameState.GemBoard[0][0] == models.GemGold || fresh.GameState.ExtraTurns[created.PlayerID] != 1 {
+	if fresh.GameState.GemBoard[0][0] != originalBoardGem || fresh.GameState.ExtraTurns[created.PlayerID] != 1 {
 		t.Fatal("board or map snapshot mutation changed authoritative room")
 	}
 	if fresh.GameState.FlippedCards[models.Level1][0] != "card" || fresh.GameState.CardDetails["card"].Cost[models.GemRed] != 3 || fresh.GameState.CardDetails["card"].Effects[0] != models.NewTurn {
