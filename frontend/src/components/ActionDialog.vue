@@ -1,8 +1,18 @@
 <template>
   <div v-if="visible" class="dialog-overlay" @click="handleOverlayClick">
-    <div class="dialog-content" :class="{ 'wide-reserve': actionType === 'reserveCard' }" @click.stop>
+    <div
+      ref="dialogRef"
+      class="dialog-content"
+      :class="{ 'wide-reserve': actionType === 'reserveCard' }"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="action-dialog-title"
+      tabindex="-1"
+      @click.stop
+      @keydown="handleDialogKeydown"
+    >
       <div class="dialog-header">
-        <h3>{{ title }}</h3>
+        <h3 id="action-dialog-title">{{ title }}</h3>
         <!-- 对于宝石丢弃操作，不显示关闭按钮 -->
         <button v-if="actionType !== 'discardGems'" class="close-btn" @click="handleCancel">&times;</button>
       </div>
@@ -479,7 +489,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 
 const props = defineProps({
   visible: Boolean,
@@ -499,6 +509,36 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['confirm', 'cancel', 'discardGem', 'discardGemsBatch', 'reset'])
+const dialogRef = ref(null)
+let previouslyFocusedElement = null
+
+const getFocusableElements = () => Array.from(dialogRef.value?.querySelectorAll(
+  'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+) || []).filter(element => !element.hasAttribute('hidden'))
+
+const handleDialogKeydown = (event) => {
+  if (event.key === 'Escape' && props.actionType !== 'discardGems') {
+    event.preventDefault()
+    handleCancel()
+    return
+  }
+  if (event.key !== 'Tab') return
+  const focusable = getFocusableElements()
+  if (focusable.length === 0) {
+    event.preventDefault()
+    dialogRef.value?.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 const selectedGems = ref([])
 const selectedCard = ref(null)
@@ -522,6 +562,8 @@ const originalGemCounts = ref({}) // 记录原始宝石数量
 // 重置状态
 watch(() => props.visible, (newVal) => {
   if (newVal) {
+    previouslyFocusedElement = document.activeElement
+    nextTick(() => dialogRef.value?.focus())
     selectedGems.value = []
     privilegeCount.value = 0
     paymentPlan.value = {} // 重置支付计划
@@ -568,6 +610,9 @@ watch(() => props.visible, (newVal) => {
       originalGemCounts.value = { ...props.playerData.gems }
       console.log('记录原始宝石数量:', originalGemCounts.value)
     }
+  } else if (previouslyFocusedElement instanceof HTMLElement) {
+    nextTick(() => previouslyFocusedElement?.focus())
+    previouslyFocusedElement = null
   }
 })
 
@@ -1455,6 +1500,7 @@ const getRemainingTokens = (gemType) => {
   max-height: calc(100dvh - max(var(--space-3), env(safe-area-inset-top)) - max(var(--space-3), env(safe-area-inset-bottom)));
   overflow: hidden;
   box-shadow: var(--shadow-overlay, 0 12px 32px rgba(32, 36, 42, 0.18));
+  outline: none;
 }
 
 .dialog-content.wide-reserve {

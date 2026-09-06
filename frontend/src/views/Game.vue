@@ -279,6 +279,8 @@
             <div class="chat-input">
               <input
                 v-model="newMessage"
+                @focus="isChatInputFocused = true"
+                @blur="isChatInputFocused = false"
                 @keyup.enter="sendMessage"
                 placeholder="输入消息..."
                 maxlength="100"
@@ -324,7 +326,7 @@
       </div>
     </div>
 
-    <nav v-if="!showWaitingArea" class="mobile-game-nav" aria-label="游戏区域快捷导航">
+    <nav v-if="!showWaitingArea && !actionDialog.visible" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航">
       <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
       <button type="button" @click="scrollToMobileSection('game-board-section')">棋盘</button>
       <button type="button" @click="scrollToMobileSection('game-player-section')">玩家</button>
@@ -599,6 +601,7 @@ const tooltipStyle = ref({
 
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, lastActionResult } = storeToRefs(gameStore)
+const isChatInputFocused = ref(false)
 const expandedMobilePanels = ref(new Set(['chat']))
 const isMobilePanelExpanded = (panelId) => expandedMobilePanels.value.has(panelId)
 const toggleMobilePanel = (panelId) => {
@@ -611,7 +614,8 @@ const scrollToMobileSection = async (sectionId, panelId) => {
     expandedMobilePanels.value = new Set([...expandedMobilePanels.value, panelId])
     await nextTick()
   }
-  document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  document.getElementById(sectionId)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
 }
 const expandedPlayerIds = ref(new Set())
 const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
@@ -2914,6 +2918,16 @@ watch(gameState, (newState, oldState) => {
     min-height: 44px;
     border-left: 1px solid var(--color-border);
     cursor: pointer;
+  }
+
+  .mobile-game-nav.keyboard-hidden {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
   }
 }
 .victory-overlay {

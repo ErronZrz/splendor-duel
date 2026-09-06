@@ -57,4 +57,20 @@ describe('default payment after spending a privilege', () => {
     await flushPromises()
     expect(await confirmPayment()).toEqual({ white: 2, gold: 0 })
   })
+
+  it('exposes modal semantics and allows Escape for a cancellable action', async () => {
+    await openPurchase(2)
+    const dialog = wrapper.find('.dialog-content')
+    expect(dialog.attributes('role')).toBe('dialog')
+    expect(dialog.attributes('aria-modal')).toBe('true')
+    expect(dialog.attributes('aria-labelledby')).toBe('action-dialog-title')
+    await dialog.trigger('keydown', { key: 'Escape' })
+    expect(wrapper.emitted('cancel')).toHaveLength(1)
+  })
+
+  it('does not cancel mandatory discard with Escape', async () => {
+    wrapper = mount(ActionDialog, { props: { visible: true, actionType: 'discardGems', title: '丢弃宝石', playerData: player(12) } })
+    await wrapper.find('.dialog-content').trigger('keydown', { key: 'Escape' })
+    expect(wrapper.emitted('cancel')).toBeUndefined()
+  })
 })

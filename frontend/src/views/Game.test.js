@@ -11,6 +11,7 @@ let wrapper
 afterEach(() => {
   wrapper?.unmount()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 it('passes a delayed server resource update into an already-open purchase', async () => {
@@ -91,6 +92,7 @@ it('renders player status cards with the local player first and preserves names'
   expect(mobilePanels.map(panel => panel.classes().includes('expanded'))).toEqual([false, true, false])
   expect(mobilePanels.map(panel => panel.find('.mobile-panel-summary').attributes('aria-expanded'))).toEqual(['false', 'true', 'false'])
   const scrollIntoView = vi.fn()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   vi.spyOn(document, 'getElementById').mockReturnValue({ scrollIntoView })
   const mobileNav = wrapper.find('.mobile-game-nav')
   expect(mobileNav.findAll('button')).toHaveLength(4)
@@ -99,5 +101,9 @@ it('renders player status cards with the local player first and preserves names'
   await flushPromises()
   expect(wrapper.findAll('.mobile-collapsible-panel')[2].classes()).toContain('expanded')
   expect(wrapper.findAll('.mobile-collapsible-panel')[2].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
-  expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+  expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
+  await wrapper.find('.chat-input input').trigger('focus')
+  expect(wrapper.find('.mobile-game-nav').classes()).toContain('keyboard-hidden')
+  await wrapper.find('.chat-input input').trigger('blur')
+  expect(wrapper.find('.mobile-game-nav').classes()).not.toContain('keyboard-hidden')
 })
