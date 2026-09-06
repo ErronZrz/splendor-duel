@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"splendor-duel-backend/internal/game"
@@ -33,6 +35,95 @@ func protocolTestRoom(t *testing.T) (*game.Manager, *Room, *Client, string) {
 	globalHub.Rooms[room.ID] = room
 	t.Cleanup(func() { globalHub = previousHub })
 	return manager, room, client, response.Data.PlayerID
+}
+
+func TestBroadcastRemovesBackpressuredClientWithoutDeadlock(t *testing.T) {
+	for _, broadcast := range []string{"client", "all"} {
+		t.Run(broadcast, func(t *testing.T) {
+			hub := NewHub()
+			previousHub := globalHub
+			globalHub = hub
+			t.Cleanup(func() { globalHub = previousHub })
+			client := &Client{RoomID: "room", Send: make(chan []byte, 1)}
+			room := &Room{ID: "room", Clients: map[*Client]bool{client: true}}
+			hub.Rooms[room.ID] = room
+			client.Send <- []byte("full")
+
+			done := make(chan struct{})
+			go func() {
+				if broadcast == "client" {
+					room.broadcastToClient(client, models.WSMessage{Type: "test"})
+				} else {
+					room.broadcastToAll(models.WSMessage{Type: "test"})
+				}
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("broadcast deadlocked while removing a backpressured client")
+			}
+			if hub.getRoom(room.ID) != nil {
+				t.Fatal("empty websocket room was not removed")
+			}
+		})
+	}
+}
+
+func TestCleanupRunsOnceAndKeepsRoomWithPeer(t *testing.T) {
+	hub := NewHub()
+	previousHub := globalHub
+	globalHub = hub
+	t.Cleanup(func() { globalHub = previousHub })
+	client := &Client{RoomID: "room", PlayerID: "p1", Send: make(chan []byte, 4)}
+	peer := &Client{RoomID: "room", PlayerID: "p2", Send: make(chan []byte, 4)}
+	room := &Room{ID: "room", Clients: map[*Client]bool{client: true, peer: true}}
+	hub.Rooms[room.ID] = room
+
+	client.cleanup()
+	client.cleanup()
+
+	if hub.getRoom(room.ID) != room {
+		t.Fatal("room with a connected peer was removed")
+	}
+	if len(peer.Send) != 1 {
+		t.Fatalf("player_left broadcasts = %d, want 1", len(peer.Send))
+	}
+}
+
+func TestRegisterAndLastClientCleanupRemainAtomic(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		hub := NewHub()
+		manager := game.NewManager()
+		oldClient := &Client{RoomID: "room", Send: make(chan []byte, 1)}
+		oldRoom := &Room{ID: "room", Clients: map[*Client]bool{oldClient: true}, Manager: manager}
+		hub.Rooms[oldRoom.ID] = oldRoom
+		newClient := &Client{RoomID: "room", Send: make(chan []byte, 4)}
+
+		var registeredRoom *Room
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			hub.unregisterClient(oldClient)
+		}()
+		go func() {
+			defer wg.Done()
+			registeredRoom = hub.registerClient("room", manager, newClient)
+		}()
+		wg.Wait()
+
+		currentRoom := hub.getRoom("room")
+		if currentRoom == nil || currentRoom != registeredRoom {
+			t.Fatal("new client was registered into a detached room")
+		}
+		currentRoom.mutex.RLock()
+		registered := currentRoom.Clients[newClient]
+		currentRoom.mutex.RUnlock()
+		if !registered {
+			t.Fatal("new client is missing from the current hub room")
+		}
+	}
 }
 
 func expectClientError(t *testing.T, client *Client) {

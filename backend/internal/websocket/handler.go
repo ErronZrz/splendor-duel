@@ -138,13 +138,14 @@ var upgrader = websocket.Upgrader{
 
 // Client WebSocket 客户端
 type Client struct {
-	ID         string
-	RoomID     string
-	PlayerID   string
-	PlayerName string
-	Conn       *websocket.Conn
-	Send       chan []byte
-	Manager    *game.Manager
+	ID          string
+	RoomID      string
+	PlayerID    string
+	PlayerName  string
+	Conn        *websocket.Conn
+	Send        chan []byte
+	Manager     *game.Manager
+	cleanupOnce sync.Once
 }
 
 // Room WebSocket 房间
@@ -188,12 +189,9 @@ func HandleWebSocket(w http.ResponseWriter, r *http.Request, roomID string, game
 		Manager: gameManager,
 	}
 
-	// 获取或创建房间
+	// 获取或创建房间，并与最后一个客户端离开时的房间删除原子协调。
 	hub := getHub()
-	room := hub.getOrCreateRoom(roomID, gameManager)
-
-	// 注册客户端
-	room.registerClient(client)
+	hub.registerClient(roomID, gameManager, client)
 
 	// 启动客户端协程
 	go client.writePump()
@@ -211,22 +209,72 @@ func getHub() *Hub {
 	return globalHub
 }
 
-// getOrCreateRoom 获取或创建房间
-func (h *Hub) getOrCreateRoom(roomID string, gameManager *game.Manager) *Room {
+// registerClient 获取或创建房间并注册客户端。锁顺序固定为 Hub -> Room。
+func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *Client) *Room {
+	roomInfo, err := json.Marshal(models.WSMessage{
+		Type: "room_info",
+		Data: gameManager.GetRoom(roomID),
+	})
+	if err != nil {
+		log.Printf("房间信息序列化失败: %v", err)
+	}
+
 	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	if room, exists := h.Rooms[roomID]; exists {
-		return room
+	room, exists := h.Rooms[roomID]
+	if !exists {
+		room = &Room{
+			ID:      roomID,
+			Clients: make(map[*Client]bool),
+			Manager: gameManager,
+		}
+		h.Rooms[roomID] = room
+	}
+	room.mutex.Lock()
+	room.Clients[client] = true
+	initialQueued := true
+	if len(roomInfo) > 0 {
+		select {
+		case client.Send <- roomInfo:
+		default:
+			initialQueued = false
+		}
+	}
+	if initialQueued && (len(room.ChatMessages) > 0 || len(room.GameHistory) > 0) {
+		historySnapshot, marshalErr := json.Marshal(models.WSMessage{
+			Type: "history_snapshot",
+			Data: map[string]any{
+				"chat":    room.ChatMessages,
+				"history": room.GameHistory,
+			},
+		})
+		if marshalErr != nil {
+			log.Printf("历史快照序列化失败: %v", marshalErr)
+		} else {
+			select {
+			case client.Send <- historySnapshot:
+			default:
+				initialQueued = false
+			}
+		}
+	}
+	if !initialQueued {
+		delete(room.Clients, client)
+		close(client.Send)
+		if len(room.Clients) == 0 {
+			delete(h.Rooms, roomID)
+		}
+	}
+	room.mutex.Unlock()
+	h.mutex.Unlock()
+	if !initialQueued && client.Conn != nil {
+		client.Conn.Close()
 	}
 
-	room := &Room{
-		ID:      roomID,
-		Clients: make(map[*Client]bool),
-		Manager: gameManager,
+	if initialQueued {
+		log.Printf("客户端 %s 加入房间 %s", client.ID, room.ID)
+	} else {
+		log.Printf("客户端 %s 初始消息队列已满，拒绝加入房间 %s", client.ID, room.ID)
 	}
-
-	h.Rooms[roomID] = room
 	return room
 }
 
@@ -236,44 +284,28 @@ func (h *Hub) getRoom(roomID string) *Room {
 	return h.Rooms[roomID]
 }
 
-// registerClient 注册客户端
-func (r *Room) registerClient(client *Client) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+// unregisterClient 注销客户端，并在最后一个客户端离开时删除 Hub 房间。
+// 删除和注册使用相同的 Hub -> Room 锁顺序，避免新连接注册到已移除的房间对象。
+func (h *Hub) unregisterClient(client *Client) bool {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 
-	r.Clients[client] = true
-	log.Printf("客户端 %s 加入房间 %s", client.ID, r.ID)
-
-	// 发送房间信息
-	r.broadcastToClient(client, models.WSMessage{
-		Type: "room_info",
-		Data: r.Manager.GetRoom(r.ID),
-	})
-
-	// 回放历史（仅此客户端）
-	if len(r.ChatMessages) > 0 || len(r.GameHistory) > 0 {
-		// 聊天与历史快照（仅给当前客户端）
-		snapshot := map[string]any{
-			"chat":    r.ChatMessages,
-			"history": r.GameHistory,
-		}
-		r.broadcastToClient(client, models.WSMessage{
-			Type: "history_snapshot",
-			Data: snapshot,
-		})
+	room, exists := h.Rooms[client.RoomID]
+	if !exists {
+		return false
 	}
-}
-
-// unregisterClient 注销客户端
-func (r *Room) unregisterClient(client *Client) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	if _, ok := r.Clients[client]; ok {
-		delete(r.Clients, client)
-		close(client.Send)
-		log.Printf("客户端 %s 离开房间 %s", client.ID, r.ID)
+	room.mutex.Lock()
+	defer room.mutex.Unlock()
+	if _, registered := room.Clients[client]; !registered {
+		return false
 	}
+	delete(room.Clients, client)
+	close(client.Send)
+	log.Printf("客户端 %s 离开房间 %s", client.ID, room.ID)
+	if len(room.Clients) == 0 {
+		delete(h.Rooms, client.RoomID)
+	}
+	return true
 }
 
 // broadcastToClient 向特定客户端广播消息
@@ -284,10 +316,22 @@ func (r *Room) broadcastToClient(client *Client, message models.WSMessage) {
 		return
 	}
 
-	select {
-	case client.Send <- data:
-	default:
-		r.unregisterClient(client)
+	r.mutex.RLock()
+	_, registered := r.Clients[client]
+	slow := false
+	if registered {
+		select {
+		case client.Send <- data:
+		default:
+			slow = true
+		}
+	}
+	r.mutex.RUnlock()
+	if slow {
+		getHub().unregisterClient(client)
+		if client.Conn != nil {
+			client.Conn.Close()
+		}
 	}
 }
 
@@ -299,14 +343,20 @@ func (r *Room) broadcastToAll(message models.WSMessage) {
 		return
 	}
 
+	var slowClients []*Client
 	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-
 	for client := range r.Clients {
 		select {
 		case client.Send <- data:
 		default:
-			r.unregisterClient(client)
+			slowClients = append(slowClients, client)
+		}
+	}
+	r.mutex.RUnlock()
+	for _, client := range slowClients {
+		getHub().unregisterClient(client)
+		if client.Conn != nil {
+			client.Conn.Close()
 		}
 	}
 }
@@ -1062,33 +1112,25 @@ func (c *Client) handleStartGame(room *Room) {
 
 // cleanup 清理客户端
 func (c *Client) cleanup() {
-	hub := getHub()
-	if room, exists := hub.Rooms[c.RoomID]; exists {
-		// 在注销客户端之前，广播玩家离开消息
-		if c.PlayerID != "" {
-			room.broadcastToAll(models.WSMessage{
-				Type: "player_left",
-				Data: map[string]any{
-					"playerId": c.PlayerID,
-				},
-			})
+	c.cleanupOnce.Do(func() {
+		hub := getHub()
+		if room := hub.getRoom(c.RoomID); room != nil {
+			// 在注销客户端之前，广播玩家离开消息。
+			if c.PlayerID != "" {
+				room.broadcastToAll(models.WSMessage{
+					Type: "player_left",
+					Data: map[string]any{
+						"playerId": c.PlayerID,
+					},
+				})
+			}
+			hub.unregisterClient(c)
 		}
 
-		room.unregisterClient(c)
-
-		// 如果没有客户端了，删除房间
-		room.mutex.RLock()
-		if len(room.Clients) == 0 {
-			room.mutex.RUnlock()
-			hub.mutex.Lock()
-			delete(hub.Rooms, c.RoomID)
-			hub.mutex.Unlock()
-		} else {
-			room.mutex.RUnlock()
+		if c.Conn != nil {
+			c.Conn.Close()
 		}
-	}
-
-	c.Conn.Close()
+	})
 }
 
 // generateClientID 生成客户端ID
