@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, shallowRef } from 'vue'
 import axios from 'axios'
+import { parseWebSocketMessage } from '../protocol'
 
 export const useGameStore = defineStore('game', () => {
   // 状态
@@ -218,7 +219,11 @@ export const useGameStore = defineStore('game', () => {
     socket.onmessage = (event) => {
       if (websocket.value !== socket) return
       try {
-        const data = JSON.parse(event.data)
+        const data = parseWebSocketMessage(JSON.parse(event.data))
+        if (!data) {
+          console.warn('忽略无效的 WebSocket 消息')
+          return
+        }
         handleWebSocketMessage(data)
       } catch (error) {
         console.error('WebSocket 消息解析失败:', error)
