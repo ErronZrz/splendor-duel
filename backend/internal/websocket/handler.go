@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,6 +16,119 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+type boardPositionPayload struct {
+	X *int `json:"x"`
+	Y *int `json:"y"`
+}
+
+type takeGemsPayload struct {
+	GemPositions []boardPositionPayload `json:"gemPositions"`
+}
+
+type reserveCardPayload struct {
+	CardID string `json:"cardId"`
+	GoldX  *int   `json:"goldX"`
+	GoldY  *int   `json:"goldY"`
+}
+
+type spendPrivilegePayload struct {
+	PrivilegeCount *int                   `json:"privilegeCount"`
+	GemPositions   []boardPositionPayload `json:"gemPositions"`
+}
+
+type discardGemPayload struct {
+	GemType string `json:"gemType"`
+}
+
+type discardGemsBatchPayload struct {
+	GemDiscards map[string]int `json:"gemDiscards"`
+}
+
+type purchaseExtraTokenPayload struct {
+	SelectedGem *boardPositionPayload `json:"selectedGem,omitempty"`
+	Skipped     bool                  `json:"skipped,omitempty"`
+}
+
+type purchaseStealPayload struct {
+	GemType string `json:"gemType,omitempty"`
+	Skipped bool   `json:"skipped,omitempty"`
+}
+
+type purchaseWildcardPayload struct {
+	Color string `json:"color,omitempty"`
+}
+
+type purchaseNoblePayload struct {
+	ID string `json:"id,omitempty"`
+}
+
+type purchaseEffectsPayload struct {
+	ExtraToken *purchaseExtraTokenPayload `json:"extraToken,omitempty"`
+	Steal      *purchaseStealPayload      `json:"steal,omitempty"`
+	Wildcard   *purchaseWildcardPayload   `json:"wildcard,omitempty"`
+	Noble      *purchaseNoblePayload      `json:"noble,omitempty"`
+}
+
+type buyCardPayload struct {
+	CardID      string                  `json:"cardId"`
+	PaymentPlan map[string]int          `json:"paymentPlan"`
+	Effects     *purchaseEffectsPayload `json:"effects,omitempty"`
+}
+
+func decodeActionPayload(data any, target any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	return nil
+}
+
+func legacyPosition(position boardPositionPayload) map[string]any {
+	result := make(map[string]any, 2)
+	if position.X != nil {
+		result["x"] = float64(*position.X)
+	}
+	if position.Y != nil {
+		result["y"] = float64(*position.Y)
+	}
+	return result
+}
+
+func legacyBuyCardData(payload buyCardPayload) map[string]any {
+	data := map[string]any{"cardId": payload.CardID}
+	paymentPlan := make(map[string]any, len(payload.PaymentPlan))
+	for gemType, count := range payload.PaymentPlan {
+		paymentPlan[gemType] = float64(count)
+	}
+	data["paymentPlan"] = paymentPlan
+	if payload.Effects == nil {
+		return data
+	}
+	effects := make(map[string]any)
+	if payload.Effects.ExtraToken != nil {
+		extra := map[string]any{"skipped": payload.Effects.ExtraToken.Skipped}
+		if payload.Effects.ExtraToken.SelectedGem != nil {
+			extra["selectedGem"] = legacyPosition(*payload.Effects.ExtraToken.SelectedGem)
+		}
+		effects["extraToken"] = extra
+	}
+	if payload.Effects.Steal != nil {
+		effects["steal"] = map[string]any{"gemType": payload.Effects.Steal.GemType, "skipped": payload.Effects.Steal.Skipped}
+	}
+	if payload.Effects.Wildcard != nil {
+		effects["wildcard"] = map[string]any{"color": payload.Effects.Wildcard.Color}
+	}
+	if payload.Effects.Noble != nil {
+		effects["noble"] = map[string]any{"id": payload.Effects.Noble.ID}
+	}
+	data["effects"] = effects
+	return data
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -439,13 +553,11 @@ func histNobleLink(id string) string {
 	return fmt.Sprintf(`<span class="hist-link" data-preview="/images/nobles/%s.jpg">贵族</span>`, id)
 }
 
-func parseBoardPosition(position map[string]any, board [][]models.GemType) (int, int, bool) {
-	x, xOK := position["x"].(float64)
-	y, yOK := position["y"].(float64)
-	if !xOK || !yOK || x != float64(int(x)) || y != float64(int(y)) || x < 0 || y < 0 {
+func parseTypedBoardPosition(position boardPositionPayload, board [][]models.GemType) (int, int, bool) {
+	if position.X == nil || position.Y == nil || *position.X < 0 || *position.Y < 0 {
 		return 0, 0, false
 	}
-	row, col := int(x), int(y)
+	row, col := *position.X, *position.Y
 	if row >= len(board) || col >= len(board[row]) {
 		return 0, 0, false
 	}
@@ -477,14 +589,14 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 
 	// 安全检查：确保Data不为nil
 	if message.Data == nil {
-		log.Printf("警告: 游戏动作数据为nil，跳过处理")
+		log.Printf("警告: 游戏动作数据为nil")
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏动作数据无效"})
 		return
 	}
 
-	// 尝试将Data转换为map[string]any
-	data, ok := message.Data.(map[string]any)
-	if !ok {
-		log.Printf("警告: 无法将Data转换为map[string]any，跳过处理")
+	if message.ActionType == "" {
+		log.Printf("无法获取actionType")
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏动作类型无效"})
 		return
 	}
 
@@ -496,227 +608,219 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		// 根据动作类型执行相应的游戏逻辑
 		// 前端发送的actionType在消息的顶层，data在消息的data字段中
 		actionType := message.ActionType
-		if actionType == "" {
-			log.Printf("无法获取actionType: %+v", message.ActionType)
-			return
-		}
 
 		log.Printf("解析到actionType: %s", actionType)
 
 		switch actionType {
 		case "start_game":
+			var payload struct{}
+			if err := decodeActionPayload(message.Data, &payload); err != nil {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的开始游戏数据"})
+				return
+			}
 			log.Printf("执行开始游戏操作")
 			if roomData.GameState.Status == models.GameStatusPlaying {
-				log.Printf("游戏已经开始，跳过重复开始操作")
+				log.Printf("游戏已经开始，拒绝重复开始操作")
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏已经开始"})
 				return
 			}
 			if len(roomData.GameState.Players) >= 2 {
 				if err := gl.StartGame(); err != nil {
 					log.Printf("开始游戏失败: %v", err)
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 					return
 				}
 				roomData.GameState.StartedAt = time.Now()
 				log.Printf("游戏已手动开始")
 			} else {
 				log.Printf("玩家数量不足，无法开始游戏")
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家数量不足，无法开始游戏"})
 				return
 			}
 		case "takeGems":
-			if gemPositions, ok := data["gemPositions"].([]any); ok {
-				log.Printf("执行拿取宝石操作，位置: %+v", gemPositions)
-				var positions []map[string]any
-				for _, pos := range gemPositions {
-					posMap, ok := pos.(map[string]any)
-					if !ok {
-						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
-						return
-					}
-					positions = append(positions, posMap)
+			var payload takeGemsPayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemPositions == nil {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+				return
+			}
+			log.Printf("执行拿取宝石操作，位置: %+v", payload.GemPositions)
+			positions := make([]map[string]any, 0, len(payload.GemPositions))
+			for _, position := range payload.GemPositions {
+				positions = append(positions, legacyPosition(position))
+			}
+			// 预生成图片与类型（使用操作前的版图）
+			var pics []string
+			var types []string
+			for _, position := range payload.GemPositions {
+				x, y, valid := parseTypedBoardPosition(position, roomData.GameState.GemBoard)
+				if !valid {
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+					return
 				}
-				// 预生成图片与类型（使用操作前的版图）
-				var pics []string
-				var types []string
-				for _, p := range positions {
-					xf, xOK := p["x"].(float64)
-					yf, yOK := p["y"].(float64)
-					if !xOK || !yOK || !(xf >= 0 && xf < 5 && yf >= 0 && yf < 5) || xf != float64(int(xf)) || yf != float64(int(yf)) {
-						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
-						return
-					}
-					x, y := int(xf), int(yf)
-					g := string(roomData.GameState.GemBoard[x][y])
-					types = append(types, g)
-					pics = append(pics, histGemImg(g))
+				g := string(roomData.GameState.GemBoard[x][y])
+				types = append(types, g)
+				pics = append(pics, histGemImg(g))
+			}
+			if err := gl.TakeGems(message.PlayerID, positions); err != nil {
+				log.Printf("拿取宝石失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+			} else {
+				// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
+				grant := false
+				if len(types) == 3 {
+					same := (types[0] == types[1] && types[1] == types[2] && types[0] != "gold")
+					grant = grant || same
 				}
-				if err := gl.TakeGems(message.PlayerID, positions); err != nil {
-					log.Printf("拿取宝石失败: %v", err)
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
-				} else {
-					// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
-					grant := false
-					if len(types) == 3 {
-						same := (types[0] == types[1] && types[1] == types[2] && types[0] != "gold")
-						grant = grant || same
+				pearl := 0
+				for _, t := range types {
+					if t == "pearl" {
+						pearl++
 					}
-					pearl := 0
-					for _, t := range types {
-						if t == "pearl" {
-							pearl++
-						}
-					}
-					if pearl >= 2 {
-						grant = true
-					}
-					html := fmt.Sprintf("拿取宝石：%s", strings.Join(pics, ""))
-					if grant {
-						html += "，允许对手获取一个特权指示物"
-					}
-					desc := "拿取宝石"
-					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+				}
+				if pearl >= 2 {
+					grant = true
+				}
+				html := fmt.Sprintf("拿取宝石：%s", strings.Join(pics, ""))
+				if grant {
+					html += "，允许对手获取一个特权指示物"
+				}
+				desc := "拿取宝石"
+				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+			}
+
+		case "buyCard":
+			var payload buyCardPayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.CardID == "" {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的购买卡牌数据"})
+				return
+			}
+			data := legacyBuyCardData(payload)
+			cardID := payload.CardID
+			log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
+			// 预处理：支付、特效与来源
+			// 查找当前玩家索引
+			idx := -1
+			for i, p := range roomData.GameState.Players {
+				if p.ID == message.PlayerID {
+					idx = i
+					break
 				}
 			}
-		case "buyCard":
-			if cardID, ok := data["cardId"].(string); ok {
-				log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
-				// 预处理：支付、特效与来源
-				paymentPlan, _ := data["paymentPlan"].(map[string]any)
-				// 查找当前玩家索引
-				idx := -1
-				for i, p := range roomData.GameState.Players {
-					if p.ID == message.PlayerID {
-						idx = i
-						break
-					}
+			if idx < 0 {
+				idx = 0
+			}
+			before := roomData.GameState.Players[idx]
+			wasReserved := false
+			for _, rc := range before.ReservedCards {
+				if rc == cardID {
+					wasReserved = true
+					break
 				}
-				if idx < 0 {
-					idx = 0
+			}
+			// 预取特效信息
+			var extraPic string
+			if payload.Effects != nil && payload.Effects.ExtraToken != nil && payload.Effects.ExtraToken.SelectedGem != nil {
+				if x, y, valid := parseTypedBoardPosition(*payload.Effects.ExtraToken.SelectedGem, roomData.GameState.GemBoard); valid {
+					extraPic = histGemImg(string(roomData.GameState.GemBoard[x][y]))
 				}
-				before := roomData.GameState.Players[idx]
-				wasReserved := false
-				for _, rc := range before.ReservedCards {
-					if rc == cardID {
-						wasReserved = true
-						break
-					}
-				}
-				// 预取特效信息
-				effects, _ := data["effects"].(map[string]any)
-				var extraPic string
-				if extraRaw, ok := effects["extraToken"].(map[string]any); ok {
-					if sel, ok := extraRaw["selectedGem"].(map[string]any); ok {
-						if x, y, valid := parseBoardPosition(sel, roomData.GameState.GemBoard); valid {
-							extraPic = histGemImg(string(roomData.GameState.GemBoard[x][y]))
-						}
-					}
-				}
-				stealGem := ""
-				if stealRaw, ok := effects["steal"].(map[string]any); ok {
-					if gs, ok := stealRaw["gemType"].(string); ok {
-						stealGem = gs
-					}
-				}
-				wildColor := ""
-				if wildRaw, ok := effects["wildcard"].(map[string]any); ok {
-					if cs, ok := wildRaw["color"].(string); ok {
-						wildColor = cs
-					}
-				}
-				nobleId := ""
-				if nobleRaw, ok := effects["noble"].(map[string]any); ok {
-					if nid, ok := nobleRaw["id"].(string); ok {
-						nobleId = nid
-					}
-				}
-				// 执行购买
-				if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
-					log.Printf("购买发展卡失败: %v", err)
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
-				} else {
-					// 组装购买历史
-					var pics []string
-					totalPay := 0
-					for k, v := range paymentPlan {
-						c := int(v.(float64)) // 支付计划已由规则层严格验证。
-						totalPay += c
-						for i := 0; i < c; i++ {
-							pics = append(pics, histGemImg(k))
-						}
-					}
-					cd := roomData.GameState.CardDetails[cardID]
-					level := int(cd.Level)
-					var html, desc string
-					if totalPay <= 0 {
-						html = fmt.Sprintf("免费拿取一张等级 %d 的%s", level, histCardLink(cardID))
-						desc = "免费拿取发展卡"
-					} else {
-						source := "购买一张"
-						if wasReserved {
-							source = "从保留的发展卡购买一张"
-						}
-						html = fmt.Sprintf("花费 %s，%s等级 %d 的%s", strings.Join(pics, ""), source, level, histCardLink(cardID))
-						desc = "购买发展卡"
-					}
-					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
-					// 获得贵族
-					if nobleId != "" {
-						// 判定是第3还是第6皇冠（根据已有贵族数量）
-						owned := len(before.Nobles)
-						threshold := 3
-						if owned >= 1 {
-							threshold = 6
-						}
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得贵族", fmt.Sprintf("因皇冠数达到 %d 获得%s", threshold, histNobleLink(nobleId)))
-					}
-					// 特殊效果历史
-					// 额外token
-					if extraPic != "" {
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "额外token", fmt.Sprintf("因发展卡效果，拿取额外的 %s", extraPic))
-					}
-					// 窃取
-					if stealGem != "" {
-						src := "发展卡效果"
-						if nobleId == "noble1" {
-							src = "贵族效果"
-						}
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "窃取", fmt.Sprintf("因%s，从对手处拿取一枚 %s", src, histGemImg(stealGem)))
-					}
-					// 百搭颜色
-					if wildColor != "" {
-						cn := map[string]string{"white": "白色", "blue": "蓝色", "green": "绿色", "red": "红色", "black": "黑色"}[wildColor]
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "百搭颜色", fmt.Sprintf("将百搭颜色卡放置在%s组中", cn))
-					}
-					// 新的回合/获取特权
-					// 依据卡效果或贵族
-					effArr := cd.Effects
-					for _, e := range effArr {
-						if e == models.NewTurn {
-							broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因发展卡效果，获得额外的回合")
-						}
-						if e == models.GetPrivilege {
-							broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一个特权指示物")
-						}
-					}
-					if nobleId == "noble2" {
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因贵族效果，获得额外的回合")
-					}
-					if nobleId == "noble3" {
-						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因贵族效果，获得一个特权指示物")
-					}
-				}
+			}
+			stealGem := ""
+			if payload.Effects != nil && payload.Effects.Steal != nil {
+				stealGem = payload.Effects.Steal.GemType
+			}
+			wildColor := ""
+			if payload.Effects != nil && payload.Effects.Wildcard != nil {
+				wildColor = payload.Effects.Wildcard.Color
+			}
+			nobleId := ""
+			if payload.Effects != nil && payload.Effects.Noble != nil {
+				nobleId = payload.Effects.Noble.ID
+			}
+			// 执行购买
+			if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
+				log.Printf("购买发展卡失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 			} else {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的卡牌ID"})
+				// 组装购买历史
+				var pics []string
+				totalPay := 0
+				for k, c := range payload.PaymentPlan {
+					totalPay += c
+					for i := 0; i < c; i++ {
+						pics = append(pics, histGemImg(k))
+					}
+				}
+				cd := roomData.GameState.CardDetails[cardID]
+				level := int(cd.Level)
+				var html, desc string
+				if totalPay <= 0 {
+					html = fmt.Sprintf("免费拿取一张等级 %d 的%s", level, histCardLink(cardID))
+					desc = "免费拿取发展卡"
+				} else {
+					source := "购买一张"
+					if wasReserved {
+						source = "从保留的发展卡购买一张"
+					}
+					html = fmt.Sprintf("花费 %s，%s等级 %d 的%s", strings.Join(pics, ""), source, level, histCardLink(cardID))
+					desc = "购买发展卡"
+				}
+				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
+				// 获得贵族
+				if nobleId != "" {
+					// 判定是第3还是第6皇冠（根据已有贵族数量）
+					owned := len(before.Nobles)
+					threshold := 3
+					if owned >= 1 {
+						threshold = 6
+					}
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "获得贵族", fmt.Sprintf("因皇冠数达到 %d 获得%s", threshold, histNobleLink(nobleId)))
+				}
+				// 特殊效果历史
+				// 额外token
+				if extraPic != "" {
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "额外token", fmt.Sprintf("因发展卡效果，拿取额外的 %s", extraPic))
+				}
+				// 窃取
+				if stealGem != "" {
+					src := "发展卡效果"
+					if nobleId == "noble1" {
+						src = "贵族效果"
+					}
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "窃取", fmt.Sprintf("因%s，从对手处拿取一枚 %s", src, histGemImg(stealGem)))
+				}
+				// 百搭颜色
+				if wildColor != "" {
+					cn := map[string]string{"white": "白色", "blue": "蓝色", "green": "绿色", "red": "红色", "black": "黑色"}[wildColor]
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "百搭颜色", fmt.Sprintf("将百搭颜色卡放置在%s组中", cn))
+				}
+				// 新的回合/获取特权
+				// 依据卡效果或贵族
+				effArr := cd.Effects
+				for _, e := range effArr {
+					if e == models.NewTurn {
+						broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因发展卡效果，获得额外的回合")
+					}
+					if e == models.GetPrivilege {
+						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一个特权指示物")
+					}
+				}
+				if nobleId == "noble2" {
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因贵族效果，获得额外的回合")
+				}
+				if nobleId == "noble3" {
+					broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因贵族效果，获得一个特权指示物")
+				}
 			}
 		case "reserveCard":
-			cardID, cardOK := data["cardId"].(string)
-			goldX, xOK := data["goldX"].(float64)
-			goldY, yOK := data["goldY"].(float64)
-			if !cardOK || !xOK || !yOK || goldX != float64(int(goldX)) || goldY != float64(int(goldY)) {
+			var payload reserveCardPayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.CardID == "" || payload.GoldX == nil || payload.GoldY == nil {
 				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的保留卡数据"})
 				return
 			}
 			{
+				cardID := payload.CardID
 				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
-				goldRow, goldCol := int(goldX), int(goldY)
+				goldRow, goldCol := *payload.GoldX, *payload.GoldY
 				// 执行前后比较找出真实卡ID
 				// 查找当前玩家索引
 				idx := -1
@@ -771,22 +875,18 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				}
 			}
 		case "spendPrivilege":
-			privilegeCount, countOK := data["privilegeCount"].(float64)
-			gemPositions, positionsOK := data["gemPositions"].([]any)
-			if !countOK || privilegeCount != float64(int(privilegeCount)) || !positionsOK {
+			var payload spendPrivilegePayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.PrivilegeCount == nil || payload.GemPositions == nil {
 				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的特权操作数据"})
 				return
 			}
-			log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
-			positions := make([]map[string]any, 0, len(gemPositions))
-			inner := make([]string, 0, len(gemPositions))
-			for _, pos := range gemPositions {
-				posMap, ok := pos.(map[string]any)
-				if !ok {
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
-					return
-				}
-				x, y, ok := parseBoardPosition(posMap, roomData.GameState.GemBoard)
+			privilegeCount := *payload.PrivilegeCount
+			log.Printf("执行花费特权操作，特权数量: %d", privilegeCount)
+			positions := make([]map[string]any, 0, len(payload.GemPositions))
+			inner := make([]string, 0, len(payload.GemPositions))
+			for _, position := range payload.GemPositions {
+				posMap := legacyPosition(position)
+				x, y, ok := parseTypedBoardPosition(position, roomData.GameState.GemBoard)
 				if !ok {
 					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
 					return
@@ -794,85 +894,105 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				positions = append(positions, posMap)
 				inner = append(inner, histGemImg(string(roomData.GameState.GemBoard[x][y])))
 			}
-			if err := gl.SpendPrivilege(message.PlayerID, int(privilegeCount), positions); err != nil {
+			if err := gl.SpendPrivilege(message.PlayerID, privilegeCount, positions); err != nil {
 				log.Printf("花费特权失败: %v", err)
 				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 			} else {
 				pics := strings.Join(inner, "")
-				html := fmt.Sprintf("花费了 %d 特权指示物，拿取 %s", int(privilegeCount), pics)
+				html := fmt.Sprintf("花费了 %d 特权指示物，拿取 %s", privilegeCount, pics)
 				desc := "花费特权"
 				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 			}
 		case "refillBoard":
+			var payload struct{}
+			if err := decodeActionPayload(message.Data, &payload); err != nil {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的补充版图数据"})
+				return
+			}
 			log.Printf("执行补充版图操作")
 			if err := gl.RefillBoard(message.PlayerID); err != nil {
 				log.Printf("补充版图失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 			} else {
 				log.Printf("补充版图成功")
 				desc := "执行了补充版图，允许对手获取一个特权指示物"
 				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, desc)
 			}
 		case "grantOpponentPrivilege":
+			var payload struct{}
+			if err := decodeActionPayload(message.Data, &payload); err != nil {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的特权授予数据"})
+				return
+			}
 			log.Printf("执行让对手获得特权指示物操作")
 			if err := gl.GrantOpponentPrivilege(message.PlayerID); err != nil {
 				log.Printf("让对手获得特权指示物失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 			} else {
 				log.Printf("让对手获得特权指示物成功")
 			}
 		case "discardGem":
-			if gemType, ok := data["gemType"].(string); ok {
-				log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)
-				if err := gl.DiscardGem(message.PlayerID, models.GemType(gemType)); err != nil {
-					log.Printf("丢弃宝石失败: %v", err)
-				} else {
-					log.Printf("丢弃宝石成功")
-					// 记录丢弃宝石，支持单枚
-					pic := histGemImg(gemType)
-					html := fmt.Sprintf("丢弃宝石 %s", pic)
-					desc := "丢弃宝石"
-					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
-				}
+			var payload discardGemPayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemType == "" {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
+				return
+			}
+			gemType := payload.GemType
+			log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)
+			if err := gl.DiscardGem(message.PlayerID, models.GemType(gemType)); err != nil {
+				log.Printf("丢弃宝石失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+			} else {
+				log.Printf("丢弃宝石成功")
+				// 记录丢弃宝石，支持单枚
+				pic := histGemImg(gemType)
+				html := fmt.Sprintf("丢弃宝石 %s", pic)
+				desc := "丢弃宝石"
+				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 			}
 		case "discardGemsBatch":
-			if gemDiscardsData, ok := data["gemDiscards"].(map[string]interface{}); ok {
-				log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", gemDiscardsData)
-				gemDiscards := make(map[models.GemType]int)
-				for gemTypeStr, count := range gemDiscardsData {
-					countFloat, valid := count.(float64)
-					if !valid || countFloat <= 0 || countFloat != float64(int(countFloat)) {
-						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
-						return
-					}
-					gemDiscards[models.GemType(gemTypeStr)] = int(countFloat)
-				}
-				if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
-					log.Printf("批量丢弃宝石失败: %v", err)
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
-				} else {
-					log.Printf("批量丢弃宝石成功")
-					// 记录批量丢弃
-					var pics []string
-					for gt, ct := range gemDiscards {
-						for i := 0; i < ct; i++ {
-							pics = append(pics, histGemImg(string(gt)))
-						}
-					}
-					html := fmt.Sprintf("丢弃宝石 %s", strings.Join(pics, ""))
-					desc := "丢弃宝石"
-					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
-				}
-			} else {
+			var payload discardGemsBatchPayload
+			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemDiscards == nil {
 				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
+				return
+			}
+			log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", payload.GemDiscards)
+			gemDiscards := make(map[models.GemType]int, len(payload.GemDiscards))
+			for gemType, count := range payload.GemDiscards {
+				gemDiscards[models.GemType(gemType)] = count
+			}
+			if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
+				log.Printf("批量丢弃宝石失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+			} else {
+				log.Printf("批量丢弃宝石成功")
+				// 记录批量丢弃
+				var pics []string
+				for gt, ct := range gemDiscards {
+					for i := 0; i < ct; i++ {
+						pics = append(pics, histGemImg(string(gt)))
+					}
+				}
+				html := fmt.Sprintf("丢弃宝石 %s", strings.Join(pics, ""))
+				desc := "丢弃宝石"
+				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 			}
 		case "endTurn":
+			var payload struct{}
+			if err := decodeActionPayload(message.Data, &payload); err != nil {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的回合结束数据"})
+				return
+			}
 			log.Printf("执行回合结束操作")
 			if err := gl.HandleTurnEnd(); err != nil {
 				log.Printf("回合结束处理失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 			} else {
 				log.Printf("回合结束处理成功")
 			}
 		default:
 			log.Printf("未知的游戏动作类型: %s", actionType)
+			room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "未知的游戏动作类型"})
 		}
 
 		log.Printf("游戏状态已更新")
@@ -897,6 +1017,16 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 
 // handleStartGame 处理开始游戏
 func (c *Client) handleStartGame(room *Room) {
+	roomData := room.Manager.GetRoom(c.RoomID)
+	if roomData == nil {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "房间不存在"})
+		return
+	}
+	if len(roomData.GameState.Players) < 2 {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家数量不足，无法开始游戏"})
+		return
+	}
+	var startErr error
 	// 使用游戏逻辑来正确初始化游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
 		// 创建游戏逻辑实例
@@ -905,11 +1035,16 @@ func (c *Client) handleStartGame(room *Room) {
 		// 开始游戏（这会初始化宝石版图、发展卡等）
 		if err := gl.StartGame(); err != nil {
 			log.Printf("开始游戏失败: %v", err)
+			startErr = err
 			return
 		}
 
 		roomData.GameState.StartedAt = time.Now()
 	})
+	if startErr != nil {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: startErr.Error()})
+		return
+	}
 
 	// 广播游戏开始消息
 	room.broadcastToAll(models.WSMessage{

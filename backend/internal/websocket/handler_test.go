@@ -124,6 +124,110 @@ func TestProtocolReportsMalformedAndUnknownMessages(t *testing.T) {
 	expectClientError(t, client)
 }
 
+func TestTopLevelStartGameReportsFailure(t *testing.T) {
+	_, room, client, playerID := protocolTestRoom(t)
+	client.PlayerID, client.PlayerName = playerID, "p1"
+	client.handleStartGame(room)
+	expectClientError(t, client)
+}
+
+func TestGameActionsReportProtocolAndRuleErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		actionType string
+		data       any
+	}{
+		{"missing_data", "takeGems", nil},
+		{"missing_action_type", "", map[string]any{}},
+		{"unknown_action_type", "notSupported", map[string]any{}},
+		{"malformed_typed_payload", "takeGems", "invalid"},
+		{"start_game_with_one_player", "start_game", map[string]any{}},
+		{"refill_empty_bag", "refillBoard", map[string]any{}},
+		{"discard_when_not_required", "discardGem", map[string]any{"gemType": "blue"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, room, client, playerID := protocolTestRoom(t)
+			client.PlayerID, client.PlayerName = playerID, "p1"
+			before, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			client.handleGameAction(models.WSMessage{
+				Type: "game_action", PlayerID: playerID, PlayerName: "p1",
+				ActionType: tc.actionType, Data: tc.data,
+			}, room)
+			after, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			if !bytes.Equal(before, after) {
+				t.Fatal("rejected action changed game state")
+			}
+			if len(room.GameHistory) != 0 {
+				t.Fatal("rejected action generated success history")
+			}
+			expectClientError(t, client)
+		})
+	}
+}
+
+func TestTypedActionPayloadKeepsLegacyFieldsAndAllowsExtensions(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	manager.UpdateRoom(room.ID, func(r *models.Room) {
+		r.GameState.Status = models.GameStatusPlaying
+		r.GameState.GemBoard[0][0] = models.GemBlue
+	})
+	client.PlayerID, client.PlayerName = playerID, "p1"
+
+	client.handleGameAction(models.WSMessage{
+		Type: "game_action", PlayerID: playerID, PlayerName: "p1", ActionType: "takeGems",
+		Data: map[string]any{
+			"gemPositions":        []any{map[string]any{"x": float64(0), "y": float64(0), "futureField": true}},
+			"futureEnvelopeField": "compatible",
+		},
+	}, room)
+
+	state := manager.GetRoom(room.ID).GameState
+	if state.Players[0].Gems[models.GemBlue] != 1 || state.GemBoard[0][0] != "" {
+		t.Fatal("legacy takeGems payload did not execute")
+	}
+	if len(room.GameHistory) != 1 {
+		t.Fatal("successful legacy action did not generate history")
+	}
+	for len(client.Send) > 0 {
+		var message models.WSMessage
+		if err := json.Unmarshal(<-client.Send, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message.Type == "error" {
+			t.Fatalf("compatible extension field was rejected: %s", message.Message)
+		}
+	}
+}
+
+func TestTypedBuyPayloadKeepsOptionalLegacyFields(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	manager.UpdateRoom(room.ID, func(r *models.Room) {
+		r.GameState.Status = models.GameStatusPlaying
+		card := models.DevelopmentCard{
+			ID: "free-card", Level: models.Level1, Bonus: models.GemBlue,
+			Cost: map[models.GemType]int{},
+		}
+		r.GameState.CardMap[card.ID] = card
+		r.GameState.CardDetails[card.ID] = card
+		r.GameState.FlippedCards[models.Level1] = []string{card.ID}
+	})
+	client.PlayerID, client.PlayerName = playerID, "p1"
+
+	// paymentPlan and effects were optional in the legacy protocol for a free card.
+	client.handleGameAction(models.WSMessage{
+		Type: "game_action", PlayerID: playerID, PlayerName: "p1", ActionType: "buyCard",
+		Data: map[string]any{"cardId": "free-card", "futureField": true},
+	}, room)
+
+	state := manager.GetRoom(room.ID).GameState
+	if !reflect.DeepEqual(state.Players[0].DevelopmentCards, []string{"free-card"}) {
+		t.Fatal("typed purchase decoder changed optional legacy fields")
+	}
+	if len(room.GameHistory) != 1 {
+		t.Fatal("successful purchase did not generate history")
+	}
+}
+
 func TestTakeGemsRejectsMalformedPayloadBeforeHistory(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
