@@ -34,8 +34,23 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await expect(page.locator('.player-details').first()).toHaveClass(/expanded/)
     await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
     await expect(page.locator('.player-card:visible')).toHaveCount(1)
+    const mobilePanels = page.locator('.mobile-collapsible-panel')
+    await expect(mobilePanels).toHaveCount(3)
+    await expect(mobilePanels.nth(0)).not.toHaveClass(/expanded/)
+    await expect(mobilePanels.nth(1)).toHaveClass(/expanded/)
+    await expect(mobilePanels.nth(2)).not.toHaveClass(/expanded/)
+    await expect(page.locator('.chat-input')).toBeVisible()
+    const panelBoundsAreValid = await page.locator('.mobile-panel-summary').evaluateAll(summaries => summaries.every(summary => {
+      const bounds = summary.getBoundingClientRect()
+      return bounds.left >= 0 && bounds.right <= window.innerWidth && bounds.height >= 44
+    }))
+    expect(panelBoundsAreValid).toBe(true)
+    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    await expect(page.locator('.history-list')).toBeVisible()
+    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
   } else {
     await expect(page.locator('.player-card:visible')).toHaveCount(2)
+    await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(3)
   }
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
 })

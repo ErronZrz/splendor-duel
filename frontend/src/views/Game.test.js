@@ -85,4 +85,12 @@ it('renders player status cards with the local player first and preserves names'
   await details[1].find('.player-summary').trigger('click')
   expect(wrapper.findAll('.player-details')[1].classes()).toContain('expanded')
   expect(wrapper.findAll('.player-details')[1].find('.player-summary').attributes('aria-expanded')).toBe('true')
+
+  const mobilePanels = wrapper.findAll('.mobile-collapsible-panel')
+  expect(mobilePanels).toHaveLength(3)
+  expect(mobilePanels.map(panel => panel.classes().includes('expanded'))).toEqual([false, true, false])
+  expect(mobilePanels.map(panel => panel.find('.mobile-panel-summary').attributes('aria-expanded'))).toEqual(['false', 'true', 'false'])
+  await mobilePanels[2].find('.mobile-panel-summary').trigger('click')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[2].classes()).toContain('expanded')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[2].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
 })

@@ -211,9 +211,21 @@
               </div>
               
               <!-- 操作面板 -->
-              <div class="action-panel">
-                <h3>游戏操作</h3>
-                <div v-if="isMyTurn" class="available-actions">
+              <div class="action-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('actions') }">
+                <h3>
+                  <button
+                    class="mobile-panel-summary"
+                    type="button"
+                    aria-controls="game-actions-content"
+                    :aria-expanded="isMobilePanelExpanded('actions')"
+                    @click="toggleMobilePanel('actions')"
+                  >
+                    <span>游戏操作</span>
+                    <span class="mobile-panel-meta">{{ isMyTurn ? '轮到你' : '等待对手' }}</span>
+                  </button>
+                </h3>
+                <div id="game-actions-content" class="mobile-panel-content">
+                  <div v-if="isMyTurn" class="available-actions">
                   <!-- 可选行动入口迁移至：
                       - 玩家卡片右上角特权徽标（花费特权）
                       - “袋中宝石”标签（补充版图）
@@ -225,9 +237,10 @@
                     <br>点击版图上的黄金可保留发展卡；
                     <br>点击翻开或保留的发展卡可购买发展卡。
                   </span>
-                </div>
-                <div v-else class="waiting-turn">
-                  <p>等待其他玩家操作...</p>
+                  </div>
+                  <div v-else class="waiting-turn">
+                    <p>等待其他玩家操作...</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -238,47 +251,73 @@
       <!-- 底部面板区域 -->
       <div class="bottom-panels">
         <!-- 聊天面板 -->
-        <div class="chat-panel">
-          <h3>聊天</h3>
-          <div class="chat-messages" ref="chatMessagesRef">
-            <div 
-              v-for="(message, index) in chatMessages" 
-              :key="index" 
-              class="chat-message"
-              :class="{ 'own-message': message.playerId === currentPlayer?.id }"
+        <div class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }">
+          <h3>
+            <button
+              class="mobile-panel-summary"
+              type="button"
+              aria-controls="game-chat-content"
+              :aria-expanded="isMobilePanelExpanded('chat')"
+              @click="toggleMobilePanel('chat')"
             >
-              <span class="chat-player-name">{{ message.playerName }}:</span>
-              <span class="message-text">{{ message.message }}</span>
+              <span>聊天</span>
+              <span class="mobile-panel-meta">{{ chatMessages.length }} 条</span>
+            </button>
+          </h3>
+          <div id="game-chat-content" class="mobile-panel-content">
+            <div class="chat-messages" ref="chatMessagesRef">
+              <div
+                v-for="(message, index) in chatMessages"
+                :key="index"
+                class="chat-message"
+                :class="{ 'own-message': message.playerId === currentPlayer?.id }"
+              >
+                <span class="chat-player-name">{{ message.playerName }}:</span>
+                <span class="message-text">{{ message.message }}</span>
+              </div>
             </div>
-          </div>
-          <div class="chat-input">
-            <input 
-              v-model="newMessage" 
-              @keyup.enter="sendMessage"
-              placeholder="输入消息..."
-              maxlength="100"
-            />
-            <button @click="sendMessage" class="btn btn-primary">发送</button>
+            <div class="chat-input">
+              <input
+                v-model="newMessage"
+                @keyup.enter="sendMessage"
+                placeholder="输入消息..."
+                maxlength="100"
+              />
+              <button @click="sendMessage" class="btn btn-primary">发送</button>
+            </div>
           </div>
         </div>
 
         <!-- 历史记录面板 -->
-        <div class="history-panel">
-          <h3>操作历史</h3>
-          <div class="history-list" ref="historyListRef">
-            <div 
-              v-for="(action, index) in gameHistory.slice().reverse()" 
-              :key="gameHistory.length - 1 - index" 
-              class="history-item"
-              :class="{ 'own-history-item': action.playerId === currentPlayer?.id }"
+        <div class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }">
+          <h3>
+            <button
+              class="mobile-panel-summary"
+              type="button"
+              aria-controls="game-history-content"
+              :aria-expanded="isMobilePanelExpanded('history')"
+              @click="toggleMobilePanel('history')"
             >
-              <span class="action-time">{{ formatTime(action.timestamp) }}</span>
-              <span class="action-player">{{ action.playerName }}</span>
-              <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
-              <span class="action-text" v-else v-html="getActionHtml(action)"></span>
-            </div>
-            <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef">
-              <img :src="preview.image" alt="预览" />
+              <span>操作历史</span>
+              <span class="mobile-panel-meta">{{ gameHistory.length }} 条</span>
+            </button>
+          </h3>
+          <div id="game-history-content" class="mobile-panel-content">
+            <div class="history-list" ref="historyListRef">
+              <div
+                v-for="(action, index) in gameHistory.slice().reverse()"
+                :key="gameHistory.length - 1 - index"
+                class="history-item"
+                :class="{ 'own-history-item': action.playerId === currentPlayer?.id }"
+              >
+                <span class="action-time">{{ formatTime(action.timestamp) }}</span>
+                <span class="action-player">{{ action.playerName }}</span>
+                <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
+                <span class="action-text" v-else v-html="getActionHtml(action)"></span>
+              </div>
+              <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef">
+                <img :src="preview.image" alt="预览" />
+              </div>
             </div>
           </div>
         </div>
@@ -552,6 +591,13 @@ const tooltipStyle = ref({
 
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, lastActionResult } = storeToRefs(gameStore)
+const expandedMobilePanels = ref(new Set(['chat']))
+const isMobilePanelExpanded = (panelId) => expandedMobilePanels.value.has(panelId)
+const toggleMobilePanel = (panelId) => {
+  const next = new Set(expandedMobilePanels.value)
+  next.has(panelId) ? next.delete(panelId) : next.add(panelId)
+  expandedMobilePanels.value = next
+}
 const expandedPlayerIds = ref(new Set())
 const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
 const togglePlayerDetails = (playerId) => {
@@ -2351,6 +2397,20 @@ watch(gameState, (newState, oldState) => {
   padding-bottom: 8px;
 }
 
+.mobile-panel-summary {
+  display: contents;
+  color: inherit;
+  font: inherit;
+}
+
+.mobile-panel-meta {
+  display: none;
+}
+
+.mobile-panel-content {
+  display: block;
+}
+
 .available-actions {
   display: flex;
   flex-direction: column;
@@ -2658,6 +2718,64 @@ watch(gameState, (newState, oldState) => {
 
   .player-status, .action-panel, .chat-panel, .history-panel {
     padding: var(--space-4);
+  }
+
+  .mobile-collapsible-panel > h3 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .mobile-panel-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-panel-summary::after {
+    content: '展开';
+    color: var(--color-action);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .mobile-collapsible-panel.expanded > h3 .mobile-panel-summary::after {
+    content: '收起';
+  }
+
+  .mobile-panel-meta {
+    display: inline;
+    margin-left: auto;
+    color: var(--color-ink-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .mobile-collapsible-panel > .mobile-panel-content {
+    display: none;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .mobile-collapsible-panel.expanded > .mobile-panel-content {
+    display: block;
+  }
+
+  .chat-messages,
+  .history-list {
+    height: min(42vh, 280px);
+    overscroll-behavior-y: contain;
   }
 
   .player-details {
