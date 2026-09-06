@@ -439,6 +439,19 @@ func histNobleLink(id string) string {
 	return fmt.Sprintf(`<span class="hist-link" data-preview="/images/nobles/%s.jpg">贵族</span>`, id)
 }
 
+func parseBoardPosition(position map[string]any, board [][]models.GemType) (int, int, bool) {
+	x, xOK := position["x"].(float64)
+	y, yOK := position["y"].(float64)
+	if !xOK || !yOK || x != float64(int(x)) || y != float64(int(y)) || x < 0 || y < 0 {
+		return 0, 0, false
+	}
+	row, col := int(x), int(y)
+	if row >= len(board) || col >= len(board[row]) {
+		return 0, 0, false
+	}
+	return row, col, true
+}
+
 func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 	ga := models.GameAction{
 		ID:              generateClientID(),
@@ -756,31 +769,37 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				}
 			}
 		case "spendPrivilege":
-			if privilegeCount, ok := data["privilegeCount"].(float64); ok {
-				log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
-				if gemPositions, ok := data["gemPositions"].([]any); ok {
-					var positions []map[string]any
-					for _, pos := range gemPositions {
-						if posMap, ok := pos.(map[string]any); ok {
-							positions = append(positions, posMap)
-						}
-					}
-					var inner []string
-					for _, p := range positions {
-						x := int(p["x"].(float64))
-						y := int(p["y"].(float64))
-						g := roomData.GameState.GemBoard[x][y]
-						inner = append(inner, histGemImg(string(g)))
-					}
-					if err := gl.SpendPrivilege(message.PlayerID, int(privilegeCount), positions); err != nil {
-						log.Printf("花费特权失败: %v", err)
-					} else {
-						pics := strings.Join(inner, "")
-						html := fmt.Sprintf("花费了 %d 特权指示物，拿取 %s", int(privilegeCount), pics)
-						desc := "花费特权"
-						broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
-					}
+			privilegeCount, countOK := data["privilegeCount"].(float64)
+			gemPositions, positionsOK := data["gemPositions"].([]any)
+			if !countOK || privilegeCount != float64(int(privilegeCount)) || !positionsOK {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的特权操作数据"})
+				return
+			}
+			log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
+			positions := make([]map[string]any, 0, len(gemPositions))
+			inner := make([]string, 0, len(gemPositions))
+			for _, pos := range gemPositions {
+				posMap, ok := pos.(map[string]any)
+				if !ok {
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+					return
 				}
+				x, y, ok := parseBoardPosition(posMap, roomData.GameState.GemBoard)
+				if !ok {
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+					return
+				}
+				positions = append(positions, posMap)
+				inner = append(inner, histGemImg(string(roomData.GameState.GemBoard[x][y])))
+			}
+			if err := gl.SpendPrivilege(message.PlayerID, int(privilegeCount), positions); err != nil {
+				log.Printf("花费特权失败: %v", err)
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+			} else {
+				pics := strings.Join(inner, "")
+				html := fmt.Sprintf("花费了 %d 特权指示物，拿取 %s", int(privilegeCount), pics)
+				desc := "花费特权"
+				broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 			}
 		case "refillBoard":
 			log.Printf("执行补充版图操作")

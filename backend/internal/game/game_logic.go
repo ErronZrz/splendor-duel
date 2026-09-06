@@ -15,18 +15,18 @@ import (
 type GameActionType string
 
 const (
-	ActionSpendPrivilege    GameActionType = "spend_privilege"    // 花费特权指示物
-	ActionRefillBoard       GameActionType = "refill_board"       // 补充版图
-	ActionTakeGems          GameActionType = "take_gems"          // 拿取宝石
-	ActionBuyCard           GameActionType = "buy_card"           // 购买发展卡
-	ActionReserveCard       GameActionType = "reserve_card"       // 保留发展卡
+	ActionSpendPrivilege GameActionType = "spend_privilege" // 花费特权指示物
+	ActionRefillBoard    GameActionType = "refill_board"    // 补充版图
+	ActionTakeGems       GameActionType = "take_gems"       // 拿取宝石
+	ActionBuyCard        GameActionType = "buy_card"        // 购买发展卡
+	ActionReserveCard    GameActionType = "reserve_card"    // 保留发展卡
 )
 
 // GameAction 游戏行动
 type GameAction struct {
-	Type      GameActionType              `json:"type"`
-	PlayerID  string                      `json:"playerId"`
-	Data      map[string]any      `json:"data"`
+	Type     GameActionType `json:"type"`
+	PlayerID string         `json:"playerId"`
+	Data     map[string]any `json:"data"`
 }
 
 // GameLogic 游戏逻辑管理器
@@ -48,42 +48,42 @@ func (gl *GameLogic) StartGame() error {
 	if gl.gameState.Status != models.GameStatusWaiting {
 		return errors.New("游戏状态不正确，无法开始")
 	}
-	
+
 	// 随机决定起始玩家
 	if len(gl.gameState.Players) == 0 {
 		return errors.New("没有玩家，无法开始游戏")
 	}
 	gl.gameState.CurrentPlayerIndex = gl.getRandomInt(0, len(gl.gameState.Players)-1)
-	
+
 	// 后手玩家获得一个特权指示物（统一使用拿取P函数）
 	if len(gl.gameState.Players) > 1 {
 		opponentIndex := (gl.gameState.CurrentPlayerIndex + 1) % len(gl.gameState.Players)
 		_ = gl.TakePrivilegeToken(gl.gameState.Players[opponentIndex].ID)
 	}
-	
+
 	// 初始化宝石版图
 	gl.initializeGemBoard()
-	
+
 	// 初始化发展卡
 	gl.initializeDevelopmentCards()
-	
+
 	// 初始化贵族卡
 	gl.initializeNobleCards()
-	
+
 	// 初始化待补充列表
 	gl.gameState.CardToRefill = models.PendingRefill{}
 	// 初始化可选动作限制
 	gl.gameState.RefilledThisTurn = false
-	
+
 	// 初始化宝石丢弃相关字段
 	gl.gameState.NeedsGemDiscard = false
 	gl.gameState.GemDiscardTarget = 10
 	gl.gameState.GemDiscardPlayerID = ""
-	
+
 	// 设置游戏状态
 	gl.gameState.Status = models.GameStatusPlaying
 	gl.gameState.TurnNumber = 1
-	
+
 	return nil
 }
 
@@ -93,49 +93,49 @@ func (gl *GameLogic) StartGame() error {
 // 2) 若公共区有剩余P，则从公共区减1，玩家加1
 // 3) 否则，从对手处转移1个P到该玩家（若对手有的话）
 func (gl *GameLogic) TakePrivilegeToken(playerID string) error {
-    if gl.gameState.Status == models.GameStatusFinished {
-        return errors.New("游戏已结束")
-    }
-    playerIndex := gl.getPlayerIndex(playerID)
-    if playerIndex == -1 {
-        return errors.New("玩家不存在")
-    }
+	if gl.gameState.Status == models.GameStatusFinished {
+		return errors.New("游戏已结束")
+	}
+	playerIndex := gl.getPlayerIndex(playerID)
+	if playerIndex == -1 {
+		return errors.New("玩家不存在")
+	}
 
-    // 最多3个
-    if gl.gameState.Players[playerIndex].PrivilegeTokens >= 3 {
-        return nil
-    }
+	// 最多3个
+	if gl.gameState.Players[playerIndex].PrivilegeTokens >= 3 {
+		return nil
+	}
 
-    // 先从公共区拿
-    if gl.gameState.AvailablePrivilegeTokens > 0 {
-        gl.gameState.Players[playerIndex].PrivilegeTokens++
-        gl.gameState.AvailablePrivilegeTokens--
-        return nil
-    }
+	// 先从公共区拿
+	if gl.gameState.AvailablePrivilegeTokens > 0 {
+		gl.gameState.Players[playerIndex].PrivilegeTokens++
+		gl.gameState.AvailablePrivilegeTokens--
+		return nil
+	}
 
-    // 否则从对手处获得
-    if len(gl.gameState.Players) > 1 {
-        opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
-        if gl.gameState.Players[opponentIndex].PrivilegeTokens > 0 {
-            gl.gameState.Players[opponentIndex].PrivilegeTokens--
-            gl.gameState.Players[playerIndex].PrivilegeTokens++
-        }
-    }
+	// 否则从对手处获得
+	if len(gl.gameState.Players) > 1 {
+		opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
+		if gl.gameState.Players[opponentIndex].PrivilegeTokens > 0 {
+			gl.gameState.Players[opponentIndex].PrivilegeTokens--
+			gl.gameState.Players[playerIndex].PrivilegeTokens++
+		}
+	}
 
-    return nil
+	return nil
 }
 
 // GrantOpponentPrivilege 让对手获得一个特权指示物（根据当前玩家计算对手）
 func (gl *GameLogic) GrantOpponentPrivilege(playerID string) error {
-    playerIndex := gl.getPlayerIndex(playerID)
-    if playerIndex == -1 {
-        return errors.New("玩家不存在")
-    }
-    if len(gl.gameState.Players) < 2 {
-        return nil
-    }
-    opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
-    return gl.TakePrivilegeToken(gl.gameState.Players[opponentIndex].ID)
+	playerIndex := gl.getPlayerIndex(playerID)
+	if playerIndex == -1 {
+		return errors.New("玩家不存在")
+	}
+	if len(gl.gameState.Players) < 2 {
+		return nil
+	}
+	opponentIndex := (playerIndex + 1) % len(gl.gameState.Players)
+	return gl.TakePrivilegeToken(gl.gameState.Players[opponentIndex].ID)
 }
 
 // 初始化宝石版图
@@ -145,24 +145,24 @@ func (gl *GameLogic) initializeGemBoard() {
 	for i := range gl.gameState.GemBoard {
 		gl.gameState.GemBoard[i] = make([]models.GemType, 5)
 	}
-	
+
 	// 创建宝石数组（正确数量：白蓝绿红黑各4个，珍珠2个，黄金3个，共25个）
 	gemTypes := []models.GemType{
 		models.GemWhite, models.GemWhite, models.GemWhite, models.GemWhite, // 4个白色
-		models.GemBlue, models.GemBlue, models.GemBlue, models.GemBlue,     // 4个蓝色
+		models.GemBlue, models.GemBlue, models.GemBlue, models.GemBlue, // 4个蓝色
 		models.GemGreen, models.GemGreen, models.GemGreen, models.GemGreen, // 4个绿色
-		models.GemRed, models.GemRed, models.GemRed, models.GemRed,         // 4个红色
+		models.GemRed, models.GemRed, models.GemRed, models.GemRed, // 4个红色
 		models.GemBlack, models.GemBlack, models.GemBlack, models.GemBlack, // 4个黑色
-		models.GemPearl, models.GemPearl,                                  // 2个珍珠
-		models.GemGold, models.GemGold, models.GemGold,                    // 3个黄金
+		models.GemPearl, models.GemPearl, // 2个珍珠
+		models.GemGold, models.GemGold, models.GemGold, // 3个黄金
 	}
-	
+
 	// 随机打乱宝石顺序
 	for i := len(gemTypes) - 1; i > 0; i-- {
 		j := gl.getRandomInt(0, i)
 		gemTypes[i], gemTypes[j] = gemTypes[j], gemTypes[i]
 	}
-	
+
 	// 按指定顺序填充宝石版图（完整的25个位置）
 	positions := []struct{ x, y int }{
 		{2, 2}, {2, 3}, // 从中心开始
@@ -174,7 +174,7 @@ func (gl *GameLogic) initializeGemBoard() {
 		{1, 0}, {2, 0}, {3, 0}, {4, 0}, // 向右
 		{4, 1}, {4, 2}, {4, 3}, {4, 4}, // 向下
 	}
-	
+
 	// 填充宝石
 	for i, pos := range positions {
 		if i < len(gemTypes) {
@@ -190,11 +190,11 @@ func (gl *GameLogic) initializeGemBoard() {
 func (gl *GameLogic) initializeDevelopmentCards() {
 	// 获取所有发展卡
 	allCards := GetAllDevelopmentCards()
-	
+
 	// 初始化卡牌详细信息映射和快速查找映射
 	gl.gameState.CardDetails = make(map[string]models.DevelopmentCard)
 	gl.gameState.CardMap = make(map[string]models.DevelopmentCard)
-	
+
 	// 按等级分组并洗乱
 	var level1Cards, level2Cards, level3Cards []DevelopmentCardData
 	for _, card := range allCards {
@@ -213,7 +213,7 @@ func (gl *GameLogic) initializeDevelopmentCards() {
 		}
 		gl.gameState.CardDetails[card.ID] = devCard
 		gl.gameState.CardMap[card.ID] = devCard
-		
+
 		switch card.Level {
 		case models.Level1:
 			level1Cards = append(level1Cards, card)
@@ -223,17 +223,17 @@ func (gl *GameLogic) initializeDevelopmentCards() {
 			level3Cards = append(level3Cards, card)
 		}
 	}
-	
+
 	// 洗乱每个等级的牌堆
 	gl.shuffleDeck(&level1Cards)
 	gl.shuffleDeck(&level2Cards)
 	gl.shuffleDeck(&level3Cards)
-	
+
 	// 初始化三个等级的牌堆
 	gl.gameState.Level1Deck = make([]string, len(level1Cards))
 	gl.gameState.Level2Deck = make([]string, len(level2Cards))
 	gl.gameState.Level3Deck = make([]string, len(level3Cards))
-	
+
 	// 将洗乱后的卡牌ID放入牌堆
 	for i, card := range level1Cards {
 		gl.gameState.Level1Deck[i] = card.ID
@@ -244,14 +244,14 @@ func (gl *GameLogic) initializeDevelopmentCards() {
 	for i, card := range level3Cards {
 		gl.gameState.Level3Deck[i] = card.ID
 	}
-	
+
 	// 设置未翻开的卡牌数量
 	gl.gameState.UnflippedCards = map[models.CardLevel]int{
 		models.Level1: len(level1Cards),
 		models.Level2: len(level2Cards),
 		models.Level3: len(level3Cards),
 	}
-	
+
 	// 从牌堆顶翻开初始卡牌
 	gl.gameState.FlippedCards = map[models.CardLevel][]string{
 		models.Level1: gl.drawCardsFromDeck(models.Level1, 5),
@@ -308,18 +308,18 @@ func (gl *GameLogic) drawCardsFromDeck(level models.CardLevel, count int) []stri
 	default:
 		return []string{}
 	}
-	
+
 	if len(*deck) < count {
 		count = len(*deck)
 	}
-	
+
 	// 从牌堆顶抽取卡牌
 	drawnCards := (*deck)[:count]
 	*deck = (*deck)[count:]
-	
+
 	// 更新未翻开卡牌数量
 	gl.gameState.UnflippedCards[level] = len(*deck)
-	
+
 	return drawnCards
 }
 
@@ -348,10 +348,18 @@ func (gl *GameLogic) validateGemLine(positions []any) bool {
 	// 判定是否同一条线（横/竖/两条对角线）
 	sameRow, sameCol, diag1, diag2 := true, true, true, true
 	for i := 1; i < n; i++ {
-		if pts[i].x != pts[0].x { sameCol = false }
-		if pts[i].y != pts[0].y { sameRow = false }
-		if (pts[i].x-pts[i].y) != (pts[0].x-pts[0].y) { diag1 = false }
-		if (pts[i].x+pts[i].y) != (pts[0].x+pts[0].y) { diag2 = false }
+		if pts[i].x != pts[0].x {
+			sameCol = false
+		}
+		if pts[i].y != pts[0].y {
+			sameRow = false
+		}
+		if (pts[i].x - pts[i].y) != (pts[0].x - pts[0].y) {
+			diag1 = false
+		}
+		if (pts[i].x + pts[i].y) != (pts[0].x + pts[0].y) {
+			diag2 = false
+		}
 	}
 	if !(sameRow || sameCol || diag1 || diag2) {
 		return false
@@ -384,18 +392,16 @@ func parseGemPosition(pos map[string]any) (int, int, bool) {
 // 计算应支付费用
 func (gl *GameLogic) calculateRequiredGems(card *DevelopmentCardData, player *models.Player) map[models.GemType]int {
 	required := make(map[models.GemType]int)
-	
+
 	for gemType, cost := range card.Cost {
 		bonus := player.Bonus[gemType]
 		if cost > bonus {
 			required[gemType] = cost - bonus
 		}
 	}
-	
+
 	return required
 }
-
-
 
 // 从场上移除卡牌，返回被移除卡牌的等级和位置
 func (gl *GameLogic) removeCardFromBoard(cardID string) (models.CardLevel, int) {
@@ -417,7 +423,7 @@ func (gl *GameLogic) resolveCardEffects(card *DevelopmentCardData, playerID stri
 	if player == nil {
 		return
 	}
-	
+
 	for _, effect := range card.Effects {
 		switch effect {
 		case models.ExtraToken:
@@ -447,9 +453,9 @@ func (gl *GameLogic) refillDevelopmentCards(level models.CardLevel, removedCardI
 	default:
 		targetCount = 5
 	}
-	
+
 	currentCount := len(gl.gameState.FlippedCards[level])
-	
+
 	// 只有当牌堆有剩余卡牌且场上卡牌数量少于目标数量时才补充
 	if currentCount < targetCount && gl.gameState.UnflippedCards[level] > 0 {
 		// 从牌堆中抽取一张卡牌
@@ -458,7 +464,7 @@ func (gl *GameLogic) refillDevelopmentCards(level models.CardLevel, removedCardI
 			// 将新卡牌插入到被移除卡牌的位置，保持顺序
 			if removedCardIndex >= 0 && removedCardIndex < len(gl.gameState.FlippedCards[level]) {
 				// 在指定位置插入新卡牌
-				gl.gameState.FlippedCards[level] = append(gl.gameState.FlippedCards[level][:removedCardIndex], 
+				gl.gameState.FlippedCards[level] = append(gl.gameState.FlippedCards[level][:removedCardIndex],
 					append([]string{card.ID}, gl.gameState.FlippedCards[level][removedCardIndex:]...)...)
 			} else {
 				// 如果位置无效，追加到末尾
@@ -529,25 +535,25 @@ func (gl *GameLogic) HandleTurnEnd() error {
 			Index: 0,
 		}
 	}
-	
+
 	// 检查当前玩家宝石数量是否超过限制
 	currentPlayer := &gl.gameState.Players[gl.gameState.CurrentPlayerIndex]
 	totalGems := gl.calculateTotalGems(currentPlayer)
-	
+
 	// 添加调试日志
-	fmt.Printf("回合结束检查 - 玩家ID: %s, 宝石总数: %d, 需要丢弃: %v\n", 
+	fmt.Printf("回合结束检查 - 玩家ID: %s, 宝石总数: %d, 需要丢弃: %v\n",
 		currentPlayer.ID, totalGems, totalGems > 10)
-	
+
 	if totalGems > 10 {
 		// 设置需要丢弃宝石的状态，并记录需要丢弃的玩家ID
 		gl.gameState.NeedsGemDiscard = true
 		gl.gameState.GemDiscardTarget = 10
 		gl.gameState.GemDiscardPlayerID = currentPlayer.ID
-		fmt.Printf("设置宝石丢弃状态 - 玩家ID: %s, NeedsGemDiscard: %v, Target: %d\n", 
+		fmt.Printf("设置宝石丢弃状态 - 玩家ID: %s, NeedsGemDiscard: %v, Target: %d\n",
 			currentPlayer.ID, gl.gameState.NeedsGemDiscard, gl.gameState.GemDiscardTarget)
 		return nil // 不切换回合，等待玩家丢弃宝石
 	}
-	
+
 	// 检查胜利条件
 	if won, reasons := gl.checkVictoryForPlayer(currentPlayer); won {
 		gl.gameState.Status = models.GameStatusFinished
@@ -556,12 +562,12 @@ func (gl *GameLogic) HandleTurnEnd() error {
 		fmt.Printf("游戏结束，胜者: %s，原因: %v\n", currentPlayer.Name, reasons)
 		return nil
 	}
-	
+
 	// 切换到下一个玩家前，重置本回合限制状态
 	gl.gameState.RefilledThisTurn = false
 	// 切换到下一个玩家
 	gl.nextTurn()
-	
+
 	return nil
 }
 
@@ -586,52 +592,52 @@ func (gl *GameLogic) DiscardGem(playerID string, gemType models.GemType) error {
 	}
 
 	fmt.Printf("DiscardGem 被调用 - 玩家ID: %s, 宝石类型: %s\n", playerID, gemType)
-	
+
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	// 检查是否为当前玩家
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	// 检查是否真的需要丢弃宝石
 	if !gl.gameState.NeedsGemDiscard {
 		fmt.Printf("当前不需要丢弃宝石 - NeedsGemDiscard: %v\n", gl.gameState.NeedsGemDiscard)
 		return errors.New("当前不需要丢弃宝石")
 	}
-	
+
 	player := &gl.gameState.Players[playerIndex]
-	
+
 	// 检查玩家是否有该类型的宝石
 	if player.Gems[gemType] <= 0 {
 		return errors.New("没有该类型的宝石可以丢弃")
 	}
-	
+
 	// 丢弃一个宝石
 	player.Gems[gemType]--
 	fmt.Printf("丢弃宝石成功 - 类型: %s, 剩余: %d\n", gemType, player.Gems[gemType])
-	
+
 	// 将宝石放回袋子
 	gl.gameState.GemBag = append(gl.gameState.GemBag, gemType)
-	
+
 	// 检查是否已经达到目标数量
 	totalGems := gl.calculateTotalGems(player)
 	fmt.Printf("丢弃后宝石总数: %d, 目标: %d\n", totalGems, gl.gameState.GemDiscardTarget)
-	
+
 	if totalGems <= gl.gameState.GemDiscardTarget {
 		// 重置丢弃状态
 		gl.gameState.NeedsGemDiscard = false
 		gl.gameState.GemDiscardTarget = 10
 		gl.gameState.GemDiscardPlayerID = ""
 		fmt.Printf("达到目标数量，重置状态\n")
-		
+
 		// 不自动切换回合，等待前端确认
 		// 前端确认后会调用 handleTurnEnd 来切换回合
 	}
-	
+
 	return nil
 }
 
@@ -642,69 +648,69 @@ func (gl *GameLogic) DiscardGemsBatch(playerID string, gemDiscards map[models.Ge
 	}
 
 	fmt.Printf("DiscardGemsBatch 被调用 - 玩家ID: %s, 丢弃详情: %v\n", playerID, gemDiscards)
-	
+
 	playerIndex := gl.getPlayerIndex(playerID)
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	// 检查是否为当前玩家
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	// 检查是否真的需要丢弃宝石
 	if !gl.gameState.NeedsGemDiscard {
 		fmt.Printf("当前不需要丢弃宝石 - NeedsGemDiscard: %v\n", gl.gameState.NeedsGemDiscard)
 		return errors.New("当前不需要丢弃宝石")
 	}
-	
+
 	player := &gl.gameState.Players[playerIndex]
-	
+
 	// 验证丢弃操作是否有效
 	for gemType, count := range gemDiscards {
 		if count <= 0 {
 			continue
 		}
-		
+
 		// 检查玩家是否有足够的该类型宝石
 		if player.Gems[gemType] < count {
 			return fmt.Errorf("没有足够的 %s 宝石，需要 %d，实际有 %d", gemType, count, player.Gems[gemType])
 		}
 	}
-	
+
 	// 执行批量丢弃
 	for gemType, count := range gemDiscards {
 		if count <= 0 {
 			continue
 		}
-		
+
 		// 丢弃宝石
 		player.Gems[gemType] -= count
-		
+
 		// 将宝石放回袋子
 		for i := 0; i < count; i++ {
 			gl.gameState.GemBag = append(gl.gameState.GemBag, gemType)
 		}
-		
+
 		fmt.Printf("批量丢弃宝石 - 类型: %s, 数量: %d, 剩余: %d\n", gemType, count, player.Gems[gemType])
 	}
-	
+
 	// 检查是否已经达到目标数量
 	totalGems := gl.calculateTotalGems(player)
 	fmt.Printf("批量丢弃后宝石总数: %d, 目标: %d\n", totalGems, gl.gameState.GemDiscardTarget)
-	
+
 	if totalGems <= gl.gameState.GemDiscardTarget {
 		// 重置丢弃状态
 		gl.gameState.NeedsGemDiscard = false
 		gl.gameState.GemDiscardTarget = 10
 		gl.gameState.GemDiscardPlayerID = ""
 		fmt.Printf("达到目标数量，重置状态\n")
-		
+
 		// 不自动切换回合，等待前端确认
 		// 前端确认后会调用 handleTurnEnd 来切换回合
 	}
-	
+
 	return nil
 }
 
@@ -713,7 +719,7 @@ func (gl *GameLogic) drawCardFromDeck(level models.CardLevel) *DevelopmentCardDa
 	if gl.gameState.UnflippedCards[level] <= 0 {
 		return nil
 	}
-	
+
 	// 从对应等级的牌堆顶抽取一张卡牌
 	drawnCards := gl.drawCardsFromDeck(level, 1)
 	if len(drawnCards) > 0 {
@@ -735,14 +741,14 @@ func (gl *GameLogic) drawCardFromDeck(level models.CardLevel) *DevelopmentCardDa
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // 切换到下一个玩家
 func (gl *GameLogic) nextTurn() {
 	fmt.Printf("nextTurn 被调用 - 当前玩家索引: %d\n", gl.gameState.CurrentPlayerIndex)
-	
+
 	// 检查是否有额外回合
 	currentPlayer := gl.gameState.Players[gl.gameState.CurrentPlayerIndex]
 	if gl.gameState.ExtraTurns[currentPlayer.ID] > 0 {
@@ -751,17 +757,15 @@ func (gl *GameLogic) nextTurn() {
 		// 继续当前玩家的回合
 		return
 	}
-	
+
 	// 切换到下一个玩家
 	oldIndex := gl.gameState.CurrentPlayerIndex
 	gl.gameState.CurrentPlayerIndex = (gl.gameState.CurrentPlayerIndex + 1) % len(gl.gameState.Players)
 	gl.gameState.TurnNumber++
-	
-	fmt.Printf("回合切换 - 从玩家 %d 切换到玩家 %d, 回合数: %d\n", 
+
+	fmt.Printf("回合切换 - 从玩家 %d 切换到玩家 %d, 回合数: %d\n",
 		oldIndex, gl.gameState.CurrentPlayerIndex, gl.gameState.TurnNumber)
 }
-
-
 
 // 获取玩家索引
 func (gl *GameLogic) getPlayerIndex(playerID string) int {
@@ -792,26 +796,26 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	if len(gemPositions) < 1 || len(gemPositions) > 3 {
 		return errors.New("只能拿取1-3个宝石")
 	}
-	
+
 	// 验证宝石位置和连续性
 	// 转换类型以匹配validateGemLine函数的参数
 	var positions []any
 	for _, pos := range gemPositions {
 		positions = append(positions, pos)
 	}
-	
+
 	if !gl.validateGemLine(positions) {
 		return errors.New("宝石不在同一直线上或不相邻")
 	}
-	
+
 	// Validate the entire action before moving any tokens. A rejected request
 	// must leave both the board and player resources unchanged.
 	for _, pos := range gemPositions {
@@ -822,7 +826,7 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		if rowIndex >= len(gl.gameState.GemBoard) || colIndex >= len(gl.gameState.GemBoard[rowIndex]) {
 			return errors.New("宝石位置超出范围")
 		}
-		
+
 		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
 		if gemType == "" {
 			return errors.New("该位置没有宝石")
@@ -836,17 +840,17 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
 		// 将宝石添加到玩家手中
 		gl.gameState.Players[playerIndex].Gems[gemType]++
-		
+
 		// 从版图上移除宝石
 		gl.gameState.GemBoard[rowIndex][colIndex] = ""
 	}
-	
+
 	// 调用回合结束处理函数，检查宝石数量
 	if err := gl.HandleTurnEnd(); err != nil {
 		fmt.Printf("回合结束处理失败: %v\n", err)
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -860,33 +864,33 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	// 验证黄金位置
 	if goldX < 0 || goldX >= 5 || goldY < 0 || goldY >= 5 {
 		return errors.New("黄金位置超出范围")
 	}
-	
+
 	if gl.gameState.GemBoard[goldX][goldY] != "gold" {
 		return errors.New("该位置没有黄金")
 	}
-	
+
 	// 检查玩家保留区是否已满
 	if len(gl.gameState.Players[playerIndex].ReservedCards) >= 3 {
 		return errors.New("保留区已满，无法保留更多卡牌")
 	}
-	
+
 	// 将黄金添加到玩家手中
 	gl.gameState.Players[playerIndex].Gems["gold"]++
-	
+
 	// 从版图上移除黄金
 	gl.gameState.GemBoard[goldX][goldY] = ""
-	
+
 	var reservedCardID string
-	
+
 	if strings.HasPrefix(cardID, "deck_level_") {
 		// 从牌堆盲抽卡牌
 		// 解析等级信息
@@ -895,17 +899,17 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 		if err != nil {
 			return errors.New("无效的牌堆等级信息")
 		}
-		
+
 		selectedLevel := models.CardLevel(levelInt)
 		if selectedLevel < 1 || selectedLevel > 3 {
 			return errors.New("无效的牌堆等级")
 		}
-		
+
 		// 检查该等级牌堆是否有剩余卡牌
 		if gl.gameState.UnflippedCards[selectedLevel] <= 0 {
 			return errors.New("该等级牌堆已空，无法盲抽卡牌")
 		}
-		
+
 		// 从该等级牌堆顶抽取一张卡牌
 		if gl.gameState.UnflippedCards[selectedLevel] > 0 {
 			drawnCards := gl.drawCardsFromDeck(selectedLevel, 1)
@@ -926,15 +930,15 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 				availableLevels = append(availableLevels, level)
 			}
 		}
-		
+
 		if len(availableLevels) == 0 {
 			return errors.New("所有牌堆都已空，无法盲抽卡牌")
 		}
-		
+
 		// 随机选择一个等级
 		randomLevelIndex := gl.getRandomInt(0, len(availableLevels)-1)
 		selectedLevel := availableLevels[randomLevelIndex]
-		
+
 		// 从该等级牌堆顶抽取一张卡牌
 		if gl.gameState.UnflippedCards[selectedLevel] > 0 {
 			drawnCards := gl.drawCardsFromDeck(selectedLevel, 1)
@@ -952,7 +956,7 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 		var cardLevel models.CardLevel
 		var cardFound bool
 		var cardIndex int
-		
+
 		// 检查已翻开的卡牌
 		for level := 1; level <= 3; level++ {
 			levelCards := gl.gameState.FlippedCards[models.CardLevel(level)]
@@ -968,33 +972,33 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 				break
 			}
 		}
-		
+
 		if !cardFound {
 			return errors.New("卡牌不存在或无法保留")
 		}
-		
+
 		reservedCardID = cardID
-		
+
 		// 从场上移除该卡牌
 		levelCards := gl.gameState.FlippedCards[cardLevel]
 		gl.gameState.FlippedCards[cardLevel] = append(levelCards[:cardIndex], levelCards[cardIndex+1:]...)
-		
+
 		// 将位置信息存储到游戏状态中，供回合结束时使用
 		gl.gameState.CardToRefill = models.PendingRefill{
 			Level: cardLevel,
 			Index: cardIndex,
 		}
 	}
-	
+
 	// 将卡牌添加到玩家保留区
 	gl.gameState.Players[playerIndex].ReservedCards = append(gl.gameState.Players[playerIndex].ReservedCards, reservedCardID)
-	
+
 	// 调用回合结束处理函数
 	if err := gl.HandleTurnEnd(); err != nil {
 		fmt.Printf("回合结束处理失败: %v\n", err)
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -1012,49 +1016,57 @@ func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPosi
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	player := &gl.gameState.Players[playerIndex]
+	if privilegeCount < 1 || privilegeCount > 3 {
+		return errors.New("只能使用1-3个特权指示物")
+	}
 	if player.PrivilegeTokens < privilegeCount {
 		return errors.New("特权指示物不足")
 	}
-	
+
 	if len(gemPositions) != privilegeCount {
 		return errors.New("选择的宝石数量与特权数量不匹配")
 	}
-	
-	// 扣除特权指示物
-	player.PrivilegeTokens -= privilegeCount
-	gl.gameState.AvailablePrivilegeTokens += privilegeCount
-	
-	// 将宝石添加到玩家手中
+
+	// 先验证整个动作，避免非法位置已经扣除特权或拿走部分宝石。
+	validatedPositions := make([][2]int, 0, len(gemPositions))
+	seen := make(map[[2]int]bool, len(gemPositions))
 	for _, pos := range gemPositions {
-		x, xOk := pos["x"].(float64)
-		y, yOk := pos["y"].(float64)
-		if !xOk || !yOk {
+		rowIndex, colIndex, ok := parseGemPosition(pos)
+		if !ok {
 			return errors.New("无效的宝石位置")
 		}
-		
-		rowIndex, colIndex := int(x), int(y)
-		if rowIndex < 0 || rowIndex >= 5 || colIndex < 0 || colIndex >= 5 {
+		if rowIndex >= len(gl.gameState.GemBoard) || colIndex >= len(gl.gameState.GemBoard[rowIndex]) {
 			return errors.New("宝石位置超出范围")
 		}
-		
-		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
-		if gemType == "" {
+		key := [2]int{rowIndex, colIndex}
+		if seen[key] {
+			return errors.New("不能重复选择同一宝石")
+		}
+		seen[key] = true
+		if gl.gameState.GemBoard[rowIndex][colIndex] == "" {
 			return errors.New("该位置没有宝石")
 		}
-		
+		validatedPositions = append(validatedPositions, key)
+	}
+
+	player.PrivilegeTokens -= privilegeCount
+	gl.gameState.AvailablePrivilegeTokens += privilegeCount
+	for _, pos := range validatedPositions {
+		rowIndex, colIndex := pos[0], pos[1]
+		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
 		// 将宝石添加到玩家手中
 		player.Gems[gemType]++
-		
+
 		// 从版图上移除宝石
 		gl.gameState.GemBoard[rowIndex][colIndex] = ""
 	}
-	
+
 	return nil
 }
 
@@ -1071,11 +1083,11 @@ func (gl *GameLogic) RefillBoard(playerID string) error {
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	// 按照指定顺序补充宝石版图
 	refillOrder := [][]int{
 		{2, 2}, {3, 2}, // 2,2 至 3,2（往下）
@@ -1093,7 +1105,7 @@ func (gl *GameLogic) RefillBoard(playerID string) error {
 		j := gl.getRandomInt(0, i)
 		gl.gameState.GemBag[i], gl.gameState.GemBag[j] = gl.gameState.GemBag[j], gl.gameState.GemBag[i]
 	}
-	
+
 	// 从宝石袋子中按顺序补充宝石
 	for _, pos := range refillOrder {
 		x, y := pos[0], pos[1]
@@ -1113,7 +1125,7 @@ func (gl *GameLogic) RefillBoard(playerID string) error {
 
 	// 对手获得特权指示物（统一使用GrantOpponentPrivilege）
 	_ = gl.GrantOpponentPrivilege(gl.gameState.Players[playerIndex].ID)
-	
+
 	return nil
 }
 
@@ -1123,17 +1135,17 @@ func (gl *GameLogic) CanPlayerBuyCard(playerID string, cardID string) (bool, str
 	if player == nil {
 		return false, "", errors.New("玩家不存在")
 	}
-	
+
 	// 获取卡牌信息
 	card, exists := gl.gameState.CardDetails[cardID]
 	if !exists {
 		return false, "", errors.New("卡牌不存在")
 	}
-	
+
 	// 计算总费用（考虑奖励优惠）
 	totalRequired := 0
 	missingGems := make(map[models.GemType]int)
-	
+
 	for gemType, required := range card.Cost {
 		bonus := player.Bonus[gemType]
 		available := player.Gems[gemType]
@@ -1145,25 +1157,25 @@ func (gl *GameLogic) CanPlayerBuyCard(playerID string, cardID string) (bool, str
 			}
 		}
 	}
-	
+
 	// 检查是否有足够的黄金来补足短缺
 	availableGold := player.Gems[models.GemGold]
 	totalMissing := 0
 	for _, missing := range missingGems {
 		totalMissing += missing
 	}
-	
+
 	if totalMissing <= availableGold {
 		return true, "", nil
 	}
-	
+
 	// 构建缺失宝石的详细信息
 	var missingDetails []string
 	for gemType, count := range missingGems {
 		gemName := getGemDisplayName(gemType)
 		missingDetails = append(missingDetails, fmt.Sprintf("%s×%d", gemName, count))
 	}
-	
+
 	message := fmt.Sprintf("宝石不足，缺少: %s", strings.Join(missingDetails, ", "))
 	return false, message, nil
 }
@@ -1221,13 +1233,13 @@ func (gl *GameLogic) validatePaymentPlan(player *models.Player, paymentPlan map[
 	if goldPaid < goldRequired {
 		return false
 	}
-	
+
 	// 计算需要的总金额
 	var totalRequired int
 	for _, count := range requiredGems {
 		totalRequired += count
 	}
-	
+
 	return totalPaid == totalRequired
 }
 
@@ -1255,35 +1267,35 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	if playerIndex == -1 {
 		return errors.New("玩家不存在")
 	}
-	
+
 	if gl.gameState.CurrentPlayerIndex != playerIndex {
 		return errors.New("不是该玩家的回合")
 	}
-	
+
 	// 获取卡牌ID
 	cardID, ok := data["cardId"].(string)
 	if !ok {
 		return errors.New("缺少卡牌ID")
 	}
-	
+
 	// 获取卡牌信息
 	card, exists := gl.gameState.CardMap[cardID]
 	if !exists {
 		return errors.New("卡牌不存在")
 	}
-	
+
 	// 获取玩家
 	player := gl.getPlayer(playerID)
 	if player == nil {
 		return errors.New("玩家不存在")
 	}
-	
+
 	// 获取支付计划
 	paymentPlan, ok := data["paymentPlan"].(map[string]any)
 	if !ok {
 		return errors.New("缺少支付计划")
 	}
-	
+
 	// 计算应支付费用
 	requiredGems := gl.calculateRequiredGems(&DevelopmentCardData{
 		ID:        card.ID,
@@ -1297,15 +1309,15 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 		Effects:   card.Effects,
 		IsSpecial: card.IsSpecial,
 	}, player)
-	
+
 	// 验证支付计划是否完整
 	if !gl.validatePaymentPlan(player, paymentPlan, requiredGems) {
 		return errors.New("支付计划无效或宝石不足")
 	}
-	
+
 	// 扣除宝石和黄金
 	gl.deductPaymentFromPlayer(player, paymentPlan)
-	
+
 	// 将宝石放回袋子
 	for gemType, count := range paymentPlan {
 		if countFloat, ok := count.(float64); ok {
@@ -1316,7 +1328,7 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 			}
 		}
 	}
-	
+
 	// 将卡牌添加到玩家手中
 	player.DevelopmentCards = append(player.DevelopmentCards, cardID)
 	cardBonus := 1
@@ -1327,7 +1339,7 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	player.Bonus[card.Bonus] += cardBonus
 	player.Points += card.Points
 	player.Crowns += card.Crowns
-	
+
 	// 检查卡牌是否在保留区域，如果是则从保留区域移除
 	if gl.removeCardFromReserved(playerID, cardID) {
 		// 卡牌在保留区域，不需要补充翻开的卡牌
@@ -1340,7 +1352,7 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 			Index: cardIndex,
 		}
 	}
-	
+
 	// 先结算需要玩家即时确认的一次性效果（本次仅额外token）
 	gl.resolveImmediateEffects(&DevelopmentCardData{
 		ID:        card.ID,
@@ -1368,253 +1380,257 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 		Effects:   card.Effects,
 		IsSpecial: card.IsSpecial,
 	}, playerID)
-	
+
 	// 调用回合结束处理函数
 	if err := gl.HandleTurnEnd(); err != nil {
 		fmt.Printf("回合结束处理失败: %v\n", err)
 		return err
 	}
-	
+
 	return nil
 }
 
 // 处理需要玩家二次确认的特效（额外token/窃取/百搭颜色）
 // 本次仅实现额外token
 func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID string, data map[string]any) {
-    player := gl.getPlayer(playerID)
-    if player == nil {
-        return
-    }
+	player := gl.getPlayer(playerID)
+	if player == nil {
+		return
+	}
 
-    var effectsData map[string]any
-    if v, ok := data["effects"].(map[string]any); ok {
-        effectsData = v
-    } else {
-        effectsData = map[string]any{}
-    }
+	var effectsData map[string]any
+	if v, ok := data["effects"].(map[string]any); ok {
+		effectsData = v
+	} else {
+		effectsData = map[string]any{}
+	}
 
-    // 标记卡牌本身是否包含对应效果
-    hasSteal := false
+	// 标记卡牌本身是否包含对应效果
+	hasSteal := false
 
-    for _, effect := range card.Effects {
-        switch effect {
-        case models.ExtraToken:
-            gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
-        case models.Steal:
-            hasSteal = true
-            gl.handleStealEffect(playerID, effectsData)
-        case models.Wildcard:
-            gl.handleWildcardEffect(playerID, card, effectsData)
-        default:
-            // 其他需要确认的效果后续实现
-        }
-    }
+	for _, effect := range card.Effects {
+		switch effect {
+		case models.ExtraToken:
+			gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
+		case models.Steal:
+			hasSteal = true
+			gl.handleStealEffect(playerID, effectsData)
+		case models.Wildcard:
+			gl.handleWildcardEffect(playerID, card, effectsData)
+		default:
+			// 其他需要确认的效果后续实现
+		}
+	}
 
-    // 若卡牌本身不含窃取效果，但前端传来了窃取（例如 noble1 触发），也应结算一次
-    if !hasSteal {
-        if _, ok := effectsData["steal"].(map[string]any); ok {
-            gl.handleStealEffect(playerID, effectsData)
-        }
-    }
+	// 若卡牌本身不含窃取效果，但前端传来了窃取（例如 noble1 触发），也应结算一次
+	if !hasSteal {
+		if _, ok := effectsData["steal"].(map[string]any); ok {
+			gl.handleStealEffect(playerID, effectsData)
+		}
+	}
 
-    // 处理贵族选择（若传入）
-    if nobleRaw, ok := effectsData["noble"].(map[string]any); ok {
-        gl.handleNobleSelection(playerID, nobleRaw)
-    }
+	// 处理贵族选择（若传入）
+	if nobleRaw, ok := effectsData["noble"].(map[string]any); ok {
+		gl.handleNobleSelection(playerID, nobleRaw)
+	}
 }
 
 // 处理贵族选择与效果结算（noble2: +2分+新回合；noble3: +2分+特权；noble4: +3分）
 func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]any) bool {
-    id, _ := nobleData["id"].(string)
-    if id == "" {
-        return false
-    }
-    player := gl.getPlayer(playerID)
-    if player == nil {
-        return false
-    }
+	id, _ := nobleData["id"].(string)
+	if id == "" {
+		return false
+	}
+	player := gl.getPlayer(playerID)
+	if player == nil {
+		return false
+	}
 
-    for _, n := range player.Nobles {
-        if n == id {
-            return false
-        }
-    }
+	for _, n := range player.Nobles {
+		if n == id {
+			return false
+		}
+	}
 
-    switch id {
-    case "noble1":
-        player.Points += 2
-        // noble1 的窃取效果在购买卡牌时处理，这里只处理分数
-    case "noble2":
-        player.Points += 2
-        if gl.gameState.ExtraTurns == nil {
-            gl.gameState.ExtraTurns = map[string]int{}
-        }
-        gl.gameState.ExtraTurns[playerID]++
-    case "noble3":
-        player.Points += 2
-        _ = gl.TakePrivilegeToken(playerID)
-    case "noble4":
-        player.Points += 3
-    default:
-        return false
-    }
+	switch id {
+	case "noble1":
+		player.Points += 2
+		// noble1 的窃取效果在购买卡牌时处理，这里只处理分数
+	case "noble2":
+		player.Points += 2
+		if gl.gameState.ExtraTurns == nil {
+			gl.gameState.ExtraTurns = map[string]int{}
+		}
+		gl.gameState.ExtraTurns[playerID]++
+	case "noble3":
+		player.Points += 2
+		_ = gl.TakePrivilegeToken(playerID)
+	case "noble4":
+		player.Points += 3
+	default:
+		return false
+	}
 
-    player.Nobles = append(player.Nobles, id)
-    // 从场上可用贵族中移除
-    var filtered []string
-    for _, nid := range gl.gameState.AvailableNobles {
-        if nid != id {
-            filtered = append(filtered, nid)
-        }
-    }
-    gl.gameState.AvailableNobles = filtered
-    return true
+	player.Nobles = append(player.Nobles, id)
+	// 从场上可用贵族中移除
+	var filtered []string
+	for _, nid := range gl.gameState.AvailableNobles {
+		if nid != id {
+			filtered = append(filtered, nid)
+		}
+	}
+	gl.gameState.AvailableNobles = filtered
+	return true
 }
 
 // handleExtraTokenEffect 处理额外token效果：
 // - 前端可在effects.extraToken传入 { selectedGem: {x:int, y:int} } 或 { skipped: true }
 // - 只允许拿取与卡牌颜色相同的一个token
 func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.GemType, effectsData map[string]any) bool {
-    extraRaw, ok := effectsData["extraToken"].(map[string]any)
-    // 未提供数据则视为无效
-    if !ok {
-        return false
-    }
+	extraRaw, ok := effectsData["extraToken"].(map[string]any)
+	// 未提供数据则视为无效
+	if !ok {
+		return false
+	}
 
 	// 跳过则直接返回成功
-    if skipped, ok := extraRaw["skipped"].(bool); ok && skipped {
-        return true
-    }
+	if skipped, ok := extraRaw["skipped"].(bool); ok && skipped {
+		return true
+	}
 
-    sel, ok := extraRaw["selectedGem"].(map[string]any)
-    if !ok {
-        return false
-    }
+	sel, ok := extraRaw["selectedGem"].(map[string]any)
+	if !ok {
+		return false
+	}
 
-    var x, y int
-    if xv, ok := sel["x"].(float64); ok { x = int(xv) }
-    if yv, ok := sel["y"].(float64); ok { y = int(yv) }
+	var x, y int
+	if xv, ok := sel["x"].(float64); ok {
+		x = int(xv)
+	}
+	if yv, ok := sel["y"].(float64); ok {
+		y = int(yv)
+	}
 
-    if x < 0 || y < 0 || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[0]) {
-        return false
-    }
+	if x < 0 || y < 0 || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[0]) {
+		return false
+	}
 
 	// 判断宝石位置有效性
-    gem := gl.gameState.GemBoard[x][y]
-    if gem == "" {
-        return false
-    }
+	gem := gl.gameState.GemBoard[x][y]
+	if gem == "" {
+		return false
+	}
 
 	// 判断宝石颜色是否匹配
-    if gem != cardColor || gem == models.GemGold {
-        return false
-    }
+	if gem != cardColor || gem == models.GemGold {
+		return false
+	}
 
-    gl.gameState.GemBoard[x][y] = ""
-    player := gl.getPlayer(playerID)
-    if player == nil {
-        return false
-    }
-    player.Gems[gem]++
-    return true
+	gl.gameState.GemBoard[x][y] = ""
+	player := gl.getPlayer(playerID)
+	if player == nil {
+		return false
+	}
+	player.Gems[gem]++
+	return true
 }
 
 // handleStealEffect 处理窃取效果：
 // - 前端通过 effects.steal 传入 { gemType: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
 // - 从对手处窃取一个对应的非黄金token
 func (gl *GameLogic) handleStealEffect(playerID string, effectsData map[string]any) bool {
-    stealRaw, ok := effectsData["steal"].(map[string]any)
-    if !ok {
-        return false
-    }
-
-    if skipped, ok := stealRaw["skipped"].(bool); ok && skipped {
-        return true
-    }
-
-    gemStr, ok := stealRaw["gemType"].(string)
-    if !ok {
-        return false
-    }
-    gemType := models.GemType(gemStr)
-    if gemType == models.GemGold || gemType == "" {
+	stealRaw, ok := effectsData["steal"].(map[string]any)
+	if !ok {
 		return false
-    }
+	}
 
-    // 找到对手
-    opponentIdx := 1 - gl.getPlayerIndex(playerID)
-    if opponentIdx < 0 || opponentIdx >= len(gl.gameState.Players) {
-        return false
-    }
-    opponent := &gl.gameState.Players[opponentIdx]
-    if opponent.Gems[gemType] <= 0 {
-        return false
-    }
+	if skipped, ok := stealRaw["skipped"].(bool); ok && skipped {
+		return true
+	}
 
-    // 执行窃取
-    opponent.Gems[gemType]--
-    player := gl.getPlayer(playerID)
-    if player == nil {
-        // 回滚
-        opponent.Gems[gemType]++
-        return false
-    }
-    player.Gems[gemType]++
-    return true
+	gemStr, ok := stealRaw["gemType"].(string)
+	if !ok {
+		return false
+	}
+	gemType := models.GemType(gemStr)
+	if gemType == models.GemGold || gemType == "" {
+		return false
+	}
+
+	// 找到对手
+	opponentIdx := 1 - gl.getPlayerIndex(playerID)
+	if opponentIdx < 0 || opponentIdx >= len(gl.gameState.Players) {
+		return false
+	}
+	opponent := &gl.gameState.Players[opponentIdx]
+	if opponent.Gems[gemType] <= 0 {
+		return false
+	}
+
+	// 执行窃取
+	opponent.Gems[gemType]--
+	player := gl.getPlayer(playerID)
+	if player == nil {
+		// 回滚
+		opponent.Gems[gemType]++
+		return false
+	}
+	player.Gems[gemType]++
+	return true
 }
 
 // handleWildcardEffect 处理百搭颜色效果：
 // - 前端通过 effects.wildcard 传入 { color: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
 // - 调整玩家bonus：将本卡默认计入的灰色bonus转移到所选颜色
 func (gl *GameLogic) handleWildcardEffect(playerID string, card *DevelopmentCardData, effectsData map[string]any) bool {
-    wildRaw, ok := effectsData["wildcard"].(map[string]any)
-    if !ok {
-        return false
-    }
-    if skipped, ok := wildRaw["skipped"].(bool); ok && skipped {
-        return true
-    }
-    colorStr, ok := wildRaw["color"].(string)
-    if !ok {
-        return false
-    }
-    chosen := models.GemType(colorStr)
-    switch chosen {
-    case models.GemWhite, models.GemBlue, models.GemGreen, models.GemRed, models.GemBlack:
-        // ok
-    default:
-        return false
-    }
+	wildRaw, ok := effectsData["wildcard"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if skipped, ok := wildRaw["skipped"].(bool); ok && skipped {
+		return true
+	}
+	colorStr, ok := wildRaw["color"].(string)
+	if !ok {
+		return false
+	}
+	chosen := models.GemType(colorStr)
+	switch chosen {
+	case models.GemWhite, models.GemBlue, models.GemGreen, models.GemRed, models.GemBlack:
+		// ok
+	default:
+		return false
+	}
 
-    player := gl.getPlayer(playerID)
-    if player == nil {
-        return false
-    }
+	player := gl.getPlayer(playerID)
+	if player == nil {
+		return false
+	}
 
-    // 将灰色bonus（若已加）转移为所选颜色
-    if card.Bonus == models.GemGray {
-        if player.Bonus[models.GemGray] > 0 {
-            player.Bonus[models.GemGray]--
-        }
-    }
-    card.Color = chosen
-    card.Bonus = chosen
-    player.Bonus[chosen]++
+	// 将灰色bonus（若已加）转移为所选颜色
+	if card.Bonus == models.GemGray {
+		if player.Bonus[models.GemGray] > 0 {
+			player.Bonus[models.GemGray]--
+		}
+	}
+	card.Color = chosen
+	card.Bonus = chosen
+	player.Bonus[chosen]++
 
-    // 同步运行时卡牌详情映射，便于前端tooltip正确归类
-    if cd, ok := gl.gameState.CardDetails[card.ID]; ok {
-        cd.Bonus = chosen
-        cd.Color = chosen
-        gl.gameState.CardDetails[card.ID] = cd
-    }
-    if cm, ok := gl.gameState.CardMap[card.ID]; ok {
-        cm.Bonus = chosen
-        cm.Color = chosen
-        gl.gameState.CardMap[card.ID] = cm
-    }
-    // 移除灰色奖励显示
-    delete(player.Bonus, models.GemGray)
-    return true
+	// 同步运行时卡牌详情映射，便于前端tooltip正确归类
+	if cd, ok := gl.gameState.CardDetails[card.ID]; ok {
+		cd.Bonus = chosen
+		cd.Color = chosen
+		gl.gameState.CardDetails[card.ID] = cd
+	}
+	if cm, ok := gl.gameState.CardMap[card.ID]; ok {
+		cm.Bonus = chosen
+		cm.Color = chosen
+		gl.gameState.CardMap[card.ID] = cm
+	}
+	// 移除灰色奖励显示
+	delete(player.Bonus, models.GemGray)
+	return true
 }
 
 // 从玩家的保留区域移除卡牌
@@ -1623,7 +1639,7 @@ func (gl *GameLogic) removeCardFromReserved(playerID string, cardID string) bool
 	if player == nil {
 		return false
 	}
-	
+
 	// 查找卡牌在保留区域中的位置
 	for i, reservedCardID := range player.ReservedCards {
 		if reservedCardID == cardID {
@@ -1632,7 +1648,7 @@ func (gl *GameLogic) removeCardFromReserved(playerID string, cardID string) bool
 			return true
 		}
 	}
-	
+
 	// 卡牌不在保留区域
 	return false
 }

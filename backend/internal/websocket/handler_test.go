@@ -184,3 +184,44 @@ func TestTakeGemsRejectsMalformedPayloadBeforeHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestSpendPrivilegeRejectsMalformedPayloadBeforeHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     any
+		positions any
+	}{
+		{"non_numeric_count", "1", []any{}},
+		{"fractional_count", 1.5, []any{map[string]any{"x": float64(0), "y": float64(0)}}},
+		{"non_array_positions", float64(1), "invalid"},
+		{"non_object_position", float64(1), []any{"invalid"}},
+		{"missing_coordinate", float64(1), []any{map[string]any{"x": float64(0)}}},
+		{"fractional_coordinate", float64(1), []any{map[string]any{"x": 0.5, "y": float64(0)}}},
+		{"out_of_bounds", float64(1), []any{map[string]any{"x": float64(5), "y": float64(0)}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, room, client, playerID := protocolTestRoom(t)
+			manager.UpdateRoom(room.ID, func(r *models.Room) {
+				r.GameState.Status = models.GameStatusPlaying
+				r.GameState.Players[0].PrivilegeTokens = 2
+				r.GameState.GemBoard[0][0] = models.GemBlue
+			})
+			client.PlayerID, client.PlayerName = playerID, "p1"
+			before, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+
+			client.handleGameAction(models.WSMessage{
+				Type: "game_action", PlayerID: playerID, PlayerName: "p1", ActionType: "spendPrivilege",
+				Data: map[string]any{"privilegeCount": tc.count, "gemPositions": tc.positions},
+			}, room)
+
+			after, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			if !bytes.Equal(before, after) {
+				t.Fatal("rejected privilege action changed game state")
+			}
+			if len(room.GameHistory) != 0 {
+				t.Fatal("rejected privilege action generated success history")
+			}
+			expectClientError(t, client)
+		})
+	}
+}

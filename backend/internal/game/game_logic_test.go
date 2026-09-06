@@ -217,3 +217,56 @@ func TestRuleBoundaryInvalidCoordinates(t *testing.T) {
 		})
 	}
 }
+
+func TestRegressionSpendPrivilege(t *testing.T) {
+	gl, state := regressionGame()
+	state.Players[0].PrivilegeTokens = 2
+	state.AvailablePrivilegeTokens = 1
+	state.GemBoard[0][0] = models.GemBlue
+	state.GemBoard[1][1] = models.GemRed
+
+	if err := gl.SpendPrivilege("p1", 2, gemPositions([2]int{0, 0}, [2]int{1, 1})); err != nil {
+		t.Fatal(err)
+	}
+	if state.Players[0].PrivilegeTokens != 0 || state.AvailablePrivilegeTokens != 3 {
+		t.Fatal("privilege tokens were not returned to the public supply")
+	}
+	if state.Players[0].Gems[models.GemBlue] != 1 || state.Players[0].Gems[models.GemRed] != 1 {
+		t.Fatal("selected gems were not added to the player")
+	}
+	if state.GemBoard[0][0] != "" || state.GemBoard[1][1] != "" {
+		t.Fatal("selected gems remain on the board")
+	}
+}
+
+func TestRuleBoundarySpendPrivilegeIsAtomic(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		count     int
+		positions []map[string]any
+	}{
+		{"zero_count", 0, nil},
+		{"too_many", 4, gemPositions([2]int{0, 0}, [2]int{0, 1}, [2]int{0, 2}, [2]int{0, 3})},
+		{"count_mismatch", 2, gemPositions([2]int{0, 0})},
+		{"missing_coordinate", 1, []map[string]any{{"x": float64(0)}}},
+		{"fractional_coordinate", 1, []map[string]any{{"x": 0.5, "y": float64(0)}}},
+		{"out_of_bounds", 1, gemPositions([2]int{5, 0})},
+		{"duplicate_position", 2, gemPositions([2]int{0, 0}, [2]int{0, 0})},
+		{"empty_position_after_valid", 2, gemPositions([2]int{0, 0}, [2]int{0, 1})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			state.Players[0].PrivilegeTokens = 4
+			state.GemBoard[0][0] = models.GemBlue
+			before, _ := json.Marshal(state)
+
+			if err := gl.SpendPrivilege("p1", tc.count, tc.positions); err == nil {
+				t.Fatal("invalid privilege action was accepted")
+			}
+			after, _ := json.Marshal(state)
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("rejected privilege action changed game state")
+			}
+		})
+	}
+}
