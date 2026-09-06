@@ -48,7 +48,7 @@
         <div v-else class="game-area">
           <div class="game-layout">
             <!-- 左侧：游戏版图 -->
-            <div class="game-board">
+            <div id="game-board-section" class="game-board">
               <div class="board-header">
                 <h3>游戏版图</h3>
                 <div class="game-status">
@@ -173,7 +173,7 @@
             <!-- 右侧：玩家状态和操作 -->
             <div class="game-sidebar">
               <!-- 玩家状态 -->
-              <div class="player-status">
+              <div id="game-player-section" class="player-status">
                 <h3>玩家状态</h3>
                 <div class="players-list">
                   <div
@@ -251,7 +251,7 @@
       <!-- 底部面板区域 -->
       <div class="bottom-panels">
         <!-- 聊天面板 -->
-        <div class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }">
+        <div id="game-chat-section" class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }">
           <h3>
             <button
               class="mobile-panel-summary"
@@ -289,7 +289,7 @@
         </div>
 
         <!-- 历史记录面板 -->
-        <div class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }">
+        <div id="game-history-section" class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }">
           <h3>
             <button
               class="mobile-panel-summary"
@@ -323,6 +323,14 @@
         </div>
       </div>
     </div>
+
+    <nav v-if="!showWaitingArea" class="mobile-game-nav" aria-label="游戏区域快捷导航">
+      <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
+      <button type="button" @click="scrollToMobileSection('game-board-section')">棋盘</button>
+      <button type="button" @click="scrollToMobileSection('game-player-section')">玩家</button>
+      <button type="button" @click="scrollToMobileSection('game-chat-section', 'chat')">聊天</button>
+      <button type="button" @click="scrollToMobileSection('game-history-section', 'history')">历史</button>
+    </nav>
     
     <!-- 通知组件 -->
     <GameNotification ref="notificationRef" />
@@ -597,6 +605,13 @@ const toggleMobilePanel = (panelId) => {
   const next = new Set(expandedMobilePanels.value)
   next.has(panelId) ? next.delete(panelId) : next.add(panelId)
   expandedMobilePanels.value = next
+}
+const scrollToMobileSection = async (sectionId, panelId) => {
+  if (panelId && !expandedMobilePanels.value.has(panelId)) {
+    expandedMobilePanels.value = new Set([...expandedMobilePanels.value, panelId])
+    await nextTick()
+  }
+  document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 const expandedPlayerIds = ref(new Set())
 const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
@@ -2411,6 +2426,10 @@ watch(gameState, (newState, oldState) => {
   display: block;
 }
 
+.mobile-game-nav {
+  display: none;
+}
+
 .available-actions {
   display: flex;
   flex-direction: column;
@@ -2622,7 +2641,14 @@ watch(gameState, (newState, oldState) => {
   .game-main {
     gap: var(--space-4);
     padding-top: var(--space-4);
-    padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
+    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  }
+
+  #game-board-section,
+  #game-player-section,
+  #game-chat-section,
+  #game-history-section {
+    scroll-margin-top: var(--space-3);
   }
 
   .game-header {
@@ -2841,6 +2867,54 @@ watch(gameState, (newState, oldState) => {
     border-radius: 0;
   }
   .bottom-panels { gap: var(--space-4); }
+
+  .mobile-game-nav {
+    position: fixed;
+    z-index: 500;
+    right: var(--page-gutter);
+    bottom: max(var(--space-2), env(safe-area-inset-bottom));
+    left: var(--page-gutter);
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(44px, 1fr));
+    align-items: stretch;
+    min-height: 52px;
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: var(--shadow-overlay);
+    backdrop-filter: blur(12px);
+  }
+
+  .mobile-turn-status,
+  .mobile-game-nav button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    padding: var(--space-2);
+    border: 0;
+    background: transparent;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .mobile-turn-status {
+    overflow: hidden;
+    background: var(--color-surface-subtle);
+    color: var(--color-turn);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-game-nav button {
+    min-height: 44px;
+    border-left: 1px solid var(--color-border);
+    cursor: pointer;
+  }
 }
 .victory-overlay {
   position: fixed;

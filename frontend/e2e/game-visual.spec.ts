@@ -48,9 +48,26 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
     await expect(page.locator('.history-list')).toBeVisible()
     await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    const mobileNav = page.locator('.mobile-game-nav')
+    await expect(mobileNav).toBeVisible()
+    await expect(mobileNav.getByText('轮到你', { exact: true })).toBeVisible()
+    const navBounds = await mobileNav.evaluate(element => {
+      const bounds = element.getBoundingClientRect()
+      return { left: bounds.left, right: bounds.right, bottom: bounds.bottom }
+    })
+    expect(navBounds.left).toBeGreaterThanOrEqual(0)
+    expect(navBounds.right).toBeLessThanOrEqual(page.viewportSize()!.width)
+    expect(navBounds.bottom).toBeLessThanOrEqual(page.viewportSize()!.height)
+    await mobileNav.getByRole('button', { name: '历史' }).click()
+    await expect(page.locator('#game-history-section')).toBeInViewport()
+    await mobileNav.getByRole('button', { name: '棋盘' }).click()
+    await expect(page.locator('#game-board-section')).toBeInViewport()
+    await mobilePanels.nth(2).locator('.mobile-panel-summary').evaluate(button => (button as HTMLButtonElement).click())
+    await page.evaluate(() => window.scrollTo(0, 0))
   } else {
     await expect(page.locator('.player-card:visible')).toHaveCount(2)
     await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(3)
+    await expect(page.locator('.mobile-game-nav')).toBeHidden()
   }
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
 })
