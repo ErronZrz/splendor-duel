@@ -9,7 +9,7 @@
       <div class="player-info">
         <span>玩家: {{ currentPlayer?.name }}</span>
         <span :class="['status', isConnected ? 'connected' : 'disconnected']">
-          {{ isConnected ? '已连接' : '未连接' }}
+          {{ connectionStatusText }}
         </span>
       </div>
       <button @click="leaveGame" class="btn btn-secondary">离开游戏</button>
@@ -633,7 +633,13 @@ const tooltipStyle = ref({
 })
 
 // 使用 storeToRefs 确保响应式
-const { currentRoom, currentPlayer, gameState, isConnected, chatMessages, gameHistory } = storeToRefs(gameStore)
+const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory } = storeToRefs(gameStore)
+const connectionStatusText = computed(() => ({
+  connected: '已连接',
+  connecting: '连接中…',
+  reconnecting: '正在重连…',
+  disconnected: '未连接'
+}[connectionStatus.value] || '未连接'))
 
 // 袋中宝石：悬停状态
 const bagHover = ref(false)

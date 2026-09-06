@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 import axios from 'axios'
 
 export const useGameStore = defineStore('game', () => {
@@ -10,7 +10,67 @@ export const useGameStore = defineStore('game', () => {
   const isConnected = ref(false)
   const chatMessages = ref([])
   const gameHistory = ref([])
-  const websocket = ref(null)
+  const websocket = shallowRef(null)
+  const connectionStatus = ref('disconnected')
+
+  let activeRoomId = null
+  let reconnectTimer = null
+  let reconnectAttempts = 0
+  let shouldReconnect = false
+  let lifecycleListenersAttached = false
+
+  const isSocketOpen = (socket = websocket.value) => (
+    socket && socket.readyState === WebSocket.OPEN
+  )
+
+  const isSocketConnecting = (socket = websocket.value) => (
+    socket && socket.readyState === WebSocket.CONNECTING
+  )
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  const removeLifecycleListeners = () => {
+    if (!lifecycleListenersAttached) return
+    window.removeEventListener('online', reconnectImmediately)
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    lifecycleListenersAttached = false
+  }
+
+  const addLifecycleListeners = () => {
+    if (lifecycleListenersAttached) return
+    window.addEventListener('online', reconnectImmediately)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    lifecycleListenersAttached = true
+  }
+
+  const scheduleReconnect = () => {
+    if (!shouldReconnect || !activeRoomId || !currentPlayer.value || reconnectTimer !== null) return
+
+    const delay = Math.min(1000 * (2 ** reconnectAttempts), 10000)
+    reconnectAttempts += 1
+    connectionStatus.value = 'reconnecting'
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectWebSocket(activeRoomId)
+    }, delay)
+  }
+
+  function reconnectImmediately() {
+    if (!shouldReconnect || !activeRoomId || !currentPlayer.value || isSocketOpen() || isSocketConnecting()) return
+    clearReconnectTimer()
+    connectWebSocket(activeRoomId)
+  }
+
+  function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      reconnectImmediately()
+    }
+  }
 
   // 创建房间
   const createRoom = async (roomName, playerName) => {
@@ -89,34 +149,75 @@ export const useGameStore = defineStore('game', () => {
 
   // 连接 WebSocket
   const connectWebSocket = (roomId) => {
+    if (!roomId || !currentPlayer.value) {
+      console.warn('WebSocket 连接缺少房间或玩家信息')
+      return
+    }
+
+    if (activeRoomId === roomId && websocket.value && (
+      websocket.value.readyState === WebSocket.OPEN ||
+      websocket.value.readyState === WebSocket.CONNECTING
+    )) {
+      return
+    }
+
+    clearReconnectTimer()
+    shouldReconnect = true
+    activeRoomId = roomId
+    connectionStatus.value = reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
+    addLifecycleListeners()
+
+    const previousSocket = websocket.value
+    if (previousSocket) {
+      previousSocket.onopen = null
+      previousSocket.onmessage = null
+      previousSocket.onclose = null
+      previousSocket.onerror = null
+      previousSocket.close()
+    }
+
     // 使用相对路径，让 Caddy/Nginx 处理 WebSocket 升级
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}`
-    websocket.value = new WebSocket(wsUrl)
+    const socket = new WebSocket(wsUrl)
+    websocket.value = socket
 
-    websocket.value.onopen = () => {
+    socket.onopen = () => {
+      if (websocket.value !== socket) return
       console.log('WebSocket 连接已建立')
       isConnected.value = true
+      connectionStatus.value = 'connected'
+      reconnectAttempts = 0
       
       // 发送玩家信息
-      websocket.value.send(JSON.stringify({
+      socket.send(JSON.stringify({
         type: 'player_join',
         playerId: currentPlayer.value.id,
         playerName: currentPlayer.value.name
       }))
     }
 
-    websocket.value.onmessage = (event) => {
-      const data = JSON.parse(event.data)
-      handleWebSocketMessage(data)
+    socket.onmessage = (event) => {
+      if (websocket.value !== socket) return
+      try {
+        const data = JSON.parse(event.data)
+        handleWebSocketMessage(data)
+      } catch (error) {
+        console.error('WebSocket 消息解析失败:', error)
+      }
     }
 
-    websocket.value.onclose = () => {
+    socket.onclose = () => {
+      if (websocket.value !== socket) return
       console.log('WebSocket 连接已关闭')
       isConnected.value = false
+      websocket.value = null
+      connectionStatus.value = 'disconnected'
+      scheduleReconnect()
     }
 
-    websocket.value.onerror = (error) => {
+    socket.onerror = (error) => {
+      if (websocket.value !== socket) return
       console.error('WebSocket 错误:', error)
       isConnected.value = false
     }
@@ -211,10 +312,8 @@ export const useGameStore = defineStore('game', () => {
         break
       case 'player_left':
         console.log('玩家离开:', data.data)
-        // 从玩家列表中移除离开的玩家
-        if (data.data && data.data.playerId && gameState.value?.players) {
-          gameState.value.players = gameState.value.players.filter(p => p.id !== data.data.playerId)
-        }
+        // player_left 只表示当前 socket 断开，不代表玩家退出对局。
+        // 房间成员始终以服务器的 game_state_update 为准。
         break
       case 'game_start':
         console.log('收到游戏开始消息:', data)
@@ -238,7 +337,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 发送聊天消息
   const sendChatMessage = (message) => {
-    if (websocket.value && isConnected.value) {
+    if (isConnected.value && isSocketOpen()) {
       websocket.value.send(JSON.stringify({
         type: 'chat_message',
         playerId: currentPlayer.value.id,
@@ -250,7 +349,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 执行游戏动作
   const performGameAction = (action) => {
-    if (websocket.value && isConnected.value) {
+    if (isConnected.value && isSocketOpen()) {
       // 确保action.data存在，如果不存在则使用空对象
       const data = action.data || {}
       
@@ -269,7 +368,7 @@ export const useGameStore = defineStore('game', () => {
     console.log('Store: 准备发送游戏操作:', { actionType, data })
     console.log('Store: WebSocket状态:', { websocket: !!websocket.value, isConnected: isConnected.value })
     
-    if (websocket.value && isConnected.value) {
+    if (isConnected.value && isSocketOpen()) {
       const message = {
         type: 'game_action',
         playerId: currentPlayer.value.id,
@@ -295,11 +394,18 @@ export const useGameStore = defineStore('game', () => {
 
   // 断开连接
   const disconnect = () => {
+    shouldReconnect = false
+    activeRoomId = null
+    reconnectAttempts = 0
+    clearReconnectTimer()
+    removeLifecycleListeners()
     if (websocket.value) {
+      websocket.value.onclose = null
       websocket.value.close()
       websocket.value = null
     }
     isConnected.value = false
+    connectionStatus.value = 'disconnected'
     currentRoom.value = null
     currentPlayer.value = null
     gameState.value = null
@@ -342,6 +448,7 @@ export const useGameStore = defineStore('game', () => {
     isConnected,
     chatMessages,
     gameHistory,
+    connectionStatus,
     
     // 方法
     createRoom,
