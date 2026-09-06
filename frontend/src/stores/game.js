@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import { ref, shallowRef } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
-import { parseWebSocketMessage } from '../protocol'
+import { WebSocketClient } from '../websocket-client'
 
 export const useGameStore = defineStore('game', () => {
   // 状态
@@ -11,7 +11,7 @@ export const useGameStore = defineStore('game', () => {
   const isConnected = ref(false)
   const chatMessages = ref([])
   const gameHistory = ref([])
-  const websocket = shallowRef(null)
+  const websocket = new WebSocketClient()
   const connectionStatus = ref('disconnected')
   const pendingActions = ref({})
   const lastActionResult = ref(null)
@@ -22,13 +22,9 @@ export const useGameStore = defineStore('game', () => {
   let shouldReconnect = false
   let lifecycleListenersAttached = false
 
-  const isSocketOpen = (socket = websocket.value) => (
-    socket && socket.readyState === WebSocket.OPEN
-  )
+  const isSocketOpen = () => websocket.isOpen()
 
-  const isSocketConnecting = (socket = websocket.value) => (
-    socket && socket.readyState === WebSocket.CONNECTING
-  )
+  const isSocketConnecting = () => websocket.isConnecting()
 
   const createRequestId = () => {
     if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -105,7 +101,7 @@ export const useGameStore = defineStore('game', () => {
       if (response.data.success) {
         console.log('Store: 设置currentRoom:', response.data.data.room)
         console.log('Store: 设置currentPlayer:', { id: response.data.data.playerId, name: playerName })
-        
+
         currentRoom.value = response.data.data.room
         currentPlayer.value = {
           id: response.data.data.playerId,
@@ -173,10 +169,7 @@ export const useGameStore = defineStore('game', () => {
       return
     }
 
-    if (activeRoomId === roomId && websocket.value && (
-      websocket.value.readyState === WebSocket.OPEN ||
-      websocket.value.readyState === WebSocket.CONNECTING
-    )) {
+    if (activeRoomId === roomId && (isSocketOpen() || isSocketConnecting())) {
       return
     }
 
@@ -186,65 +179,41 @@ export const useGameStore = defineStore('game', () => {
     connectionStatus.value = reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
     addLifecycleListeners()
 
-    const previousSocket = websocket.value
-    if (previousSocket) {
-      previousSocket.onopen = null
-      previousSocket.onmessage = null
-      previousSocket.onclose = null
-      previousSocket.onerror = null
-      previousSocket.close()
-    }
-
     // 使用相对路径，让 Caddy/Nginx 处理 WebSocket 升级
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}`
-    const socket = new WebSocket(wsUrl)
-    websocket.value = socket
+    websocket.connect(wsUrl, {
+      onOpen: () => {
+        console.log('WebSocket 连接已建立')
+        isConnected.value = true
+        connectionStatus.value = 'connected'
+        reconnectAttempts = 0
 
-    socket.onopen = () => {
-      if (websocket.value !== socket) return
-      console.log('WebSocket 连接已建立')
-      isConnected.value = true
-      connectionStatus.value = 'connected'
-      reconnectAttempts = 0
-      
-      // 发送玩家信息
-      socket.send(JSON.stringify({
-        type: 'player_join',
-        playerId: currentPlayer.value.id,
-        playerName: currentPlayer.value.name
-      }))
-    }
-
-    socket.onmessage = (event) => {
-      if (websocket.value !== socket) return
-      try {
-        const data = parseWebSocketMessage(JSON.parse(event.data))
-        if (!data) {
-          console.warn('忽略无效的 WebSocket 消息')
-          return
-        }
+        // 发送玩家信息
+        websocket.send({
+          type: 'player_join',
+          playerId: currentPlayer.value.id,
+          playerName: currentPlayer.value.name
+        })
+      },
+      onMessage: (data) => {
         handleWebSocketMessage(data)
-      } catch (error) {
+      },
+      onMessageError: (error) => {
         console.error('WebSocket 消息解析失败:', error)
+      },
+      onClose: () => {
+        console.log('WebSocket 连接已关闭')
+        isConnected.value = false
+        connectionStatus.value = 'disconnected'
+        markPendingActionsUnknown()
+        scheduleReconnect()
+      },
+      onError: (error) => {
+        console.error('WebSocket 错误:', error)
+        isConnected.value = false
       }
-    }
-
-    socket.onclose = () => {
-      if (websocket.value !== socket) return
-      console.log('WebSocket 连接已关闭')
-      isConnected.value = false
-      websocket.value = null
-      connectionStatus.value = 'disconnected'
-      markPendingActionsUnknown()
-      scheduleReconnect()
-    }
-
-    socket.onerror = (error) => {
-      if (websocket.value !== socket) return
-      console.error('WebSocket 错误:', error)
-      isConnected.value = false
-    }
+    })
   }
 
   // 处理 WebSocket 消息
@@ -376,12 +345,12 @@ export const useGameStore = defineStore('game', () => {
   // 发送聊天消息
   const sendChatMessage = (message) => {
     if (isConnected.value && isSocketOpen()) {
-      websocket.value.send(JSON.stringify({
+      websocket.send({
         type: 'chat_message',
         playerId: currentPlayer.value.id,
         playerName: currentPlayer.value.name,
         message: message.trim()
-      }))
+      })
     }
   }
 
@@ -393,7 +362,7 @@ export const useGameStore = defineStore('game', () => {
   // 发送游戏操作
   const sendGameAction = (actionType, data) => {
     console.log('Store: 准备发送游戏操作:', { actionType, data })
-    console.log('Store: WebSocket状态:', { websocket: !!websocket.value, isConnected: isConnected.value })
+    console.log('Store: WebSocket状态:', { websocket: websocket.hasSocket(), isConnected: isConnected.value })
     
     if (isConnected.value && isSocketOpen()) {
       const requestId = createRequestId()
@@ -414,7 +383,7 @@ export const useGameStore = defineStore('game', () => {
       console.log('Store: 发送WebSocket消息:', message)
       
       try {
-        websocket.value.send(JSON.stringify(message))
+        websocket.send(message)
         console.log('Store: 游戏操作发送成功')
         return requestId
       } catch (error) {
@@ -437,11 +406,7 @@ export const useGameStore = defineStore('game', () => {
     reconnectAttempts = 0
     clearReconnectTimer()
     removeLifecycleListeners()
-    if (websocket.value) {
-      websocket.value.onclose = null
-      websocket.value.close()
-      websocket.value = null
-    }
+    websocket.close()
     isConnected.value = false
     connectionStatus.value = 'disconnected'
     currentRoom.value = null
