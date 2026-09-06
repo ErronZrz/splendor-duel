@@ -666,17 +666,22 @@ func (gl *GameLogic) DiscardGemsBatch(playerID string, gemDiscards map[models.Ge
 	}
 
 	player := &gl.gameState.Players[playerIndex]
-
-	// 验证丢弃操作是否有效
+	allowedGems := map[models.GemType]bool{
+		models.GemWhite: true, models.GemBlue: true, models.GemGreen: true,
+		models.GemRed: true, models.GemBlack: true, models.GemPearl: true, models.GemGold: true,
+	}
+	totalDiscarded := 0
 	for gemType, count := range gemDiscards {
-		if count <= 0 {
-			continue
+		if !allowedGems[gemType] || count <= 0 {
+			return errors.New("丢弃宝石类型或数量无效")
 		}
-
-		// 检查玩家是否有足够的该类型宝石
 		if player.Gems[gemType] < count {
 			return fmt.Errorf("没有足够的 %s 宝石，需要 %d，实际有 %d", gemType, count, player.Gems[gemType])
 		}
+		totalDiscarded += count
+	}
+	if gl.calculateTotalGems(player)-totalDiscarded != gl.gameState.GemDiscardTarget {
+		return fmt.Errorf("丢弃后必须恰好保留 %d 枚宝石", gl.gameState.GemDiscardTarget)
 	}
 
 	// 执行批量丢弃
@@ -1260,6 +1265,9 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	if player == nil {
 		return errors.New("玩家不存在")
 	}
+	if !gl.isCardPurchasableByPlayer(player, cardID) {
+		return errors.New("卡牌当前不可购买")
+	}
 
 	// 获取支付计划
 	paymentPlan, ok := data["paymentPlan"].(map[string]any)
@@ -1362,6 +1370,18 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	}
 
 	return nil
+}
+
+func (gl *GameLogic) isCardPurchasableByPlayer(player *models.Player, cardID string) bool {
+	if containsString(player.ReservedCards, cardID) {
+		return true
+	}
+	for _, cards := range gl.gameState.FlippedCards {
+		if containsString(cards, cardID) {
+			return true
+		}
+	}
+	return false
 }
 
 func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models.DevelopmentCard, data map[string]any) error {

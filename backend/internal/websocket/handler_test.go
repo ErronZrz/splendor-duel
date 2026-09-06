@@ -279,3 +279,36 @@ func TestBuyCardRejectsMalformedEffectBeforeHistory(t *testing.T) {
 	}
 	expectClientError(t, client)
 }
+
+func TestDiscardBatchRejectsMalformedPayloadBeforeHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		discards any
+	}{
+		{"non_object", "invalid"},
+		{"fractional", map[string]any{"blue": 1.5}},
+		{"negative", map[string]any{"blue": float64(-1)}},
+		{"unknown_type", map[string]any{"ruby": float64(2)}},
+		{"over_discard", map[string]any{"blue": float64(3)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, room, client, playerID := protocolTestRoom(t)
+			manager.UpdateRoom(room.ID, func(r *models.Room) {
+				r.GameState.Status = models.GameStatusPlaying
+				r.GameState.NeedsGemDiscard = true
+				r.GameState.GemDiscardPlayerID = playerID
+				r.GameState.Players[0].Gems[models.GemBlue] = 12
+			})
+			before, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			client.handleGameAction(models.WSMessage{
+				PlayerID: playerID, PlayerName: "p1", ActionType: "discardGemsBatch",
+				Data: map[string]any{"gemDiscards": tc.discards},
+			}, room)
+			after, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			if !bytes.Equal(before, after) || len(room.GameHistory) != 0 {
+				t.Fatal("rejected discard changed state or history")
+			}
+			expectClientError(t, client)
+		})
+	}
+}

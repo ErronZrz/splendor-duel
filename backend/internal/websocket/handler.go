@@ -838,12 +838,16 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", gemDiscardsData)
 				gemDiscards := make(map[models.GemType]int)
 				for gemTypeStr, count := range gemDiscardsData {
-					if countFloat, ok := count.(float64); ok {
-						gemDiscards[models.GemType(gemTypeStr)] = int(countFloat)
+					countFloat, valid := count.(float64)
+					if !valid || countFloat <= 0 || countFloat != float64(int(countFloat)) {
+						room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
+						return
 					}
+					gemDiscards[models.GemType(gemTypeStr)] = int(countFloat)
 				}
 				if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
 					log.Printf("批量丢弃宝石失败: %v", err)
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 				} else {
 					log.Printf("批量丢弃宝石成功")
 					// 记录批量丢弃
@@ -857,6 +861,8 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					desc := "丢弃宝石"
 					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 				}
+			} else {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
 			}
 		case "endTurn":
 			log.Printf("执行回合结束操作")

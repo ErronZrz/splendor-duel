@@ -377,3 +377,81 @@ func TestNobleSelectionRequiresAvailabilityAndCrowns(t *testing.T) {
 		t.Fatal("second noble was allowed below six crowns")
 	}
 }
+
+func TestPurchaseRequiresVisibleOrOwnReservedCard(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		opponentReserved bool
+	}{
+		{"hidden_deck_card", false},
+		{"opponent_reserved_card", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			card := models.DevelopmentCard{ID: "hidden", Level: models.Level1, Bonus: models.GemBlue, Cost: map[models.GemType]int{}}
+			state.CardMap[card.ID], state.CardDetails[card.ID] = card, card
+			if tc.opponentReserved {
+				state.Players[1].ReservedCards = []string{card.ID}
+			} else {
+				state.Level1Deck = []string{card.ID}
+			}
+			before, _ := json.Marshal(state)
+			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}); err == nil {
+				t.Fatal("unavailable card was purchased")
+			}
+			after, _ := json.Marshal(state)
+			if !bytes.Equal(before, after) {
+				t.Fatal("rejected card purchase changed state")
+			}
+		})
+	}
+}
+
+func TestRegressionPurchaseVisibleAndOwnReservedCards(t *testing.T) {
+	for _, source := range []string{"visible", "reserved"} {
+		t.Run(source, func(t *testing.T) {
+			gl, state := regressionGame()
+			card := models.DevelopmentCard{ID: source, Level: models.Level1, Bonus: models.GemBlue, Cost: map[models.GemType]int{}}
+			state.CardMap[card.ID], state.CardDetails[card.ID] = card, card
+			if source == "visible" {
+				state.FlippedCards[models.Level1] = []string{card.ID}
+			} else {
+				state.Players[0].ReservedCards = []string{card.ID}
+			}
+			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}); err != nil {
+				t.Fatal(err)
+			}
+			if !containsString(state.Players[0].DevelopmentCards, card.ID) || state.Players[0].Bonus[models.GemBlue] != 1 {
+				t.Fatal("valid purchase did not grant the card")
+			}
+		})
+	}
+}
+
+func TestDiscardBatchMustReachExactTargetAtomically(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		discards map[models.GemType]int
+	}{
+		{"too_few", map[models.GemType]int{models.GemBlue: 1}},
+		{"too_many", map[models.GemType]int{models.GemBlue: 3}},
+		{"unknown_type", map[models.GemType]int{models.GemType("ruby"): 2}},
+		{"zero_count", map[models.GemType]int{models.GemBlue: 0}},
+		{"negative_count", map[models.GemType]int{models.GemBlue: -1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			state.NeedsGemDiscard = true
+			state.GemDiscardPlayerID = "p1"
+			state.Players[0].Gems[models.GemBlue] = 12
+			before, _ := json.Marshal(state)
+			if err := gl.DiscardGemsBatch("p1", tc.discards); err == nil {
+				t.Fatal("invalid discard batch was accepted")
+			}
+			after, _ := json.Marshal(state)
+			if !bytes.Equal(before, after) {
+				t.Fatal("rejected discard batch changed state")
+			}
+		})
+	}
+}
