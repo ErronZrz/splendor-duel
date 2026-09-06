@@ -279,7 +279,7 @@
                         >
                           <!-- 只有卡牌所有者能看到卡牌正面；对手只能看到牌背 -->
                           <img 
-                            v-if="player.id === currentPlayer?.id"
+                            v-if="shouldShowReservedCardFace(player.id, currentPlayer?.id)"
                             :src="`/images/cards/${cardId}.jpg`" 
                             :alt="`保留卡${cardId}`"
                             class="reserved-card-image"
@@ -508,19 +508,26 @@ import ActionDialog from '../components/ActionDialog.vue'
 import {
   buildPlayerTokenLayout,
   calculateCardPaymentShortfall,
+  canLocalPlayerStartGame,
   countGemBagByDisplayOrder,
   findOpponent,
   findPlayerById,
   getCardLevel as selectCardLevel,
   getDeckRemainingCount as selectDeckRemainingCount,
-  getFlippedCardsByLevel,
+  getCardDisplayItemsByLevel,
+  getGemDisplayName as selectGemDisplayName,
+  getGemImageName as selectGemImageName,
   getMaxSameColorPoints as selectMaxSameColorPoints,
   getOwnedBonusCardIds,
   getPlayerNobleIds,
-  getTurnPlayer,
+  getNobleDisplayName,
+  getTurnPlayerName,
+  getWaitingPlayers,
   isLocalPlayersTurn,
   isPlayersTurn,
-  orderPlayersLocalFirst
+  orderPlayersLocalFirst,
+  shouldShowReservedCardFace,
+  shouldShowWaitingArea
 } from '../game-view-selectors'
 
 const props = defineProps({
@@ -668,23 +675,17 @@ console.log('Game.vue 初始化:', {
 
 // 计算属性
 const canStartGame = computed(() => {
-  // 检查是否有足够的玩家，并且当前玩家是房主
-  const players = gameState.value?.players || []
-  return players.length >= 2 && 
-        currentPlayer?.value?.id === players[0]?.id &&
-        gameState.value?.status === 'waiting'
+  return canLocalPlayerStartGame(gameState.value, currentPlayer.value?.id)
 })
 
 // 等待玩家列表（从游戏状态中获取）
 const waitingPlayers = computed(() => {
-  return gameState.value?.players || []
+  return getWaitingPlayers(gameState.value)
 })
 
 // 是否显示等待区域
 const showWaitingArea = computed(() => {
-  return !gameState.value || 
-        gameState.value.status === 'waiting' || 
-        gameState.value.status === 'waiting_for_players'
+  return shouldShowWaitingArea(gameState.value)
 })
 
 const isMyTurn = computed(() => {
@@ -702,8 +703,7 @@ const getOpponentData = () => {
 
 // 获取当前玩家名称
 const getCurrentPlayerName = () => {
-  if (!gameState?.value || gameState.value.currentPlayerIndex === undefined) return ''
-  return getTurnPlayer(gameState.value)?.name || '未知玩家'
+  return getTurnPlayerName(gameState.value)
 }
 
 // 检查是否是当前玩家的回合
@@ -714,46 +714,17 @@ const isCurrentPlayerTurn = (playerId) => {
 
 // 根据等级获取发展卡（从后端数据中获取）
 const getCardsByLevel = (level) => {
-  if (!gameState?.value) return []
-  return getFlippedCardsByLevel(gameState.value, level).map(cardDetail => ({
-      id: cardDetail.id,
-      name: `${cardDetail.code || cardDetail.id} (${cardDetail.points || 0}分)`,
-      level: cardDetail.level,
-      cost: cardDetail.cost,
-      bonus: cardDetail.bonus,
-      crowns: cardDetail.crowns,
-      color: cardDetail.color,
-      isSpecial: cardDetail.isSpecial
-  }))
+  return getCardDisplayItemsByLevel(gameState.value, level)
 }
 
 // 获取宝石显示名称
 const getGemDisplayName = (gemType) => {
-  const gemMap = {
-    'white': '白色',
-    'blue': '蓝色',
-    'green': '绿色',
-    'red': '红色',
-    'black': '黑色',
-    'pearl': '珍珠',
-    'gold': '黄金',
-    'gray': '无色'
-  }
-  return gemMap[gemType] || gemType
+  return selectGemDisplayName(gemType)
 }
 
 // 获取宝石图片名称
 const getGemImageName = (gemType) => {
-  const gemMap = {
-    'white': 'white',
-    'blue': 'blue',
-    'green': 'green',
-    'red': 'red',
-    'black': 'black',
-    'pearl': 'pearl',
-    'gold': 'gold'
-  }
-  return gemMap[gemType] || gemType
+  return selectGemImageName(gemType)
 }
 
 // 计算某玩家"同色发展卡最高分"
@@ -845,13 +816,7 @@ const getDeckRemainingCount = (level) => {
 
 // 获取贵族名称
 const getNobleName = (nobleId) => {
-  const nobleMap = {
-    'noble1': '贵族1',
-    'noble2': '贵族2', 
-    'noble3': '贵族3',
-    'noble4': '贵族4'
-  }
-  return nobleMap[nobleId] || `贵族${nobleId}`
+  return getNobleDisplayName(nobleId)
 }
 
 // 获取贵族分数

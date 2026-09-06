@@ -13,6 +13,26 @@ export interface PlayerTokenLayout {
   overflowRows: GemType[][]
 }
 
+export interface CardDisplayItem {
+  id: string
+  name: string
+  level: number
+  cost: DevelopmentCard['cost']
+  bonus: GemType
+  crowns: number
+  color: GemType
+  isSpecial: boolean
+}
+
+const GEM_DISPLAY_NAMES: Readonly<Record<GemType, string>> = {
+  white: '白色', blue: '蓝色', green: '绿色', red: '红色', black: '黑色',
+  pearl: '珍珠', gold: '黄金', gray: '无色'
+}
+
+const NOBLE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  noble1: '贵族1', noble2: '贵族2', noble3: '贵族3', noble4: '贵族4'
+}
+
 const paddedTokenRow = (tokens: readonly GemType[], start: number): Array<GemType | null> =>
   Array.from({ length: 5 }, (_, index) => tokens[start + index] ?? null)
 
@@ -68,6 +88,20 @@ export const getFlippedCardsByLevel = (gameState: GameState | null | undefined, 
     .map(cardId => gameState?.cardDetails[cardId])
     .filter((card): card is DevelopmentCard => card !== undefined)
 
+export const getCardDisplayItemsByLevel = (
+  gameState: GameState | null | undefined,
+  level: number
+): CardDisplayItem[] => getFlippedCardsByLevel(gameState, level).map(card => ({
+  id: card.id,
+  name: `${card.code || card.id} (${card.points || 0}分)`,
+  level: card.level,
+  cost: card.cost,
+  bonus: card.bonus,
+  crowns: card.crowns,
+  color: card.color,
+  isSpecial: card.isSpecial
+}))
+
 export const getCardLevel = (
   cardId: string | null | undefined,
   cardDetails: Readonly<Record<string, DevelopmentCard>> | null | undefined
@@ -107,6 +141,35 @@ export const getPlayerNobleIds = (player: Player | null | undefined): string[] =
 
 export const getDeckRemainingCount = (gameState: GameState | null | undefined, level: number): number =>
   gameState?.unflippedCards[level] ?? 0
+
+export const getGemDisplayName = (gemType: string): string =>
+  Object.entries(GEM_DISPLAY_NAMES).find(([type]) => type === gemType)?.[1] || gemType
+
+export const getGemImageName = (gemType: string): string => gemType
+
+export const getNobleDisplayName = (nobleId: string): string => NOBLE_DISPLAY_NAMES[nobleId] || `贵族${nobleId}`
+
+export const getWaitingPlayers = (gameState: GameState | null | undefined): Player[] => gameState?.players ?? []
+
+export const shouldShowWaitingArea = (gameState: GameState | null | undefined): boolean =>
+  !gameState || gameState.status === 'waiting' || gameState.status === 'waiting_for_players'
+
+export const canLocalPlayerStartGame = (
+  gameState: GameState | null | undefined,
+  localPlayerId: string | null | undefined
+): boolean => Boolean(
+  gameState && gameState.players.length >= 2 && localPlayerId === gameState.players[0]?.id && gameState.status === 'waiting'
+)
+
+export const getTurnPlayerName = (gameState: GameState | null | undefined): string => {
+  if (!gameState) return ''
+  return getTurnPlayer(gameState)?.name || '未知玩家'
+}
+
+export const shouldShowReservedCardFace = (
+  cardOwnerId: string,
+  localPlayerId: string | null | undefined
+): boolean => cardOwnerId === localPlayerId
 
 export interface CardPaymentShortfall {
   canAfford: boolean

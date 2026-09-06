@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { DevelopmentCard, GameState, Player } from './game-state'
 import {
   buildPlayerTokenLayout, calculateCardPaymentShortfall, countGemBagByDisplayOrder,
-  findOpponent, findPlayerById, getCardLevel, getDeckRemainingCount,
+  canLocalPlayerStartGame, findOpponent, findPlayerById, getCardDisplayItemsByLevel,
+  getCardLevel, getDeckRemainingCount, getGemDisplayName, getGemImageName,
   getFlippedCardsByLevel, getMaxSameColorPoints, getOwnedBonusCardIds,
-  getPlayerNobleIds, getTurnPlayer, isLocalPlayersTurn, isPlayersTurn,
-  orderPlayersLocalFirst
+  getNobleDisplayName, getPlayerNobleIds, getTurnPlayer, getTurnPlayerName,
+  getWaitingPlayers, isLocalPlayersTurn, isPlayersTurn, orderPlayersLocalFirst,
+  shouldShowReservedCardFace, shouldShowWaitingArea
 } from './game-view-selectors'
 
 const player = (id: string, overrides: Partial<Player> = {}): Player => ({
@@ -70,6 +72,16 @@ describe('game card selectors', () => {
     expect(getFlippedCardsByLevel(null, 1)).toEqual([])
   })
 
+  it('maps backend cards to the existing page display shape', () => {
+    const fallback = card('fallback', { code: '', points: 0, level: 2, cost: { pearl: 1 }, bonus: 'gray', crowns: 2, color: 'gray', isSpecial: true })
+    const game = state({ flippedCards: { 2: ['fallback', 'missing'] }, cardDetails: { fallback } })
+    expect(getCardDisplayItemsByLevel(game, 2)).toEqual([{
+      id: 'fallback', name: 'fallback (0分)', level: 2, cost: { pearl: 1 }, bonus: 'gray',
+      crowns: 2, color: 'gray', isSpecial: true
+    }])
+    expect(getCardDisplayItemsByLevel(undefined, 1)).toEqual([])
+  })
+
   it('uses card details for levels and preserves legacy ID fallbacks', () => {
     expect(getCardLevel('special', { special: card('special', { level: 3 }) })).toBe(3)
     expect(getCardLevel('deck_level2_card', {})).toBe(2)
@@ -110,6 +122,41 @@ describe('card payment shortfall', () => {
 })
 
 describe('game display selectors', () => {
+  it('preserves gem and noble display names including unknown fallbacks', () => {
+    expect(getGemDisplayName('white')).toBe('白色')
+    expect(getGemDisplayName('gray')).toBe('无色')
+    expect(getGemDisplayName('future')).toBe('future')
+    expect(getGemImageName('gold')).toBe('gold')
+    expect(getGemImageName('future')).toBe('future')
+    expect(getNobleDisplayName('noble4')).toBe('贵族4')
+    expect(getNobleDisplayName('future')).toBe('贵族future')
+  })
+
+  it('selects waiting presentation and the existing first-player start permission', () => {
+    const players = [player('host'), player('guest')]
+    const waiting = state({ status: 'waiting', players })
+    expect(getWaitingPlayers(waiting)).toBe(players)
+    expect(getWaitingPlayers(undefined)).toEqual([])
+    expect(shouldShowWaitingArea(undefined)).toBe(true)
+    expect(shouldShowWaitingArea(waiting)).toBe(true)
+    expect(shouldShowWaitingArea(state({ status: 'waiting_for_players' }))).toBe(true)
+    expect(shouldShowWaitingArea(state({ status: 'playing' }))).toBe(false)
+    expect(canLocalPlayerStartGame(waiting, 'host')).toBe(true)
+    expect(canLocalPlayerStartGame(waiting, 'guest')).toBe(false)
+    expect(canLocalPlayerStartGame(state({ status: 'waiting', players: [player('host')] }), 'host')).toBe(false)
+    expect(canLocalPlayerStartGame(state({ status: 'playing', players }), 'host')).toBe(false)
+    expect(canLocalPlayerStartGame(undefined, 'host')).toBe(false)
+  })
+
+  it('returns current-player labels and reserved-card face visibility defaults', () => {
+    expect(getTurnPlayerName(state({ currentPlayerIndex: 1 }))).toBe('p2')
+    expect(getTurnPlayerName(state({ players: [], currentPlayerIndex: 0 }))).toBe('未知玩家')
+    expect(getTurnPlayerName(undefined)).toBe('')
+    expect(shouldShowReservedCardFace('p1', 'p1')).toBe(true)
+    expect(shouldShowReservedCardFace('p1', 'p2')).toBe(false)
+    expect(shouldShowReservedCardFace('p1', undefined)).toBe(false)
+  })
+
   it('counts the gem bag in the existing fixed order and omits zero and gray counts', () => {
     expect(countGemBagByDisplayOrder(['gold', 'blue', 'white', 'blue', 'gray'])).toEqual([
       { type: 'white', count: 1 }, { type: 'blue', count: 2 }, { type: 'gold', count: 1 }
