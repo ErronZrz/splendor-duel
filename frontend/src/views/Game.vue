@@ -439,12 +439,7 @@ const showNobleTooltip = ref(null)
 const getActionHtml = (action) => action?.descriptionHtml || ''
 // 根据本地玩家优先展示自己的卡片
 const orderedPlayers = computed(() => {
-  const list = gameState.value?.players || []
-  const meId = currentPlayer.value?.id
-  if (!meId) return list
-  const mine = list.filter(p => p.id === meId)
-  const others = list.filter(p => p.id !== meId)
-  return [...mine, ...others]
+  return orderPlayersLocalFirst(gameState.value?.players, currentPlayer.value?.id)
 })
 
 onMounted(() => {
@@ -510,6 +505,18 @@ import { useGameStore } from '../stores/game'
 import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
+import {
+  calculateCardPaymentShortfall,
+  findOpponent,
+  findPlayerById,
+  getCardLevel as selectCardLevel,
+  getFlippedCardsByLevel,
+  getOwnedBonusCardIds,
+  getTurnPlayer,
+  isLocalPlayersTurn,
+  isPlayersTurn,
+  orderPlayersLocalFirst
+} from '../game-view-selectors'
 
 const props = defineProps({
   roomId: {
@@ -691,63 +698,34 @@ const showWaitingArea = computed(() => {
 })
 
 const isMyTurn = computed(() => {
-  if (!gameState?.value || !currentPlayer?.value) return false
-  // 游戏结束后，任何人都不能操作
-  if (gameState.value.status === 'finished') return false
-  const currentPlayerIndex = gameState.value.currentPlayerIndex || 0
-  const players = gameState.value.players || []
-  const currentGamePlayer = players[currentPlayerIndex]
-  return currentGamePlayer?.id === currentPlayer.value.id
+  return isLocalPlayersTurn(gameState.value, currentPlayer.value?.id)
 })
 
 const getCurrentPlayerData = () => {
-  if (!gameState?.value || !currentPlayer?.value) return {}
-  const players = gameState.value.players || []
-  return players.find(p => p.id === currentPlayer.value.id) || {}
+  return findPlayerById(gameState.value?.players, currentPlayer.value?.id) || {}
 }
 
 // 获取对手数据
 const getOpponentData = () => {
-  if (!gameState?.value || !currentPlayer?.value) return {}
-  const players = gameState.value.players || []
-  return players.find(p => p.id !== currentPlayer.value.id) || {}
+  return findOpponent(gameState.value?.players, currentPlayer.value?.id) || {}
 }
 
 // 获取当前玩家名称
 const getCurrentPlayerName = () => {
   if (!gameState?.value || gameState.value.currentPlayerIndex === undefined) return ''
-  const players = gameState.value.players || []
-  const currentPlayer = players[gameState.value.currentPlayerIndex]
-  return currentPlayer?.name || '未知玩家'
+  return getTurnPlayer(gameState.value)?.name || '未知玩家'
 }
 
 // 检查是否是当前玩家的回合
 const isCurrentPlayerTurn = (playerId) => {
   if (!gameState?.value || gameState.value.currentPlayerIndex === undefined) return false
-  const players = gameState.value.players || []
-  const currentPlayer = players[gameState.value.currentPlayerIndex]
-  return currentPlayer?.id === playerId
+  return isPlayersTurn(gameState.value, playerId)
 }
 
 // 根据等级获取发展卡（从后端数据中获取）
 const getCardsByLevel = (level) => {
   if (!gameState?.value) return []
-  
-  // 直接从后端获取该等级已翻开的卡牌ID列表
-  const flippedCards = gameState.value.flippedCards || {}
-  const cardIds = flippedCards[level] || []
-  
-  // 从后端卡牌详细信息中获取完整数据
-  const cardDetails = gameState.value.cardDetails || {}
-  
-  return cardIds.map(id => {
-    const cardDetail = cardDetails[id]
-    if (!cardDetail) {
-      console.warn(`未找到卡牌 ${id} 的详细信息`)
-      return null
-    }
-    
-    return {
+  return getFlippedCardsByLevel(gameState.value, level).map(cardDetail => ({
       id: cardDetail.id,
       name: `${cardDetail.code || cardDetail.id} (${cardDetail.points || 0}分)`,
       level: cardDetail.level,
@@ -756,8 +734,7 @@ const getCardsByLevel = (level) => {
       crowns: cardDetail.crowns,
       color: cardDetail.color,
       isSpecial: cardDetail.isSpecial
-    }
-  }).filter(card => card !== null)
+  }))
 }
 
 // 获取宝石显示名称
@@ -859,13 +836,8 @@ const getOverflowRows = (player) => {
 
 // 获取玩家按颜色拥有的bonus卡（用于叠放显示）
 const getOwnedBonusCards = (playerId, color) => {
-  const players = gameState.value?.players || []
-  const player = players.find(p => p.id === playerId)
-  if (!player || !gameState.value?.cardDetails) return []
-  return (player.developmentCards || []).filter(id => {
-    const cd = gameState.value.cardDetails[id]
-    return cd && cd.bonus === color
-  })
+  const player = findPlayerById(gameState.value?.players, playerId)
+  return getOwnedBonusCardIds(player, gameState.value?.cardDetails, color)
 }
 
 // 显示Bonus工具提示
@@ -900,7 +872,7 @@ const getBonusCards = (playerId, color) => {
     return []
   }
   
-  const player = gameState.value.players.find(p => p.id === playerId)
+  const player = findPlayerById(gameState.value.players, playerId)
   if (!player?.developmentCards) {
     console.log('getBonusCards: 玩家没有发展卡')
     return []
@@ -910,11 +882,7 @@ const getBonusCards = (playerId, color) => {
   console.log('getBonusCards: 卡牌详细信息:', gameState.value.cardDetails)
   
   // 过滤出指定颜色的发展卡
-  const bonusCards = player.developmentCards.filter(cardId => {
-    const cardDetail = gameState.value.cardDetails[cardId]
-    console.log(`getBonusCards: 检查卡牌 ${cardId}:`, cardDetail)
-    return cardDetail && cardDetail.bonus === color
-  })
+  const bonusCards = getOwnedBonusCardIds(player, gameState.value.cardDetails, color)
   
   console.log('getBonusCards: 找到的bonus卡牌:', bonusCards)
   return bonusCards
@@ -922,20 +890,7 @@ const getBonusCards = (playerId, color) => {
 
 // 获取卡牌等级（从后端数据中获取）
 const getCardLevel = (cardId) => {
-  if (!cardId) return 1
-  
-  // 从后端卡牌详细信息中获取等级
-  if (gameState?.value?.cardDetails && gameState.value.cardDetails[cardId]) {
-    return gameState.value.cardDetails[cardId].level || 1
-  }
-  
-  // 如果没有详细信息，尝试从卡牌ID推断等级
-  if (cardId.includes('level1') || cardId.includes('_1_')) return 1
-  if (cardId.includes('level2') || cardId.includes('_2_')) return 2
-  if (cardId.includes('level3') || cardId.includes('_3_')) return 3
-  
-  // 默认返回等级1
-  return 1
+  return selectCardLevel(cardId, gameState.value?.cardDetails)
 }
 
 // 获取牌堆剩余数量（从后端数据中获取）
@@ -1775,32 +1730,9 @@ const checkCanAffordCard = (cardId) => {
   }
   
   const player = getCurrentPlayerData()
-  let totalRequired = 0
-  const missingGems = {}
-  
-  // 计算总费用（考虑奖励优惠）
-  for (const gemType in cardDetail.cost) {
-    const required = cardDetail.cost[gemType]
-            const bonus = player.bonus?.[gemType] || 0
-    const available = player.gems?.[gemType] || 0
-    const actualRequired = Math.max(0, required - bonus)
-    
-    if (actualRequired > 0) {
-      totalRequired += actualRequired
-      if (actualRequired > available) {
-        missingGems[gemType] = actualRequired - available
-      }
-    }
-  }
-  
-  // 检查是否有足够的黄金来补足短缺
-  const availableGold = player.gems?.gold || 0
-  let totalMissing = 0
-  for (const gemType in missingGems) {
-    totalMissing += missingGems[gemType]
-  }
-  
-  if (totalMissing <= availableGold) {
+  const { canAfford, missingGems } = calculateCardPaymentShortfall(cardDetail, player)
+
+  if (canAfford) {
     return true
   }
   
