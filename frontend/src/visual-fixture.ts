@@ -1,0 +1,54 @@
+import { createApp, nextTick } from 'vue'
+import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import Game from './views/Game.vue'
+import { useGameStore } from './stores/game'
+import { createGameVisualFixture } from './visual-fixtures/game-fixture'
+import './style.css'
+
+type Scenario = 'default' | 'take-gems' | 'purchase' | 'discard'
+
+const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'discard'
+  ? requestedScenario
+  : 'default'
+
+const pinia = createPinia()
+const router = createRouter({
+  history: createMemoryHistory(),
+  routes: [{ path: '/', component: { template: '<div />' } }]
+})
+const fixture = createGameVisualFixture()
+const store = useGameStore(pinia)
+
+store.currentRoom = fixture.room
+store.currentPlayer = fixture.currentPlayer
+store.gameState = fixture.room.gameState
+store.chatMessages = fixture.chatMessages
+store.gameHistory = fixture.gameHistory
+store.isConnected = true
+store.connectionStatus = 'connected'
+store.connectWebSocket = () => undefined
+
+const app = createApp(Game, { roomId: fixture.room.id })
+app.use(pinia)
+app.use(router)
+await router.push('/')
+await router.isReady()
+app.mount('#app')
+await nextTick()
+
+if (scenario === 'take-gems') {
+  document.querySelector<HTMLElement>('.gem-board .gem-image')?.click()
+} else if (scenario === 'purchase') {
+  document.querySelector<HTMLElement>('.development-cards .card-item')?.click()
+} else if (scenario === 'discard' && store.gameState) {
+  store.gameState = {
+    ...store.gameState,
+    needsGemDiscard: true,
+    gemDiscardPlayerID: fixture.currentPlayer.id
+  }
+}
+
+await nextTick()
+document.documentElement.dataset.visualFixtureReady = scenario
