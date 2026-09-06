@@ -1668,17 +1668,19 @@ watch(gameState, (newState, oldState) => {
 <style scoped>
 .game-container {
   min-height: 100vh;
-  background: #f8f9fa;
+  min-width: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
 }
 
 .game-header {
-  background: white;
-  padding: 16px 24px;
-  border-bottom: 1px solid #dee2e6;
+  background: var(--color-surface);
+  padding: var(--space-4) var(--page-gutter);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-surface);
 }
 
 .room-info h2 {
@@ -1719,34 +1721,38 @@ watch(gameState, (newState, oldState) => {
 .game-main {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding: 24px;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--page-gutter);
+  width: 100%;
   max-width: 1400px;
   margin: 0 auto;
 }
 
 .game-board-area {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  min-width: 0;
+  background: var(--color-surface);
+  border-radius: var(--radius-surface);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-surface);
   min-height: 600px;
 }
 
 .game-layout {
-  display: flex;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--space-6);
   align-items: flex-start;
 }
 
-.game-layout > *:first-child {
-  flex: 1;
+.game-layout > * {
+  min-width: 0;
 }
 
 /* 游戏版图样式 */
 .game-board {
-  background: #f8f9fa;
-  border-radius: 12px;
+  min-width: 0;
+  background: var(--color-surface-subtle);
+  border-radius: var(--radius-card);
   padding: 20px;
   border: 1px solid #dee2e6;
 }
@@ -2074,7 +2080,8 @@ watch(gameState, (newState, oldState) => {
 
 /* 游戏侧边栏样式 */
 .game-sidebar {
-  width: 300px;
+  width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -2505,29 +2512,71 @@ watch(gameState, (newState, oldState) => {
 }
 
 @media (max-width: 1200px) {
-  .game-layout {
-    flex-direction: column;
-  }
-  
-  .bottom-panels {
-    flex-direction: column;
-  }
-  
-  .chat-panel, .history-panel {
-    width: 100%;
-  }
+  .game-layout { grid-template-columns: minmax(0, 1fr); }
+  .bottom-panels { flex-direction: column; }
+  .chat-panel, .history-panel { width: 100%; }
 }
 
 @media (max-width: 768px) {
+  .game-main {
+    gap: var(--space-4);
+    padding-top: var(--space-4);
+    padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom));
+  }
+
   .game-header {
-    flex-direction: column;
-    gap: 16px;
-    text-align: center;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-3) var(--space-4);
+    text-align: left;
   }
-  
-  .bottom-panels {
-    flex-direction: column;
+
+  .room-info { min-width: 0; }
+  .room-info h2, .room-info p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  .room-info h2 { font-size: 20px; line-height: 28px; }
+
+  .player-info {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .game-board-area {
+    padding: var(--space-3);
+    border-radius: var(--radius-card);
+    min-height: 0;
+  }
+  .game-board { padding: var(--space-3); }
+
+  .board-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-4);
+  }
+  .game-status {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+  .bag-container { margin-left: auto; }
+
+  .gem-grid { width: min(100%, 266px); }
+  .gem-row {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .gem-cell { width: auto; height: auto; min-width: 0; }
+
+  .player-status, .action-panel, .chat-panel, .history-panel {
+    padding: var(--space-4);
+  }
+  .bottom-panels { gap: var(--space-4); }
 }
 .victory-overlay {
   position: fixed;

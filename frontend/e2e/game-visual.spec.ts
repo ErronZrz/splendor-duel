@@ -17,6 +17,11 @@ test('renders the deterministic game baseline', async ({ page }) => {
   await openFixture(page, 'default')
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
   await expect(page.locator('.player-card')).toHaveCount(2)
+  const pageWidth = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }))
+  expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
 })
 
