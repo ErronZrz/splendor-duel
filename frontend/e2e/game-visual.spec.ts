@@ -30,6 +30,12 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(tracks).toHaveLength(3)
     expect(tracks.every(track => track.scrollWidth >= track.clientWidth)).toBe(true)
     await expect(page.locator('.development-cards .deck-count').first()).toBeVisible()
+    await expect(page.locator('.player-summary')).toHaveCount(2)
+    await expect(page.locator('.player-details').first()).toHaveClass(/expanded/)
+    await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
+    await expect(page.locator('.player-card:visible')).toHaveCount(1)
+  } else {
+    await expect(page.locator('.player-card:visible')).toHaveCount(2)
   }
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
 })

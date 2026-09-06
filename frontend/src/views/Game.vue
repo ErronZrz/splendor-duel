@@ -176,19 +176,37 @@
               <div class="player-status">
                 <h3>玩家状态</h3>
                 <div class="players-list">
-                  <PlayerStatusCard
-                    v-for="player in orderedPlayers" 
+                  <div
+                    v-for="player in orderedPlayers"
                     :key="player.id"
-                    :player="player"
-                    :card-details="gameState?.cardDetails || {}"
-                    :local-player-id="currentPlayer?.id"
-                    :current-turn-player-id="gameState?.players?.[gameState.currentPlayerIndex]?.id"
-                    :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id"
-                    @spend-privilege="handleSpendPrivilege"
-                    @reserved-card-click="handleReservedCardClick"
-                    @card-image-error="handleCardImageError"
-                    @noble-image-error="handleNobleImageError"
-                  />
+                    class="player-details"
+                    :class="{ expanded: isPlayerDetailsExpanded(player.id) }"
+                  >
+                    <button class="player-summary" type="button" :aria-expanded="isPlayerDetailsExpanded(player.id)" @click="togglePlayerDetails(player.id)">
+                      <span class="player-summary-name">
+                        {{ player.name }}
+                        <span v-if="player.id === currentPlayer?.id" class="player-summary-self">你</span>
+                        <span v-if="isCurrentPlayerTurn(player.id)" class="player-summary-turn">当前回合</span>
+                      </span>
+                      <span class="player-summary-metrics">
+                        <span>{{ getPlayerTokenTotal(player) }} 宝石</span>
+                        <span>{{ player.points || 0 }} 分</span>
+                        <span>{{ player.crowns || 0 }} 👑</span>
+                        <span>{{ player.privilegeTokens || 0 }} 特权</span>
+                      </span>
+                    </button>
+                    <PlayerStatusCard
+                      :player="player"
+                      :card-details="gameState?.cardDetails || {}"
+                      :local-player-id="currentPlayer?.id"
+                      :current-turn-player-id="gameState?.players?.[gameState.currentPlayerIndex]?.id"
+                      :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id"
+                      @spend-privilege="handleSpendPrivilege"
+                      @reserved-card-click="handleReservedCardClick"
+                      @card-image-error="handleCardImageError"
+                      @noble-image-error="handleNobleImageError"
+                    />
+                  </div>
                 </div>
               </div>
               
@@ -323,6 +341,9 @@ const getActionHtml = (action) => action?.descriptionHtml || ''
 const orderedPlayers = computed(() => {
   return orderPlayersLocalFirst(gameState.value?.players, currentPlayer.value?.id)
 })
+
+const getPlayerTokenTotal = (player) => Object.values(player?.gems || {})
+  .reduce((total, count) => total + (Number(count) || 0), 0)
 
 onMounted(() => {
   // 悬停预览：监听包含 data-preview 的链接
@@ -531,6 +552,18 @@ const tooltipStyle = ref({
 
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, lastActionResult } = storeToRefs(gameStore)
+const expandedPlayerIds = ref(new Set())
+const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
+const togglePlayerDetails = (playerId) => {
+  const next = new Set(expandedPlayerIds.value)
+  next.has(playerId) ? next.delete(playerId) : next.add(playerId)
+  expandedPlayerIds.value = next
+}
+watch(() => currentPlayer.value?.id, (playerId) => {
+  if (playerId && expandedPlayerIds.value.size === 0) {
+    expandedPlayerIds.value = new Set([playerId])
+  }
+}, { immediate: true })
 const connectionStatusText = computed(() => ({
   connected: '已连接',
   connecting: '连接中…',
@@ -2107,6 +2140,14 @@ watch(gameState, (newState, oldState) => {
   gap: 16px;
 }
 
+.player-details {
+  display: contents;
+}
+
+.player-summary {
+  display: none;
+}
+
 .player-card {
   background: #f8f9fa;
   border: 2px solid #dee2e6;
@@ -2617,6 +2658,69 @@ watch(gameState, (newState, oldState) => {
 
   .player-status, .action-panel, .chat-panel, .history-panel {
     padding: var(--space-4);
+  }
+
+  .player-details {
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    overflow: hidden;
+    background: var(--color-surface-subtle);
+  }
+
+  .player-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 44px;
+    padding: var(--space-3);
+    cursor: pointer;
+    list-style: none;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+  }
+
+  .player-summary::after {
+    content: '展开详情';
+    align-self: flex-end;
+    color: var(--color-action);
+    font-size: 12px;
+  }
+
+  .player-details.expanded > .player-summary::after { content: '收起详情'; }
+
+  .player-summary-name,
+  .player-summary-metrics {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .player-summary-name { font-weight: 600; }
+  .player-summary-metrics { color: var(--color-ink-muted); font-size: 12px; }
+  .player-summary-self,
+  .player-summary-turn {
+    padding: 2px 6px;
+    border-radius: var(--radius-pill);
+    font-size: 12px;
+  }
+  .player-summary-self { background: #e3f2fd; color: #1976d2; }
+  .player-summary-turn { background: #d4edda; color: var(--color-turn); }
+
+  .player-details > :deep(.player-card) {
+    display: none;
+  }
+
+  .player-details.expanded > :deep(.player-card) {
+    display: block;
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0;
   }
   .bottom-panels { gap: var(--space-4); }
 }
