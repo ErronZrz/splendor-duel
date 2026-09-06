@@ -18,6 +18,78 @@ type Manager struct {
 	mutex sync.RWMutex
 }
 
+func cloneMap[K comparable, V any](source map[K]V) map[K]V {
+	if source == nil {
+		return nil
+	}
+	result := make(map[K]V, len(source))
+	for key, value := range source {
+		result[key] = value
+	}
+	return result
+}
+
+func cloneDevelopmentCard(card models.DevelopmentCard) models.DevelopmentCard {
+	card.Cost = cloneMap(card.Cost)
+	card.Effects = append([]models.CardEffect(nil), card.Effects...)
+	return card
+}
+
+func cloneDevelopmentCards(source map[string]models.DevelopmentCard) map[string]models.DevelopmentCard {
+	if source == nil {
+		return nil
+	}
+	result := make(map[string]models.DevelopmentCard, len(source))
+	for id, card := range source {
+		result[id] = cloneDevelopmentCard(card)
+	}
+	return result
+}
+
+func cloneGameState(source models.GameState) models.GameState {
+	result := source
+	result.VictoryReasons = append([]string(nil), source.VictoryReasons...)
+	result.Players = append([]models.Player(nil), source.Players...)
+	for i := range result.Players {
+		result.Players[i].Gems = cloneMap(source.Players[i].Gems)
+		result.Players[i].Bonus = cloneMap(source.Players[i].Bonus)
+		result.Players[i].ReservedCards = append([]string(nil), source.Players[i].ReservedCards...)
+		result.Players[i].DevelopmentCards = append([]string(nil), source.Players[i].DevelopmentCards...)
+		result.Players[i].Nobles = append([]string(nil), source.Players[i].Nobles...)
+	}
+	if source.GemBoard != nil {
+		result.GemBoard = make([][]models.GemType, len(source.GemBoard))
+		for i := range source.GemBoard {
+			result.GemBoard[i] = append([]models.GemType(nil), source.GemBoard[i]...)
+		}
+	}
+	result.GemBag = append([]models.GemType(nil), source.GemBag...)
+	result.UnflippedCards = cloneMap(source.UnflippedCards)
+	if source.FlippedCards != nil {
+		result.FlippedCards = make(map[models.CardLevel][]string, len(source.FlippedCards))
+		for level, cards := range source.FlippedCards {
+			result.FlippedCards[level] = append([]string(nil), cards...)
+		}
+	}
+	result.Level1Deck = append([]string(nil), source.Level1Deck...)
+	result.Level2Deck = append([]string(nil), source.Level2Deck...)
+	result.Level3Deck = append([]string(nil), source.Level3Deck...)
+	result.CardDetails = cloneDevelopmentCards(source.CardDetails)
+	result.CardMap = cloneDevelopmentCards(source.CardMap)
+	result.AvailableNobles = append([]string(nil), source.AvailableNobles...)
+	result.ExtraTurns = cloneMap(source.ExtraTurns)
+	return result
+}
+
+func cloneRoom(source *models.Room) *models.Room {
+	if source == nil {
+		return nil
+	}
+	result := *source
+	result.GameState = cloneGameState(source.GameState)
+	return &result
+}
+
 // NewManager 创建新的游戏管理器
 func NewManager() *Manager {
 	return &Manager{
@@ -56,18 +128,18 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 
 	// 创建玩家
 	player := models.Player{
-		ID:                playerID,
-		Name:              req.PlayerName,
-		Gems:              make(map[models.GemType]int),
-		Bonus:             make(map[models.GemType]int),
-		ReservedCards:     []string{},
-		DevelopmentCards:  []string{},
-		PrivilegeTokens:   0,
-		Crowns:            0,
-		Nobles:            []string{},
-		Points:            0,
-		IsHost:            true,
-		LastActive:        time.Now(),
+		ID:               playerID,
+		Name:             req.PlayerName,
+		Gems:             make(map[models.GemType]int),
+		Bonus:            make(map[models.GemType]int),
+		ReservedCards:    []string{},
+		DevelopmentCards: []string{},
+		PrivilegeTokens:  0,
+		Crowns:           0,
+		Nobles:           []string{},
+		Points:           0,
+		IsHost:           true,
+		LastActive:       time.Now(),
 	}
 
 	// 创建游戏状态
@@ -90,7 +162,7 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 		GemDiscardPlayerID:       "",
 		CreatedAt:                time.Now(),
 	}
-	
+
 	// 初始化宝石版图（即使在等待状态也要显示）
 	gl := NewGameLogic(&gameState, m)
 	gl.initializeGemBoard()
@@ -105,9 +177,20 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 		UpdatedAt: time.Now(),
 	}
 
-	// 保存房间
+	// 保存房间；在写锁内重新检查名称，避免并发创建同名房间。
 	m.mutex.Lock()
+	for _, existingRoom := range m.rooms {
+		if existingRoom.Name == req.RoomName {
+			m.mutex.Unlock()
+			c.JSON(http.StatusConflict, models.APIResponse{
+				Success: false,
+				Message: "房间名已存在",
+			})
+			return
+		}
+	}
 	m.rooms[roomID] = room
+	responseRoom := cloneRoom(room)
 	m.mutex.Unlock()
 
 	log.Printf("创建房间: %s (ID: %s), 玩家: %s", req.RoomName, roomID, req.PlayerName)
@@ -115,7 +198,7 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data: models.CreateRoomResponse{
-			Room:     *room,
+			Room:     *responseRoom,
 			PlayerID: playerID,
 		},
 	})
@@ -132,8 +215,8 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 		return
 	}
 
-	// 查找房间
-	m.mutex.RLock()
+	// 查找、校验和加入必须在同一写锁内完成，避免并发请求突破人数或重名限制。
+	m.mutex.Lock()
 	var targetRoom *models.Room
 	for _, room := range m.rooms {
 		if room.Name == req.RoomName {
@@ -141,9 +224,8 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 			break
 		}
 	}
-	m.mutex.RUnlock()
-
 	if targetRoom == nil {
+		m.mutex.Unlock()
 		c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Message: "房间不存在",
@@ -153,6 +235,7 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 
 	// 检查房间是否已满
 	if len(targetRoom.GameState.Players) >= 2 {
+		m.mutex.Unlock()
 		c.JSON(http.StatusConflict, models.APIResponse{
 			Success: false,
 			Message: "房间已满",
@@ -163,6 +246,7 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 	// 检查玩家名是否重复
 	for _, player := range targetRoom.GameState.Players {
 		if player.Name == req.PlayerName {
+			m.mutex.Unlock()
 			c.JSON(http.StatusConflict, models.APIResponse{
 				Success: false,
 				Message: "玩家名已存在",
@@ -176,24 +260,24 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 
 	// 创建玩家
 	player := models.Player{
-		ID:                playerID,
-		Name:              req.PlayerName,
-		Gems:              make(map[models.GemType]int),
-		Bonus:             make(map[models.GemType]int),
-		ReservedCards:     []string{},
-		DevelopmentCards:  []string{},
-		PrivilegeTokens:   0,
-		Crowns:            0,
-		Nobles:            []string{},
-		Points:            0,
-		IsHost:            false,
-		LastActive:        time.Now(),
+		ID:               playerID,
+		Name:             req.PlayerName,
+		Gems:             make(map[models.GemType]int),
+		Bonus:            make(map[models.GemType]int),
+		ReservedCards:    []string{},
+		DevelopmentCards: []string{},
+		PrivilegeTokens:  0,
+		Crowns:           0,
+		Nobles:           []string{},
+		Points:           0,
+		IsHost:           false,
+		LastActive:       time.Now(),
 	}
 
 	// 添加玩家到房间
-	m.mutex.Lock()
 	targetRoom.GameState.Players = append(targetRoom.GameState.Players, player)
 	targetRoom.UpdatedAt = time.Now()
+	responseRoom := cloneRoom(targetRoom)
 	m.mutex.Unlock()
 
 	log.Printf("玩家 %s 加入房间: %s", req.PlayerName, req.RoomName)
@@ -201,7 +285,7 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
 		Data: models.JoinRoomResponse{
-			Room:     *targetRoom,
+			Room:     *responseRoom,
 			PlayerID: playerID,
 		},
 	})
@@ -210,12 +294,8 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 // GetRoomInfo 获取房间信息
 func (m *Manager) GetRoomInfo(c *gin.Context) {
 	roomID := c.Param("roomId")
-
-	m.mutex.RLock()
-	room, exists := m.rooms[roomID]
-	m.mutex.RUnlock()
-
-	if !exists {
+	room := m.GetRoom(roomID)
+	if room == nil {
 		c.JSON(http.StatusNotFound, models.APIResponse{
 			Success: false,
 			Message: "房间不存在",
@@ -233,14 +313,14 @@ func (m *Manager) GetRoomInfo(c *gin.Context) {
 func (m *Manager) GetRoom(roomID string) *models.Room {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	return m.rooms[roomID]
+	return cloneRoom(m.rooms[roomID])
 }
 
 // UpdateRoom 更新房间（内部使用）
 func (m *Manager) UpdateRoom(roomID string, updateFunc func(*models.Room)) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	if room, exists := m.rooms[roomID]; exists {
 		updateFunc(room)
 		room.UpdatedAt = time.Now()
