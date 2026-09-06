@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { DevelopmentCard, GameState, Player } from './game-state'
 import {
-  calculateCardPaymentShortfall, findOpponent, findPlayerById, getCardLevel,
-  getFlippedCardsByLevel, getOwnedBonusCardIds, getTurnPlayer, isLocalPlayersTurn,
-  isPlayersTurn, orderPlayersLocalFirst
+  buildPlayerTokenLayout, calculateCardPaymentShortfall, countGemBagByDisplayOrder,
+  findOpponent, findPlayerById, getCardLevel, getDeckRemainingCount,
+  getFlippedCardsByLevel, getMaxSameColorPoints, getOwnedBonusCardIds,
+  getPlayerNobleIds, getTurnPlayer, isLocalPlayersTurn, isPlayersTurn,
+  orderPlayersLocalFirst
 } from './game-view-selectors'
 
 const player = (id: string, overrides: Partial<Player> = {}): Player => ({
@@ -104,5 +106,58 @@ describe('card payment shortfall', () => {
     expect(calculateCardPaymentShortfall(card('free'), player('p1'))).toEqual({
       canAfford: true, missingGems: {}, totalMissing: 0, availableGold: 0
     })
+  })
+})
+
+describe('game display selectors', () => {
+  it('counts the gem bag in the existing fixed order and omits zero and gray counts', () => {
+    expect(countGemBagByDisplayOrder(['gold', 'blue', 'white', 'blue', 'gray'])).toEqual([
+      { type: 'white', count: 1 }, { type: 'blue', count: 2 }, { type: 'gold', count: 1 }
+    ])
+    expect(countGemBagByDisplayOrder([])).toEqual([])
+    expect(countGemBagByDisplayOrder(undefined)).toEqual([])
+  })
+
+  it('lays out ten ordered token cells with placeholders for empty positions', () => {
+    expect(buildPlayerTokenLayout(player('p1', { gems: { red: 2, white: 1, pearl: 1, gray: 3 } }))).toEqual({
+      firstRow: ['white', 'red', 'red', 'pearl', null],
+      secondRow: [null, null, null, null, null],
+      overflowRows: []
+    })
+    expect(buildPlayerTokenLayout(undefined)).toEqual({
+      firstRow: [null, null, null, null, null],
+      secondRow: [null, null, null, null, null],
+      overflowRows: []
+    })
+  })
+
+  it('groups tokens beyond ten into rows of at most five', () => {
+    expect(buildPlayerTokenLayout(player('p1', { gems: { white: 6, blue: 5, gold: 6 } }))).toEqual({
+      firstRow: ['white', 'white', 'white', 'white', 'white'],
+      secondRow: ['white', 'blue', 'blue', 'blue', 'blue'],
+      overflowRows: [['blue', 'gold', 'gold', 'gold', 'gold'], ['gold', 'gold']]
+    })
+  })
+
+  it('calculates the highest points in a standard development-card color', () => {
+    const owner = player('p1', { developmentCards: ['white-1', 'white-2', 'blue', 'gray', 'missing'] })
+    const details = {
+      'white-1': card('white-1', { color: 'white', points: 2 }),
+      'white-2': card('white-2', { color: 'white', points: 3 }),
+      blue: card('blue', { color: 'blue', points: 4 }),
+      gray: card('gray', { color: 'gray', points: 20 })
+    }
+    expect(getMaxSameColorPoints(owner, details)).toBe(5)
+    expect(getMaxSameColorPoints(player('empty'), details)).toBe(0)
+    expect(getMaxSameColorPoints(undefined, undefined)).toBe(0)
+  })
+
+  it('returns player nobles and deck counts with existing empty defaults', () => {
+    const owner = player('p1', { nobles: ['noble2', 'noble1'] })
+    expect(getPlayerNobleIds(owner)).toEqual(['noble2', 'noble1'])
+    expect(getPlayerNobleIds(undefined)).toEqual([])
+    expect(getDeckRemainingCount(state({ unflippedCards: { 1: 0, 2: 7 } }), 1)).toBe(0)
+    expect(getDeckRemainingCount(state({ unflippedCards: { 1: 0, 2: 7 } }), 2)).toBe(7)
+    expect(getDeckRemainingCount(null, 3)).toBe(0)
   })
 })

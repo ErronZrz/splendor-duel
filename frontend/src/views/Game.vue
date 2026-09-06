@@ -506,12 +506,17 @@ import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
 import {
+  buildPlayerTokenLayout,
   calculateCardPaymentShortfall,
+  countGemBagByDisplayOrder,
   findOpponent,
   findPlayerById,
   getCardLevel as selectCardLevel,
+  getDeckRemainingCount as selectDeckRemainingCount,
   getFlippedCardsByLevel,
+  getMaxSameColorPoints as selectMaxSameColorPoints,
   getOwnedBonusCardIds,
+  getPlayerNobleIds,
   getTurnPlayer,
   isLocalPlayersTurn,
   isPlayersTurn,
@@ -650,22 +655,7 @@ const connectionStatusText = computed(() => ({
 
 // 袋中宝石：悬停状态
 const bagHover = ref(false)
-// 袋中宝石：顺序与映射
-const bagOrder = ['white','blue','green','red','black','pearl','gold']
-const bagCounts = computed(() => {
-  const bag = gameState.value?.gemBag || []
-  if (!Array.isArray(bag) || bag.length === 0) return []
-  const counts = {}
-  for (const t of bag) {
-    if (!t) continue
-    counts[t] = (counts[t] || 0) + 1
-  }
-  const result = []
-  for (const t of bagOrder) {
-    if (counts[t] > 0) result.push({ type: t, count: counts[t] })
-  }
-  return result
-})
+const bagCounts = computed(() => countGemBagByDisplayOrder(gameState.value?.gemBag))
 
 // 添加调试信息
 console.log('Game.vue 初始化:', {
@@ -768,70 +758,25 @@ const getGemImageName = (gemType) => {
 
 // 计算某玩家"同色发展卡最高分"
 const getMaxSameColorPoints = (playerId) => {
-  try {
-    const players = gameState.value?.players || []
-    const player = players.find(p => p.id === playerId)
-    if (!player || !gameState.value?.cardDetails) return 0
-    const colorPoints = { white:0, blue:0, green:0, red:0, black:0 }
-    for (const cardId of (player.developmentCards || [])) {
-      const cd = gameState.value.cardDetails[cardId]
-      if (!cd) continue
-      const color = cd.color
-      if (colorPoints[color] !== undefined) {
-        colorPoints[color] += (cd.points || 0)
-      }
-    }
-    return Math.max(...Object.values(colorPoints))
-  } catch(e) { return 0 }
+  const player = findPlayerById(gameState.value?.players, playerId)
+  return selectMaxSameColorPoints(player, gameState.value?.cardDetails)
 }
 
 // 获取玩家已获得的贵族
 const getPlayerNobles = (playerId) => {
-  try {
-    const players = gameState.value?.players || []
-    const player = players.find(p => p.id === playerId)
-    return player?.nobles || []
-  } catch (e) {
-    console.error('获取玩家贵族失败:', e)
-    return []
-  }
-}
-
-// 构建按顺序的token列表（白、蓝、绿、红、黑、珍珠、黄金）
-const buildSortedTokens = (player) => {
-  const order = ['white','blue','green','red','black','pearl','gold']
-  const gems = player?.gems || {}
-  const arr = []
-  for (const t of order) {
-    const cnt = gems[t] || 0
-    for (let i=0;i<cnt;i++) arr.push(t)
-  }
-  return arr
+  return getPlayerNobleIds(findPlayerById(gameState.value?.players, playerId))
 }
 
 // 前两行的10个占位（5+5），填入前10个token，否则为null
 const getFirstTenCells = (player) => {
-  const tokens = buildSortedTokens(player)
-  const cells = []
-  for (let i=0;i<5;i++) cells.push(tokens[i] || null)
-  return cells
+  return buildPlayerTokenLayout(player).firstRow
 }
 const getSecondTenCells = (player) => {
-  const tokens = buildSortedTokens(player)
-  const cells = []
-  for (let i=5;i<10;i++) cells.push(tokens[i] || null)
-  return cells
+  return buildPlayerTokenLayout(player).secondRow
 }
 // 超出10个的部分分组为每行最多5个，仅显示token，不显示占位
 const getOverflowRows = (player) => {
-  const tokens = buildSortedTokens(player)
-  if (tokens.length <= 10) return []
-  const rest = tokens.slice(10)
-  const rows = []
-  for (let i=0;i<rest.length; i+=5) {
-    rows.push(rest.slice(i, i+5))
-  }
-  return rows
+  return buildPlayerTokenLayout(player).overflowRows
 }
 
 // 获取玩家按颜色拥有的bonus卡（用于叠放显示）
@@ -895,11 +840,7 @@ const getCardLevel = (cardId) => {
 
 // 获取牌堆剩余数量（从后端数据中获取）
 const getDeckRemainingCount = (level) => {
-  if (!gameState?.value) return 0
-  
-  // 直接从后端获取未翻开的卡牌数量
-  const unflippedCards = gameState.value.unflippedCards || {}
-  return unflippedCards[level] || 0
+  return selectDeckRemainingCount(gameState.value, level)
 }
 
 // 获取贵族名称

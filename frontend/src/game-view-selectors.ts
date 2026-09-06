@@ -1,5 +1,47 @@
 import type { DevelopmentCard, GameState, GemType, Player } from './game-state'
 
+const DISPLAYED_GEM_ORDER: readonly GemType[] = ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
+
+export interface GemCount {
+  type: GemType
+  count: number
+}
+
+export interface PlayerTokenLayout {
+  firstRow: Array<GemType | null>
+  secondRow: Array<GemType | null>
+  overflowRows: GemType[][]
+}
+
+const paddedTokenRow = (tokens: readonly GemType[], start: number): Array<GemType | null> =>
+  Array.from({ length: 5 }, (_, index) => tokens[start + index] ?? null)
+
+export const countGemBagByDisplayOrder = (gemBag: readonly GemType[] | null | undefined): GemCount[] => {
+  if (!gemBag?.length) return []
+  const counts: Partial<Record<GemType, number>> = {}
+  for (const type of gemBag) counts[type] = (counts[type] ?? 0) + 1
+  return DISPLAYED_GEM_ORDER
+    .filter(type => (counts[type] ?? 0) > 0)
+    .map(type => ({ type, count: counts[type] ?? 0 }))
+}
+
+export const buildPlayerTokenLayout = (player: Player | null | undefined): PlayerTokenLayout => {
+  const tokens: GemType[] = []
+  for (const type of DISPLAYED_GEM_ORDER) {
+    const count = player?.gems[type] ?? 0
+    for (let index = 0; index < count; index += 1) tokens.push(type)
+  }
+  const overflowRows: GemType[][] = []
+  for (let index = 10; index < tokens.length; index += 5) {
+    overflowRows.push(tokens.slice(index, index + 5))
+  }
+  return {
+    firstRow: paddedTokenRow(tokens, 0),
+    secondRow: paddedTokenRow(tokens, 5),
+    overflowRows
+  }
+}
+
 export const findPlayerById = (players: readonly Player[] | undefined, playerId: string | null | undefined): Player | undefined =>
   players?.find(player => player.id === playerId)
 
@@ -44,6 +86,27 @@ export const getOwnedBonusCardIds = (
   cardDetails: Readonly<Record<string, DevelopmentCard>> | null | undefined,
   color: GemType
 ): string[] => (player?.developmentCards ?? []).filter(cardId => cardDetails?.[cardId]?.bonus === color)
+
+export const getMaxSameColorPoints = (
+  player: Player | null | undefined,
+  cardDetails: Readonly<Record<string, DevelopmentCard>> | null | undefined
+): number => {
+  const colorPoints: Partial<Record<GemType, number>> = {
+    white: 0, blue: 0, green: 0, red: 0, black: 0
+  }
+  for (const cardId of player?.developmentCards ?? []) {
+    const card = cardDetails?.[cardId]
+    if (card && colorPoints[card.color] !== undefined) {
+      colorPoints[card.color] = (colorPoints[card.color] ?? 0) + card.points
+    }
+  }
+  return Math.max(...Object.values(colorPoints))
+}
+
+export const getPlayerNobleIds = (player: Player | null | undefined): string[] => player?.nobles ?? []
+
+export const getDeckRemainingCount = (gameState: GameState | null | undefined, level: number): number =>
+  gameState?.unflippedCards[level] ?? 0
 
 export interface CardPaymentShortfall {
   canAfford: boolean
