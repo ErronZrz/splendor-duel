@@ -24,12 +24,13 @@ var upgrader = websocket.Upgrader{
 
 // Client WebSocket 客户端
 type Client struct {
-	ID       string
-	RoomID   string
-	PlayerID string
-	Conn     *websocket.Conn
-	Send     chan []byte
-	Manager  *game.Manager
+	ID         string
+	RoomID     string
+	PlayerID   string
+	PlayerName string
+	Conn       *websocket.Conn
+	Send       chan []byte
+	Manager    *game.Manager
 }
 
 // Room WebSocket 房间
@@ -113,6 +114,12 @@ func (h *Hub) getOrCreateRoom(roomID string, gameManager *game.Manager) *Room {
 
 	h.Rooms[roomID] = room
 	return room
+}
+
+func (h *Hub) getRoom(roomID string) *Room {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	return h.Rooms[roomID]
 }
 
 // registerClient 注册客户端
@@ -256,19 +263,28 @@ func (c *Client) handleMessage(message []byte) {
 	var wsMessage models.WSMessage
 	if err := json.Unmarshal(message, &wsMessage); err != nil {
 		log.Printf("消息解析失败: %v", err)
+		c.sendError("消息格式无效")
 		return
-	}
-
-	// 设置玩家ID
-	if wsMessage.PlayerID != "" {
-		c.PlayerID = wsMessage.PlayerID
 	}
 
 	// 获取房间
 	hub := getHub()
-	room := hub.Rooms[c.RoomID]
+	room := hub.getRoom(c.RoomID)
 	if room == nil {
+		c.sendError("房间不存在")
 		return
+	}
+
+	if wsMessage.Type != "player_join" {
+		if c.PlayerID == "" {
+			room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "请先加入房间"})
+			return
+		}
+		if wsMessage.PlayerID != c.PlayerID {
+			room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家身份与当前连接不匹配"})
+			return
+		}
+		wsMessage.PlayerName = c.PlayerName
 	}
 
 	switch wsMessage.Type {
@@ -282,14 +298,48 @@ func (c *Client) handleMessage(message []byte) {
 		c.handleStartGame(room)
 	default:
 		log.Printf("未知消息类型: %s", wsMessage.Type)
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "未知消息类型"})
+	}
+}
+
+func (c *Client) sendError(message string) {
+	if room := getHub().getRoom(c.RoomID); room != nil {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: message})
 	}
 }
 
 // handlePlayerJoin 处理玩家加入
 func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
-	// 设置客户端的玩家ID
+	if message.PlayerID == "" || message.PlayerName == "" {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家身份无效"})
+		return
+	}
+	if c.PlayerID != "" && c.PlayerID != message.PlayerID {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "当前连接已绑定其他玩家"})
+		return
+	}
+
+	roomData := room.Manager.GetRoom(c.RoomID)
+	if roomData == nil {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "房间不存在"})
+		return
+	}
+	playerFound := false
+	for _, player := range roomData.GameState.Players {
+		if player.ID == message.PlayerID && player.Name == message.PlayerName {
+			playerFound = true
+			break
+		}
+	}
+	if !playerFound {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家不属于该房间"})
+		return
+	}
+
+	// 身份只能由房间中已有玩家绑定，后续消息不得切换玩家。
 	c.PlayerID = message.PlayerID
-	
+	c.PlayerName = message.PlayerName
+
 	// 广播玩家加入消息
 	room.broadcastToAll(models.WSMessage{
 		Type: "player_joined",
@@ -301,42 +351,25 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 
 	// 更新游戏状态并检查是否应该开始游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
-		// 检查玩家是否已经存在
-		playerExists := false
+		// 玩家已由创建/加入房间 HTTP 入口创建，WebSocket 只更新活跃时间。
 		for i, player := range roomData.GameState.Players {
 			if player.ID == message.PlayerID {
 				roomData.GameState.Players[i].LastActive = time.Now()
-				playerExists = true
 				break
 			}
 		}
-		
-		// 如果玩家不存在，添加新玩家
-		if !playerExists {
-			roomData.GameState.Players = append(roomData.GameState.Players, models.Player{
-				ID:          message.PlayerID,
-				Name:        message.PlayerName,
-				LastActive:  time.Now(),
-				Gems:        make(map[models.GemType]int),
-				Bonus:       make(map[models.GemType]int),
-				ReservedCards: []string{},
-				Crowns:      0,
-				PrivilegeTokens: 0,
-				Points:      0,
-			})
-		}
-		
+
 		// 检查是否应该自动开始游戏（当有2个玩家且状态为waiting时）
 		if len(roomData.GameState.Players) >= 2 && roomData.GameState.Status == models.GameStatusWaiting {
 			log.Printf("房间 %s 有 %d 个玩家，自动开始游戏", c.RoomID, len(roomData.GameState.Players))
-			
+
 			// 创建游戏逻辑实例并开始游戏
 			gl := game.NewGameLogic(&roomData.GameState, room.Manager)
 			if err := gl.StartGame(); err != nil {
 				log.Printf("自动开始游戏失败: %v", err)
 				return
 			}
-			
+
 			roomData.GameState.StartedAt = time.Now()
 			log.Printf("游戏已自动开始")
 		}
@@ -345,13 +378,13 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 	// 获取最新的游戏状态
 	latestRoom := room.Manager.GetRoom(c.RoomID)
 	latestGameState := latestRoom.GameState
-	
+
 	// 广播更新后的游戏状态
 	room.broadcastToAll(models.WSMessage{
 		Type:      "game_state_update",
 		GameState: &latestGameState,
 	})
-	
+
 	// 如果游戏已开始，广播游戏开始消息
 	if latestGameState.Status == models.GameStatusPlaying {
 		room.broadcastToAll(models.WSMessage{
@@ -386,16 +419,22 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 }
 
 func histGemImg(g string) string {
-	if g == "" { return "" }
+	if g == "" {
+		return ""
+	}
 	return fmt.Sprintf(`<img class="hist-gem" src="/images/gems/%s.jpg" alt="%s" />`, g, g)
 }
 func histCardLink(id string) string {
-	if id == "" { return "发展卡" }
+	if id == "" {
+		return "发展卡"
+	}
 	// 使用 span + data-preview 实现悬停预览，不提供跳转
 	return fmt.Sprintf(`<span class="hist-link" data-preview="/images/cards/%s.jpg">发展卡</span>`, id)
 }
 func histNobleLink(id string) string {
-	if id == "" { return "贵族" }
+	if id == "" {
+		return "贵族"
+	}
 	// 使用 span + data-preview 实现悬停预览，不提供跳转
 	return fmt.Sprintf(`<span class="hist-link" data-preview="/images/nobles/%s.jpg">贵族</span>`, id)
 }
@@ -416,31 +455,31 @@ func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 	room.GameHistory = append(room.GameHistory, ga)
 	room.mutex.Unlock()
 
-	room.broadcastToAll(models.WSMessage{ Type: "game_action", Action: &ga })
+	room.broadcastToAll(models.WSMessage{Type: "game_action", Action: &ga})
 }
 
 // handleGameAction 处理游戏动作
 func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 	log.Printf("处理游戏动作: %s, 玩家: %s, 数据: %+v", message.Type, message.PlayerName, message.Data)
-	
+
 	// 安全检查：确保Data不为nil
 	if message.Data == nil {
 		log.Printf("警告: 游戏动作数据为nil，跳过处理")
 		return
 	}
-	
+
 	// 尝试将Data转换为map[string]any
 	data, ok := message.Data.(map[string]any)
 	if !ok {
 		log.Printf("警告: 无法将Data转换为map[string]any，跳过处理")
 		return
 	}
-	
+
 	// 执行游戏逻辑
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
 		// 创建游戏逻辑实例
 		gl := game.NewGameLogic(&roomData.GameState, room.Manager)
-		
+
 		// 根据动作类型执行相应的游戏逻辑
 		// 前端发送的actionType在消息的顶层，data在消息的data字段中
 		actionType := message.ActionType
@@ -448,9 +487,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			log.Printf("无法获取actionType: %+v", message.ActionType)
 			return
 		}
-		
+
 		log.Printf("解析到actionType: %s", actionType)
-		
+
 		switch actionType {
 		case "start_game":
 			log.Printf("执行开始游戏操作")
@@ -507,10 +546,18 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 						grant = grant || same
 					}
 					pearl := 0
-					for _, t := range types { if t == "pearl" { pearl++ } }
-					if pearl >= 2 { grant = true }
+					for _, t := range types {
+						if t == "pearl" {
+							pearl++
+						}
+					}
+					if pearl >= 2 {
+						grant = true
+					}
 					html := fmt.Sprintf("拿取宝石：%s", strings.Join(pics, ""))
-					if grant { html += "，允许对手获取一个特权指示物" }
+					if grant {
+						html += "，允许对手获取一个特权指示物"
+					}
 					desc := "拿取宝石"
 					broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 				}
@@ -524,37 +571,61 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				totalPay := 0
 				for k, v := range paymentPlan {
 					if cnt, ok := v.(float64); ok {
-						c := int(cnt); totalPay += c
-						for i:=0;i<c;i++{ pics = append(pics, histGemImg(k)) }
+						c := int(cnt)
+						totalPay += c
+						for i := 0; i < c; i++ {
+							pics = append(pics, histGemImg(k))
+						}
 					}
 				}
 				// 查找当前玩家索引
 				idx := -1
-				for i, p := range roomData.GameState.Players { if p.ID == message.PlayerID { idx = i; break } }
-				if idx < 0 { idx = 0 }
+				for i, p := range roomData.GameState.Players {
+					if p.ID == message.PlayerID {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					idx = 0
+				}
 				before := roomData.GameState.Players[idx]
 				wasReserved := false
-				for _, rc := range before.ReservedCards { if rc == cardID { wasReserved = true; break } }
+				for _, rc := range before.ReservedCards {
+					if rc == cardID {
+						wasReserved = true
+						break
+					}
+				}
 				// 预取特效信息
 				effects, _ := data["effects"].(map[string]any)
 				var extraPic string
 				if extraRaw, ok := effects["extraToken"].(map[string]any); ok {
 					if sel, ok := extraRaw["selectedGem"].(map[string]any); ok {
-						x := int(sel["x"].(float64)); y := int(sel["y"].(float64))
+						x := int(sel["x"].(float64))
+						y := int(sel["y"].(float64))
 						g := roomData.GameState.GemBoard[x][y]
 						extraPic = histGemImg(string(g))
 					}
 				}
 				stealGem := ""
 				if stealRaw, ok := effects["steal"].(map[string]any); ok {
-					if gs, ok := stealRaw["gemType"].(string); ok { stealGem = gs }
+					if gs, ok := stealRaw["gemType"].(string); ok {
+						stealGem = gs
+					}
 				}
 				wildColor := ""
 				if wildRaw, ok := effects["wildcard"].(map[string]any); ok {
-					if cs, ok := wildRaw["color"].(string); ok { wildColor = cs }
+					if cs, ok := wildRaw["color"].(string); ok {
+						wildColor = cs
+					}
 				}
 				nobleId := ""
-				if nobleRaw, ok := effects["noble"].(map[string]any); ok { if nid, ok := nobleRaw["id"].(string); ok { nobleId = nid } }
+				if nobleRaw, ok := effects["noble"].(map[string]any); ok {
+					if nid, ok := nobleRaw["id"].(string); ok {
+						nobleId = nid
+					}
+				}
 				// 执行购买
 				if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
 					log.Printf("购买发展卡失败: %v", err)
@@ -568,7 +639,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 						desc = "免费拿取发展卡"
 					} else {
 						source := "购买一张"
-						if wasReserved { source = "从保留的发展卡购买一张" }
+						if wasReserved {
+							source = "从保留的发展卡购买一张"
+						}
 						html = fmt.Sprintf("花费 %s，%s等级 %d 的%s", strings.Join(pics, ""), source, level, histCardLink(cardID))
 						desc = "购买发展卡"
 					}
@@ -577,7 +650,10 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					if nobleId != "" {
 						// 判定是第3还是第6皇冠（根据已有贵族数量）
 						owned := len(before.Nobles)
-						threshold := 3; if owned >= 1 { threshold = 6 }
+						threshold := 3
+						if owned >= 1 {
+							threshold = 6
+						}
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得贵族", fmt.Sprintf("因皇冠数达到 %d 获得%s", threshold, histNobleLink(nobleId)))
 					}
 					// 特殊效果历史
@@ -587,20 +663,27 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					}
 					// 窃取
 					if stealGem != "" {
-						src := "发展卡效果"; if nobleId == "noble1" { src = "贵族效果" }
+						src := "发展卡效果"
+						if nobleId == "noble1" {
+							src = "贵族效果"
+						}
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "窃取", fmt.Sprintf("因%s，从对手处拿取一枚 %s", src, histGemImg(stealGem)))
 					}
 					// 百搭颜色
 					if wildColor != "" {
-						cn := map[string]string{"white":"白色","blue":"蓝色","green":"绿色","red":"红色","black":"黑色"}[wildColor]
+						cn := map[string]string{"white": "白色", "blue": "蓝色", "green": "绿色", "red": "红色", "black": "黑色"}[wildColor]
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "百搭颜色", fmt.Sprintf("将百搭颜色卡放置在%s组中", cn))
 					}
 					// 新的回合/获取特权
 					// 依据卡效果或贵族
 					effArr := cd.Effects
 					for _, e := range effArr {
-						if e == models.NewTurn { broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因发展卡效果，获得额外的回合") }
-						if e == models.GetPrivilege { broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一个特权指示物") }
+						if e == models.NewTurn {
+							broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因发展卡效果，获得额外的回合")
+						}
+						if e == models.GetPrivilege {
+							broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因发展卡效果，获得一个特权指示物")
+						}
 					}
 					if nobleId == "noble2" {
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "新的回合", "因贵族效果，获得额外的回合")
@@ -614,13 +697,24 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			if cardID, ok := data["cardId"].(string); ok {
 				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
 				var goldX, goldY int
-				if goldXVal, ok := data["goldX"].(float64); ok { goldX = int(goldXVal) }
-				if goldYVal, ok := data["goldY"].(float64); ok { goldY = int(goldYVal) }
+				if goldXVal, ok := data["goldX"].(float64); ok {
+					goldX = int(goldXVal)
+				}
+				if goldYVal, ok := data["goldY"].(float64); ok {
+					goldY = int(goldYVal)
+				}
 				// 执行前后比较找出真实卡ID
 				// 查找当前玩家索引
 				idx := -1
-				for i, p := range roomData.GameState.Players { if p.ID == message.PlayerID { idx = i; break } }
-				if idx < 0 { idx = 0 }
+				for i, p := range roomData.GameState.Players {
+					if p.ID == message.PlayerID {
+						idx = i
+						break
+					}
+				}
+				if idx < 0 {
+					idx = 0
+				}
 				before := roomData.GameState.Players[idx].ReservedCards
 				if err := gl.ReserveCard(message.PlayerID, cardID, goldX, goldY); err != nil {
 					log.Printf("保留发展卡失败: %v", err)
@@ -628,20 +722,33 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					after := roomData.GameState.Players[idx].ReservedCards
 					actual := ""
 					m := map[string]bool{}
-					for _, id := range before { m[id] = true }
-					for _, id := range after { if !m[id] { actual = id; break } }
-					if actual == "" && len(after) > 0 { actual = after[len(after)-1] }
+					for _, id := range before {
+						m[id] = true
+					}
+					for _, id := range after {
+						if !m[id] {
+							actual = id
+							break
+						}
+					}
+					if actual == "" && len(after) > 0 {
+						actual = after[len(after)-1]
+					}
 					// 区分来源：若 cardID 形如 deck_level_X，则为从牌堆保留，隐藏具体卡信息
 					if strings.HasPrefix(cardID, "deck_level_") {
 						lvlStr := strings.TrimPrefix(cardID, "deck_level_")
 						level := 0
-						if v, err := strconv.Atoi(lvlStr); err == nil { level = v }
+						if v, err := strconv.Atoi(lvlStr); err == nil {
+							level = v
+						}
 						html := fmt.Sprintf("从牌堆保留一张等级 %d 的发展卡，并获得 1 枚黄金", level)
 						desc := "保留发展卡并获得黄金"
 						broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
 					} else {
 						level := 0
-						if cd, ok := roomData.GameState.CardDetails[actual]; ok { level = int(cd.Level) }
+						if cd, ok := roomData.GameState.CardDetails[actual]; ok {
+							level = int(cd.Level)
+						}
 						html := fmt.Sprintf("保留一张等级 %d 的%s，并获得 1 枚黄金", level, histCardLink(actual))
 						desc := "保留发展卡并获得黄金"
 						broadcastHistory(room, message.PlayerID, message.PlayerName, desc, html)
@@ -653,9 +760,18 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				log.Printf("执行花费特权操作，特权数量: %f", privilegeCount)
 				if gemPositions, ok := data["gemPositions"].([]any); ok {
 					var positions []map[string]any
-					for _, pos := range gemPositions { if posMap, ok := pos.(map[string]any); ok { positions = append(positions, posMap) } }
+					for _, pos := range gemPositions {
+						if posMap, ok := pos.(map[string]any); ok {
+							positions = append(positions, posMap)
+						}
+					}
 					var inner []string
-					for _, p := range positions { x := int(p["x"].(float64)); y := int(p["y"].(float64)); g := roomData.GameState.GemBoard[x][y]; inner = append(inner, histGemImg(string(g))) }
+					for _, p := range positions {
+						x := int(p["x"].(float64))
+						y := int(p["y"].(float64))
+						g := roomData.GameState.GemBoard[x][y]
+						inner = append(inner, histGemImg(string(g)))
+					}
 					if err := gl.SpendPrivilege(message.PlayerID, int(privilegeCount), positions); err != nil {
 						log.Printf("花费特权失败: %v", err)
 					} else {
@@ -700,7 +816,11 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			if gemDiscardsData, ok := data["gemDiscards"].(map[string]interface{}); ok {
 				log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", gemDiscardsData)
 				gemDiscards := make(map[models.GemType]int)
-				for gemTypeStr, count := range gemDiscardsData { if countFloat, ok := count.(float64); ok { gemDiscards[models.GemType(gemTypeStr)] = int(countFloat) } }
+				for gemTypeStr, count := range gemDiscardsData {
+					if countFloat, ok := count.(float64); ok {
+						gemDiscards[models.GemType(gemTypeStr)] = int(countFloat)
+					}
+				}
 				if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
 					log.Printf("批量丢弃宝石失败: %v", err)
 				} else {
@@ -708,7 +828,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					// 记录批量丢弃
 					var pics []string
 					for gt, ct := range gemDiscards {
-						for i := 0; i < ct; i++ { pics = append(pics, histGemImg(string(gt))) }
+						for i := 0; i < ct; i++ {
+							pics = append(pics, histGemImg(string(gt)))
+						}
 					}
 					html := fmt.Sprintf("丢弃宝石 %s", strings.Join(pics, ""))
 					desc := "丢弃宝石"
@@ -725,7 +847,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		default:
 			log.Printf("未知的游戏动作类型: %s", actionType)
 		}
-		
+
 		log.Printf("游戏状态已更新")
 	})
 
@@ -736,7 +858,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		Type:      "game_state_update",
 		GameState: &latestGameState,
 	})
-	
+
 	// 如果游戏已开始，广播游戏开始消息
 	if latestGameState.Status == models.GameStatusPlaying {
 		room.broadcastToAll(models.WSMessage{
@@ -752,13 +874,13 @@ func (c *Client) handleStartGame(room *Room) {
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
 		// 创建游戏逻辑实例
 		gl := game.NewGameLogic(&roomData.GameState, room.Manager)
-		
+
 		// 开始游戏（这会初始化宝石版图、发展卡等）
 		if err := gl.StartGame(); err != nil {
 			log.Printf("开始游戏失败: %v", err)
 			return
 		}
-		
+
 		roomData.GameState.StartedAt = time.Now()
 	})
 
@@ -789,9 +911,9 @@ func (c *Client) cleanup() {
 				},
 			})
 		}
-		
+
 		room.unregisterClient(c)
-		
+
 		// 如果没有客户端了，删除房间
 		room.mutex.RLock()
 		if len(room.Clients) == 0 {

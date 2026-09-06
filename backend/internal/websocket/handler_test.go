@@ -4,12 +4,125 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"splendor-duel-backend/internal/game"
 	"splendor-duel-backend/internal/models"
 )
+
+func protocolTestRoom(t *testing.T) (*game.Manager, *Room, *Client, string) {
+	t.Helper()
+	manager := game.NewManager()
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest("POST", "/api/rooms", bytes.NewBufferString(`{"roomName":"test","playerName":"p1"}`))
+	context.Request.Header.Set("Content-Type", "application/json")
+	manager.CreateRoom(context)
+	var response struct {
+		Data models.CreateRoomResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{RoomID: response.Data.Room.ID, Manager: manager, Send: make(chan []byte, 32)}
+	room := &Room{ID: response.Data.Room.ID, Manager: manager, Clients: map[*Client]bool{client: true}}
+	previousHub := globalHub
+	globalHub = NewHub()
+	globalHub.Rooms[room.ID] = room
+	t.Cleanup(func() { globalHub = previousHub })
+	return manager, room, client, response.Data.PlayerID
+}
+
+func expectClientError(t *testing.T, client *Client) {
+	t.Helper()
+	for len(client.Send) > 0 {
+		var message models.WSMessage
+		if err := json.Unmarshal(<-client.Send, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message.Type == "error" && message.Message != "" {
+			return
+		}
+	}
+	t.Fatal("client received no protocol error")
+}
+
+func TestProtocolBindsConnectionToExistingPlayer(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	beforePlayers := append([]models.Player(nil), manager.GetRoom(room.ID).GameState.Players...)
+
+	unknownJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: "unknown", PlayerName: "intruder"})
+	client.handleMessage(unknownJoin)
+	expectClientError(t, client)
+	if client.PlayerID != "" || !reflect.DeepEqual(beforePlayers, manager.GetRoom(room.ID).GameState.Players) {
+		t.Fatal("unknown WebSocket identity was added to the room")
+	}
+
+	validJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "p1"})
+	client.handleMessage(validJoin)
+	if client.PlayerID != playerID || client.PlayerName != "p1" {
+		t.Fatal("existing room player was not bound to the connection")
+	}
+}
+
+func TestProtocolRejectsIdentitySwitchAndPreJoinMessages(t *testing.T) {
+	_, room, client, playerID := protocolTestRoom(t)
+	preJoinChat, _ := json.Marshal(models.WSMessage{Type: "chat_message", PlayerID: playerID, PlayerName: "p1", Message: "hello"})
+	client.handleMessage(preJoinChat)
+	expectClientError(t, client)
+	if len(room.ChatMessages) != 0 {
+		t.Fatal("pre-join chat message was accepted")
+	}
+
+	validJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "p1"})
+	client.handleMessage(validJoin)
+	for len(client.Send) > 0 {
+		<-client.Send
+	}
+
+	spoofedChat, _ := json.Marshal(models.WSMessage{Type: "chat_message", PlayerID: "another-player", PlayerName: "spoofed", Message: "hello"})
+	client.handleMessage(spoofedChat)
+	expectClientError(t, client)
+	if len(room.ChatMessages) != 0 {
+		t.Fatal("message with a switched identity was accepted")
+	}
+
+	switchedJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: "another-player", PlayerName: "spoofed"})
+	client.handleMessage(switchedJoin)
+	expectClientError(t, client)
+	if client.PlayerID != playerID || client.PlayerName != "p1" {
+		t.Fatal("repeated player_join switched the bound identity")
+	}
+}
+
+func TestProtocolUsesBoundPlayerName(t *testing.T) {
+	_, room, client, playerID := protocolTestRoom(t)
+	validJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "p1"})
+	client.handleMessage(validJoin)
+
+	chat, _ := json.Marshal(models.WSMessage{Type: "chat_message", PlayerID: playerID, PlayerName: "spoofed", Message: "hello"})
+	client.handleMessage(chat)
+	if len(room.ChatMessages) != 1 || room.ChatMessages[0].PlayerName != "p1" {
+		t.Fatal("chat history used an untrusted player name")
+	}
+}
+
+func TestProtocolReportsMalformedAndUnknownMessages(t *testing.T) {
+	_, _, client, playerID := protocolTestRoom(t)
+	client.handleMessage([]byte(`{"type":`))
+	expectClientError(t, client)
+
+	validJoin, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "p1"})
+	client.handleMessage(validJoin)
+	for len(client.Send) > 0 {
+		<-client.Send
+	}
+	unknown, _ := json.Marshal(models.WSMessage{Type: "not_supported", PlayerID: playerID})
+	client.handleMessage(unknown)
+	expectClientError(t, client)
+}
 
 func TestTakeGemsRejectsMalformedPayloadBeforeHistory(t *testing.T) {
 	for _, tc := range []struct {
