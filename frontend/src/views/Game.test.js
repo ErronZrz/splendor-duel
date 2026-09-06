@@ -4,6 +4,7 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import Game from './Game.vue'
 import ActionDialog from '../components/ActionDialog.vue'
+import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import { useGameStore } from '../stores/game'
 
 let wrapper
@@ -49,4 +50,29 @@ it('passes a delayed server resource update into an already-open purchase', asyn
   expect(sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({
     cardId: 'a1', paymentPlan: { white: 2, gold: 0 },
   }))
+})
+
+it('renders player status cards with the local player first and preserves names', async () => {
+  vi.spyOn(console, 'log').mockImplementation(() => {})
+  const pinia = createPinia()
+  const store = useGameStore(pinia)
+  const player = (id, name) => ({
+    id, name, gems: {}, bonus: {}, reservedCards: [], developmentCards: [], privilegeTokens: 0,
+    crowns: 0, nobles: [], points: 0, isHost: false, lastActive: ''
+  })
+  store.currentPlayer = { id: 'p2', name: '本地玩家' }
+  store.currentRoom = { id: 'test-room', name: 'Test' }
+  store.gameState = {
+    status: 'playing', currentPlayerIndex: 0, players: [player('p1', '对手'), player('p2', '本地玩家')],
+    flippedCards: { 1: [], 2: [], 3: [] }, cardDetails: {}, unflippedCards: {}, gemBoard: [], availableNobles: []
+  }
+  vi.spyOn(store, 'connectWebSocket').mockImplementation(() => {})
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  await router.push('/')
+  await router.isReady()
+  wrapper = mount(Game, { props: { roomId: 'test-room' }, global: { plugins: [pinia, router] } })
+
+  const cards = wrapper.findAllComponents(PlayerStatusCard)
+  expect(cards.map(card => card.props('player').id)).toEqual(['p2', 'p1'])
+  expect(cards.map(card => card.find('.player-name').text())).toEqual(['本地玩家', '对手'])
 })

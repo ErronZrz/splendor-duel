@@ -176,134 +176,19 @@
               <div class="player-status">
                 <h3>玩家状态</h3>
                 <div class="players-list">
-                  <div 
+                  <PlayerStatusCard
                     v-for="player in orderedPlayers" 
                     :key="player.id"
-                    class="player-card"
-                    :class="{ 'current-player': player.id === currentPlayer?.id, 'active-turn': isCurrentPlayerTurn(player.id) }"
-                  >
-                    <div class="player-header">
-                      <div class="player-header-top">
-                        <span class="player-name">{{ player.name }}</span>
-                      </div>
-                      <div class="player-metrics player-metrics-row">
-                        <span 
-                          class="metric-badge privilege-badge"
-                          :class="{ clickable: isMyTurn && (player.id === currentPlayer?.id) }"
-                          :title="isMyTurn && (player.id === currentPlayer?.id) ? '点击花费特权' : ''"
-                          @click="(isMyTurn && player.id === currentPlayer?.id) ? handleSpendPrivilege() : null"
-                        >
-                          {{ player.privilegeTokens || 0 }}♟
-                        </span>
-                        <span class="metric-badge">{{ player.points || 0 }}🔸{{ getMaxSameColorPoints(player.id) }}</span>
-                        <span 
-                          class="metric-badge crown-badge"
-                          :class="{ 'has-nobles': getPlayerNobles(player.id).length > 0 }"
-                          @mouseenter="showNobleTooltip = player.id"
-                          @mouseleave="showNobleTooltip = null"
-                        >
-                          {{ player.crowns || 0 }}👑
-                          <!-- 贵族悬停提示 -->
-                          <div 
-                            v-if="showNobleTooltip === player.id && getPlayerNobles(player.id).length > 0"
-                            class="noble-tooltip"
-                          >
-                            <div class="noble-tooltip-content">
-                              <img 
-                                v-for="nobleId in getPlayerNobles(player.id)" 
-                                :key="nobleId"
-                                :src="`/images/nobles/${nobleId}.jpg`" 
-                                :alt="getNobleName(nobleId)"
-                                class="noble-tooltip-image"
-                                @error="handleNobleImageError"
-                              />
-                            </div>
-                          </div>
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <!-- 宝石（10位容量提示 + 溢出换行显示） -->
-                    <div class="player-gems">
-                      <h5>宝石</h5>
-                      <div class="token-board">
-                        <div class="token-row">
-                          <div v-for="(cell, idx) in getFirstTenCells(player)" :key="`cell-1-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
-                            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" @error="handleGemImageError" />
-                          </div>
-                        </div>
-                        <div class="token-row">
-                          <div v-for="(cell, idx) in getSecondTenCells(player)" :key="`cell-2-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
-                            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" @error="handleGemImageError" />
-                          </div>
-                        </div>
-                        <div v-for="(row, rIdx) in getOverflowRows(player)" :key="`overflow-${rIdx}`" class="token-row overflow">
-                          <div v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" class="token-cell no-placeholder">
-                            <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="gem" @error="handleGemImageError" />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <!-- 奖励（按颜色叠放发展卡，仅显示上方四分之一） -->
-                    <div class="player-bonuses">
-                      <h5>购买的发展卡</h5>
-                      <div class="bonus-stacks">
-                        <div v-for="color in ['white','blue','green']" :key="`col-${player.id}-${color}`" class="bonus-column">
-                          <div class="bonus-stack">
-                            <img v-for="(cardId, i) in getOwnedBonusCards(player.id, color)" :key="cardId" :src="`/images/cards/${cardId}.jpg`" :alt="`卡${cardId}`" class="bonus-card-image" :style="{ marginTop: i === 0 ? '0' : '-120%' }" @error="handleCardImageError" />
-                          </div>
-                          <div class="bonus-label">{{ getGemDisplayName(color) }}</div>
-                        </div>
-                      </div>
-                      <div class="bonus-stacks">
-                        <div v-for="color in ['red','black','gray']" :key="`col-${player.id}-${color}`" class="bonus-column">
-                          <div class="bonus-stack">
-                            <img v-for="(cardId, i) in getOwnedBonusCards(player.id, color)" :key="cardId" :src="`/images/cards/${cardId}.jpg`" :alt="`卡${cardId}`" class="bonus-card-image" :style="{ marginTop: i === 0 ? '0' : '-120%' }" @error="handleCardImageError" />
-                          </div>
-                          <div class="bonus-label">{{ getGemDisplayName(color) }}</div>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <!-- 保留的发展卡 -->
-                    <div class="player-reserved-cards">
-                      <h5>保留的发展卡</h5>
-                      <div class="reserved-cards-list">
-                        <div 
-                          v-for="(cardId, index) in player.reservedCards || []" 
-                          :key="index"
-                          class="reserved-card-item"
-                          :class="{ 'clickable': isCurrentPlayerTurn(player.id) }"
-                          @click="handleReservedCardClick({ cardId, playerId: player.id })"
-                        >
-                          <!-- 只有卡牌所有者能看到卡牌正面；对手只能看到牌背 -->
-                          <img 
-                            v-if="shouldShowReservedCardFace(player.id, currentPlayer?.id)"
-                            :src="`/images/cards/${cardId}.jpg`" 
-                            :alt="`保留卡${cardId}`"
-                            class="reserved-card-image"
-                            @error="handleCardImageError"
-                          />
-                          <img 
-                            v-else
-                            :src="`/images/cards/back${getCardLevel(cardId)}.jpg`" 
-                            :alt="`保留卡牌背`"
-                            class="reserved-card-image"
-                            @error="handleCardImageError"
-                          />
-                        </div>
-                        <!-- 填充空位 -->
-                        <div 
-                          v-for="i in (3 - (player.reservedCards?.length || 0))" 
-                          :key="`empty-${i}`"
-                          class="reserved-card-item empty"
-                        >
-                          <div class="empty-slot">空</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    :player="player"
+                    :card-details="gameState?.cardDetails || {}"
+                    :local-player-id="currentPlayer?.id"
+                    :current-turn-player-id="gameState?.players?.[gameState.currentPlayerIndex]?.id"
+                    :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id"
+                    @spend-privilege="handleSpendPrivilege"
+                    @reserved-card-click="handleReservedCardClick"
+                    @card-image-error="handleCardImageError"
+                    @noble-image-error="handleNobleImageError"
+                  />
                 </div>
               </div>
               
@@ -433,9 +318,6 @@ const historyListRef = ref(null)
 const preview = ref({ visible: false, image: '', x: 0, y: 0 })
 const historyPreviewRef = ref(null)
 
-// 贵族悬停提示状态
-const showNobleTooltip = ref(null)
-
 const getActionHtml = (action) => action?.descriptionHtml || ''
 // 根据本地玩家优先展示自己的卡片
 const orderedPlayers = computed(() => {
@@ -505,28 +387,24 @@ import { useGameStore } from '../stores/game'
 import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
+import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import {
-  buildPlayerTokenLayout,
   calculateCardPaymentShortfall,
   canLocalPlayerStartGame,
   countGemBagByDisplayOrder,
   findOpponent,
   findPlayerById,
-  getCardLevel as selectCardLevel,
   getDeckRemainingCount as selectDeckRemainingCount,
   getCardDisplayItemsByLevel,
   getGemDisplayName as selectGemDisplayName,
   getGemImageName as selectGemImageName,
-  getMaxSameColorPoints as selectMaxSameColorPoints,
   getOwnedBonusCardIds,
-  getPlayerNobleIds,
   getNobleDisplayName,
   getTurnPlayerName,
   getWaitingPlayers,
   isLocalPlayersTurn,
   isPlayersTurn,
   orderPlayersLocalFirst,
-  shouldShowReservedCardFace,
   shouldShowWaitingArea
 } from '../game-view-selectors'
 
@@ -727,35 +605,6 @@ const getGemImageName = (gemType) => {
   return selectGemImageName(gemType)
 }
 
-// 计算某玩家"同色发展卡最高分"
-const getMaxSameColorPoints = (playerId) => {
-  const player = findPlayerById(gameState.value?.players, playerId)
-  return selectMaxSameColorPoints(player, gameState.value?.cardDetails)
-}
-
-// 获取玩家已获得的贵族
-const getPlayerNobles = (playerId) => {
-  return getPlayerNobleIds(findPlayerById(gameState.value?.players, playerId))
-}
-
-// 前两行的10个占位（5+5），填入前10个token，否则为null
-const getFirstTenCells = (player) => {
-  return buildPlayerTokenLayout(player).firstRow
-}
-const getSecondTenCells = (player) => {
-  return buildPlayerTokenLayout(player).secondRow
-}
-// 超出10个的部分分组为每行最多5个，仅显示token，不显示占位
-const getOverflowRows = (player) => {
-  return buildPlayerTokenLayout(player).overflowRows
-}
-
-// 获取玩家按颜色拥有的bonus卡（用于叠放显示）
-const getOwnedBonusCards = (playerId, color) => {
-  const player = findPlayerById(gameState.value?.players, playerId)
-  return getOwnedBonusCardIds(player, gameState.value?.cardDetails, color)
-}
-
 // 显示Bonus工具提示
 const showBonusTooltip = (event, playerId, color) => {
   clearTimeout(hideTimer)
@@ -802,11 +651,6 @@ const getBonusCards = (playerId, color) => {
   
   console.log('getBonusCards: 找到的bonus卡牌:', bonusCards)
   return bonusCards
-}
-
-// 获取卡牌等级（从后端数据中获取）
-const getCardLevel = (cardId) => {
-  return selectCardLevel(cardId, gameState.value?.cardDetails)
 }
 
 // 获取牌堆剩余数量（从后端数据中获取）
