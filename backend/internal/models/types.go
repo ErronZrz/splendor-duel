@@ -8,14 +8,14 @@ import (
 type GemType string
 
 const (
-	GemWhite   GemType = "white"
-	GemBlue    GemType = "blue"
-	GemGreen   GemType = "green"
-	GemRed     GemType = "red"
-	GemBlack   GemType = "black"
-	GemPearl   GemType = "pearl"
-	GemGold    GemType = "gold"
-	GemGray    GemType = "gray"  // 灰色/百搭色
+	GemWhite GemType = "white"
+	GemBlue  GemType = "blue"
+	GemGreen GemType = "green"
+	GemRed   GemType = "red"
+	GemBlack GemType = "black"
+	GemPearl GemType = "pearl"
+	GemGold  GemType = "gold"
+	GemGray  GemType = "gray" // 灰色/百搭色
 )
 
 // 发展卡等级
@@ -31,11 +31,11 @@ const (
 type CardEffect string
 
 const (
-	ExtraToken     CardEffect = "extra_token"      // 额外token
-	NewTurn        CardEffect = "new_turn"         // 新的回合
-	Wildcard       CardEffect = "wildcard"         // 百搭颜色
-	GetPrivilege   CardEffect = "get_privilege"    // 获取特权
-	Steal          CardEffect = "steal"            // 窃取
+	ExtraToken   CardEffect = "extra_token"   // 额外token
+	NewTurn      CardEffect = "new_turn"      // 新的回合
+	Wildcard     CardEffect = "wildcard"      // 百搭颜色
+	GetPrivilege CardEffect = "get_privilege" // 获取特权
+	Steal        CardEffect = "steal"         // 窃取
 )
 
 // 游戏状态常量
@@ -47,95 +47,104 @@ const (
 
 // 发展卡
 type DevelopmentCard struct {
-	ID          string            `json:"id"`
-	Level       CardLevel         `json:"level"`
-	Code        string            `json:"code"`        // 代号
-	Color       GemType           `json:"color"`      // 卡牌颜色
-	Points      int               `json:"points"`
-	Crowns      int               `json:"crowns"`     // 皇冠数量
-	Bonus       GemType           `json:"bonus"`
-	Cost        map[GemType]int   `json:"cost"`
-	Effects     []CardEffect      `json:"effects"`    // 一次性效果
-	IsSpecial   bool              `json:"isSpecial"`  // 是否为特殊卡
-	ImagePath   string            `json:"imagePath"`
+	ID        string          `json:"id"`
+	Level     CardLevel       `json:"level"`
+	Code      string          `json:"code"`  // 代号
+	Color     GemType         `json:"color"` // 卡牌颜色
+	Points    int             `json:"points"`
+	Crowns    int             `json:"crowns"` // 皇冠数量
+	Bonus     GemType         `json:"bonus"`
+	Cost      map[GemType]int `json:"cost"`
+	Effects   []CardEffect    `json:"effects"`   // 一次性效果
+	IsSpecial bool            `json:"isSpecial"` // 是否为特殊卡
+	ImagePath string          `json:"imagePath"`
 }
 
 // 贵族卡
 type NobleCard struct {
-	ID        string            `json:"id"`
-	Points    int               `json:"points"`
+	ID          string          `json:"id"`
+	Points      int             `json:"points"`
 	Requirement map[GemType]int `json:"requirement"`
-	ImagePath string            `json:"imagePath"`
+	ImagePath   string          `json:"imagePath"`
 }
 
 // 玩家
 type Player struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Gems              map[GemType]int   `json:"gems"`                // 持有的7种宝石token数量
-	Bonus             map[GemType]int   `json:"bonus"`               // 持有的5种一般颜色bonus数量（来自发展卡）
-	ReservedCards     []string          `json:"reservedCards"`       // 保留的发展卡ID列表
-	DevelopmentCards  []string          `json:"developmentCards"`    // 已获得的发展卡ID列表
-	PrivilegeTokens   int               `json:"privilegeTokens"`     // 特权指示物数量
-	Crowns            int               `json:"crowns"`              // 皇冠数量
-	Nobles            []string          `json:"nobles"`              // 已获取的贵族ID列表
-	Points            int               `json:"points"`              // 分数
-	IsHost            bool              `json:"isHost"`
-	LastActive        time.Time         `json:"lastActive"`
+	ID               string          `json:"id"`
+	Name             string          `json:"name"`
+	Gems             map[GemType]int `json:"gems"`             // 持有的7种宝石token数量
+	Bonus            map[GemType]int `json:"bonus"`            // 持有的5种一般颜色bonus数量（来自发展卡）
+	ReservedCards    []string        `json:"reservedCards"`    // 保留的发展卡ID列表
+	DevelopmentCards []string        `json:"developmentCards"` // 已获得的发展卡ID列表
+	PrivilegeTokens  int             `json:"privilegeTokens"`  // 特权指示物数量
+	Crowns           int             `json:"crowns"`           // 皇冠数量
+	Nobles           []string        `json:"nobles"`           // 已获取的贵族ID列表
+	Points           int             `json:"points"`           // 分数
+	IsHost           bool            `json:"isHost"`
+	LastActive       time.Time       `json:"lastActive"`
 }
 
 // 游戏状态
 type GameState struct {
-	Status                    string                        `json:"status"`                    // "waiting", "playing", "finished"
-	CurrentPlayerIndex        int                           `json:"currentPlayerIndex"`        // 当前玩家索引
-	TurnNumber                int                           `json:"turnNumber"`                // 回合数
-	Players                   []Player                      `json:"players"`                   // 玩家列表
-	Winner                    string                        `json:"winner,omitempty"`          // 获胜者ID
-	VictoryReasons            []string                      `json:"victoryReasons,omitempty"`  // 获胜原因说明
-	
+	Status             string   `json:"status"`                   // "waiting", "playing", "finished"
+	CurrentPlayerIndex int      `json:"currentPlayerIndex"`       // 当前玩家索引
+	TurnNumber         int      `json:"turnNumber"`               // 回合数
+	Players            []Player `json:"players"`                  // 玩家列表
+	Winner             string   `json:"winner,omitempty"`         // 获胜者ID
+	VictoryReasons     []string `json:"victoryReasons,omitempty"` // 获胜原因说明
+
 	// 宝石版图 (5x5网格)
-	GemBoard                  [][]GemType                   `json:"gemBoard"`                  // 宝石版图
-	GemBag                    []GemType                     `json:"gemBag"`                    // 宝石袋子（按顺序排列）
-	AvailablePrivilegeTokens  int                           `json:"availablePrivilegeTokens"`  // 可用的特权指示物数量
-	
+	GemBoard                 [][]GemType `json:"gemBoard"`                 // 宝石版图
+	GemBag                   []GemType   `json:"gemBag"`                   // 宝石袋子（按顺序排列）
+	AvailablePrivilegeTokens int         `json:"availablePrivilegeTokens"` // 可用的特权指示物数量
+
 	// 发展卡
-	UnflippedCards            map[CardLevel]int             `json:"unflippedCards"`            // 未翻开的卡牌数量
-	FlippedCards              map[CardLevel][]string        `json:"flippedCards"`              // 已翻开的卡牌ID列表
-	Level1Deck                []string                      `json:"level1Deck"`                // 等级1牌堆（已洗乱）
-	Level2Deck                []string                      `json:"level2Deck"`                // 等级2牌堆（已洗乱）
-	Level3Deck                []string                      `json:"level3Deck"`                // 等级3牌堆（已洗乱）
-	CardDetails               map[string]DevelopmentCard    `json:"cardDetails"`               // 卡牌详细信息（包含费用）
-	CardMap                   map[string]DevelopmentCard    `json:"cardMap"`                 // ID到卡牌数据的快速映射
-	
+	UnflippedCards map[CardLevel]int          `json:"unflippedCards"` // 未翻开的卡牌数量
+	FlippedCards   map[CardLevel][]string     `json:"flippedCards"`   // 已翻开的卡牌ID列表
+	Level1Deck     []string                   `json:"level1Deck"`     // 等级1牌堆（已洗乱）
+	Level2Deck     []string                   `json:"level2Deck"`     // 等级2牌堆（已洗乱）
+	Level3Deck     []string                   `json:"level3Deck"`     // 等级3牌堆（已洗乱）
+	CardDetails    map[string]DevelopmentCard `json:"cardDetails"`    // 卡牌详细信息（包含费用）
+	CardMap        map[string]DevelopmentCard `json:"cardMap"`        // ID到卡牌数据的快速映射
+
 	// 贵族卡
-	AvailableNobles           []string                      `json:"availableNobles"`           // 可获得的贵族ID列表
-	
+	AvailableNobles []string `json:"availableNobles"` // 可获得的贵族ID列表
+
 	// 额外回合
-	ExtraTurns                 map[string]int                `json:"extraTurns"`                // 每个玩家的额外回合数
-	
+	ExtraTurns map[string]int `json:"extraTurns"` // 每个玩家的额外回合数
+
 	// 待补充的发展卡信息
-	CardToRefill              PendingRefill                `json:"cardToRefill"`             // 回合结束时需要补充的发展卡信息
+	CardToRefill PendingRefill `json:"cardToRefill"` // 回合结束时需要补充的发展卡信息
 
 	// 可选动作顺序限制
-	RefilledThisTurn          bool                         `json:"refilledThisTurn"`         // 本回合是否已经执行过补充版图
-	
+	RefilledThisTurn bool `json:"refilledThisTurn"` // 本回合是否已经执行过补充版图
+
 	// 宝石丢弃相关
-	NeedsGemDiscard           bool                          `json:"needsGemDiscard"`          // 是否需要丢弃宝石
-	GemDiscardTarget          int                           `json:"gemDiscardTarget"`         // 宝石丢弃目标数量
-	GemDiscardPlayerID        string                        `json:"gemDiscardPlayerID"`       // 需要丢弃宝石的玩家ID
-	
+	NeedsGemDiscard    bool   `json:"needsGemDiscard"`    // 是否需要丢弃宝石
+	GemDiscardTarget   int    `json:"gemDiscardTarget"`   // 宝石丢弃目标数量
+	GemDiscardPlayerID string `json:"gemDiscardPlayerID"` // 需要丢弃宝石的玩家ID
+
 	// 时间
-	CreatedAt                 time.Time                     `json:"createdAt"`
-	StartedAt                 time.Time                     `json:"startedAt,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	StartedAt time.Time `json:"startedAt,omitempty"`
 }
 
 // 房间
 type Room struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	GameState GameState `json:"gameState"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID             string                  `json:"id"`
+	Name           string                  `json:"name"`
+	GameState      GameState               `json:"gameState"`
+	CreatedAt      time.Time               `json:"createdAt"`
+	UpdatedAt      time.Time               `json:"updatedAt"`
+	ActionReceipts map[string]ActionResult `json:"-"`
+}
+
+type ActionResult struct {
+	RequestID  string `json:"requestId"`
+	ActionType string `json:"actionType"`
+	Success    bool   `json:"success"`
+	Message    string `json:"message,omitempty"`
+	Replayed   bool   `json:"replayed,omitempty"`
 }
 
 // 聊天消息
@@ -149,21 +158,21 @@ type ChatMessage struct {
 
 // 游戏动作
 type GameAction struct {
-	ID              string                 `json:"id"`
-	PlayerID        string                 `json:"playerId"`
-	PlayerName      string                 `json:"playerName"`
-	Type            string                 `json:"type"`
-	Data            map[string]any         `json:"data"`
-	Timestamp       time.Time              `json:"timestamp"`
-	Description     string                 `json:"description"`
-	DescriptionHTML string                 `json:"descriptionHtml,omitempty"`
+	ID              string         `json:"id"`
+	PlayerID        string         `json:"playerId"`
+	PlayerName      string         `json:"playerName"`
+	Type            string         `json:"type"`
+	Data            map[string]any `json:"data"`
+	Timestamp       time.Time      `json:"timestamp"`
+	Description     string         `json:"description"`
+	DescriptionHTML string         `json:"descriptionHtml,omitempty"`
 }
 
 // API 响应
 type APIResponse struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    any `json:"data,omitempty"`
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // 创建房间请求
@@ -202,7 +211,8 @@ type WSMessage struct {
 	PlayerID   string      `json:"playerId,omitempty"`
 	PlayerName string      `json:"playerName,omitempty"`
 	ActionType string      `json:"actionType,omitempty"`
-	Data       any `json:"data,omitempty"`
+	RequestID  string      `json:"requestId,omitempty"`
+	Data       any         `json:"data,omitempty"`
 	Message    string      `json:"message,omitempty"`
 	Action     *GameAction `json:"action,omitempty"`
 	GameState  *GameState  `json:"gameState,omitempty"`

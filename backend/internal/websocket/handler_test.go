@@ -140,6 +140,90 @@ func expectClientError(t *testing.T, client *Client) {
 	t.Fatal("client received no protocol error")
 }
 
+func drainActionResult(t *testing.T, client *Client) (models.ActionResult, []string) {
+	t.Helper()
+	var result models.ActionResult
+	var types []string
+	for len(client.Send) > 0 {
+		var message struct {
+			Type string          `json:"type"`
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(<-client.Send, &message); err != nil {
+			t.Fatal(err)
+		}
+		types = append(types, message.Type)
+		if message.Type == "action_result" {
+			if err := json.Unmarshal(message.Data, &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return result, types
+}
+
+func TestRequestIDExecutesSuccessfulActionOnlyOnce(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	manager.UpdateRoom(room.ID, func(r *models.Room) {
+		r.GameState.Status = models.GameStatusPlaying
+		r.GameState.GemBoard[0][0] = models.GemBlue
+	})
+	message := models.WSMessage{Type: "game_action", PlayerID: playerID, PlayerName: "p1", ActionType: "takeGems", RequestID: "request-1", Data: map[string]any{"gemPositions": []any{map[string]any{"x": float64(0), "y": float64(0)}}}}
+	client.handleGameAction(message, room)
+	result, types := drainActionResult(t, client)
+	if !result.Success || result.RequestID != "request-1" || result.Replayed {
+		t.Fatalf("unexpected first result: %+v", result)
+	}
+	if len(types) == 0 || types[len(types)-1] != "action_result" {
+		t.Fatalf("action result was not queued after broadcasts: %v", types)
+	}
+
+	reconnectedClient := &Client{RoomID: room.ID, PlayerID: playerID, PlayerName: "p1", Manager: manager, Send: make(chan []byte, 8)}
+	reconnectedRoom := &Room{ID: room.ID, Manager: manager, Clients: map[*Client]bool{reconnectedClient: true}}
+	reconnectedClient.handleGameAction(message, reconnectedRoom)
+	replayed, replayTypes := drainActionResult(t, reconnectedClient)
+	state := manager.GetRoom(room.ID).GameState
+	if !replayed.Success || !replayed.Replayed || len(replayTypes) != 1 || replayTypes[0] != "action_result" {
+		t.Fatalf("unexpected replay result/messages: %+v %v", replayed, replayTypes)
+	}
+	if state.Players[0].Gems[models.GemBlue] != 1 || len(room.GameHistory) != 1 {
+		t.Fatal("duplicate request executed or wrote history more than once")
+	}
+}
+
+func TestRequestIDCachesFailureAndRejectsActionTypeReuse(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	manager.UpdateRoom(room.ID, func(r *models.Room) {
+		r.GameState.Status = models.GameStatusPlaying
+		r.GameState.GemBoard[0][0] = models.GemGold
+	})
+	message := models.WSMessage{Type: "game_action", PlayerID: playerID, PlayerName: "p1", ActionType: "takeGems", RequestID: "failed-1", Data: map[string]any{"gemPositions": []any{map[string]any{"x": float64(0), "y": float64(0)}}}}
+	client.handleGameAction(message, room)
+	failed, types := drainActionResult(t, client)
+	if failed.Success || failed.Message == "" {
+		t.Fatalf("failure was not returned: %+v", failed)
+	}
+	for _, messageType := range types {
+		if messageType == "error" {
+			t.Fatal("requestId action also emitted legacy error")
+		}
+	}
+	manager.UpdateRoom(room.ID, func(r *models.Room) { r.GameState.GemBoard[0][0] = models.GemBlue })
+	client.handleGameAction(message, room)
+	replayed, _ := drainActionResult(t, client)
+	if replayed.Success || !replayed.Replayed || manager.GetRoom(room.ID).GameState.Players[0].Gems[models.GemBlue] != 0 {
+		t.Fatal("cached failure was re-executed")
+	}
+
+	message.ActionType = "refillBoard"
+	message.Data = map[string]any{}
+	client.handleGameAction(message, room)
+	collision, collisionTypes := drainActionResult(t, client)
+	if collision.Success || collision.Message == "" || len(collisionTypes) != 1 {
+		t.Fatalf("requestId action-type reuse was not rejected: %+v %v", collision, collisionTypes)
+	}
+}
+
 func TestProtocolBindsConnectionToExistingPlayer(t *testing.T) {
 	manager, room, client, playerID := protocolTestRoom(t)
 	beforePlayers := append([]models.Player(nil), manager.GetRoom(room.ID).GameState.Players...)

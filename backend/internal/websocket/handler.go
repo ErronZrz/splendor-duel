@@ -633,25 +633,79 @@ func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 	room.broadcastToAll(models.WSMessage{Type: "game_action", Action: &ga})
 }
 
+const maxActionReceiptsPerRoom = 4096
+
+func validRequestID(requestID string) bool {
+	if requestID == "" {
+		return true
+	}
+	if len(requestID) > 128 {
+		return false
+	}
+	for _, char := range requestID {
+		if (char < 'a' || char > 'z') && (char < 'A' || char > 'Z') && (char < '0' || char > '9') && char != '-' && char != '_' && char != '.' && char != ':' {
+			return false
+		}
+	}
+	return true
+}
+
+func actionReceiptKey(playerID, requestID string) string {
+	return playerID + "\x00" + requestID
+}
+
 // handleGameAction 处理游戏动作
 func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 	log.Printf("处理游戏动作: %s, 玩家: %s, 数据: %+v", message.Type, message.PlayerName, message.Data)
-
-	// 安全检查：确保Data不为nil
-	if message.Data == nil {
-		log.Printf("警告: 游戏动作数据为nil")
-		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏动作数据无效"})
+	if !validRequestID(message.RequestID) {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "requestId 无效"})
 		return
 	}
-
-	if message.ActionType == "" {
-		log.Printf("无法获取actionType")
-		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏动作类型无效"})
-		return
-	}
+	result := models.ActionResult{RequestID: message.RequestID, ActionType: message.ActionType, Success: true}
+	duplicate := false
 
 	// 执行游戏逻辑
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
+		var receiptKey string
+		if message.RequestID != "" {
+			receiptKey = actionReceiptKey(message.PlayerID, message.RequestID)
+			if cached, exists := roomData.ActionReceipts[receiptKey]; exists {
+				if cached.ActionType != message.ActionType {
+					result.Success = false
+					result.Message = "requestId 已用于其他动作"
+				} else {
+					result = cached
+					result.Replayed = true
+				}
+				duplicate = true
+				return
+			}
+			if roomData.ActionReceipts == nil {
+				roomData.ActionReceipts = make(map[string]models.ActionResult)
+			}
+			if len(roomData.ActionReceipts) >= maxActionReceiptsPerRoom {
+				result.Success = false
+				result.Message = "房间动作请求记录已满"
+				duplicate = true
+				return
+			}
+			defer func() { roomData.ActionReceipts[receiptKey] = result }()
+		}
+		fail := func(messageText string) {
+			result.Success = false
+			result.Message = messageText
+			if message.RequestID == "" {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: messageText})
+			}
+		}
+		if message.Data == nil {
+			fail("游戏动作数据无效")
+			return
+		}
+		if message.ActionType == "" {
+			fail("游戏动作类型无效")
+			return
+		}
 		// 创建游戏逻辑实例
 		gl := game.NewGameLogic(&roomData.GameState, room.Manager)
 
@@ -665,32 +719,32 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "start_game":
 			var payload struct{}
 			if err := decodeActionPayload(message.Data, &payload); err != nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的开始游戏数据"})
+				fail("无效的开始游戏数据")
 				return
 			}
 			log.Printf("执行开始游戏操作")
 			if roomData.GameState.Status == models.GameStatusPlaying {
 				log.Printf("游戏已经开始，拒绝重复开始操作")
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "游戏已经开始"})
+				fail("游戏已经开始")
 				return
 			}
 			if len(roomData.GameState.Players) >= 2 {
 				if err := gl.StartGame(); err != nil {
 					log.Printf("开始游戏失败: %v", err)
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+					fail(err.Error())
 					return
 				}
 				roomData.GameState.StartedAt = time.Now()
 				log.Printf("游戏已手动开始")
 			} else {
 				log.Printf("玩家数量不足，无法开始游戏")
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "玩家数量不足，无法开始游戏"})
+				fail("玩家数量不足，无法开始游戏")
 				return
 			}
 		case "takeGems":
 			var payload takeGemsPayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemPositions == nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+				fail("无效的宝石位置")
 				return
 			}
 			log.Printf("执行拿取宝石操作，位置: %+v", payload.GemPositions)
@@ -704,7 +758,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			for _, position := range payload.GemPositions {
 				x, y, valid := parseTypedBoardPosition(position, roomData.GameState.GemBoard)
 				if !valid {
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+					fail("无效的宝石位置")
 					return
 				}
 				g := string(roomData.GameState.GemBoard[x][y])
@@ -713,7 +767,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			if err := gl.TakeGems(message.PlayerID, positions); err != nil {
 				log.Printf("拿取宝石失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
 				grant := false
@@ -741,7 +795,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "buyCard":
 			var payload buyCardPayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.CardID == "" {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的购买卡牌数据"})
+				fail("无效的购买卡牌数据")
 				return
 			}
 			data := legacyBuyCardData(payload)
@@ -789,7 +843,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			// 执行购买
 			if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
 				log.Printf("购买发展卡失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				// 组装购买历史
 				var pics []string
@@ -864,7 +918,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "reserveCard":
 			var payload reserveCardPayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.CardID == "" || payload.GoldX == nil || payload.GoldY == nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的保留卡数据"})
+				fail("无效的保留卡数据")
 				return
 			}
 			{
@@ -886,7 +940,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				before := roomData.GameState.Players[idx].ReservedCards
 				if err := gl.ReserveCard(message.PlayerID, cardID, goldRow, goldCol); err != nil {
 					log.Printf("保留发展卡失败: %v", err)
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+					fail(err.Error())
 				} else {
 					after := roomData.GameState.Players[idx].ReservedCards
 					actual := ""
@@ -927,7 +981,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "spendPrivilege":
 			var payload spendPrivilegePayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.PrivilegeCount == nil || payload.GemPositions == nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的特权操作数据"})
+				fail("无效的特权操作数据")
 				return
 			}
 			privilegeCount := *payload.PrivilegeCount
@@ -938,7 +992,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				posMap := legacyPosition(position)
 				x, y, ok := parseTypedBoardPosition(position, roomData.GameState.GemBoard)
 				if !ok {
-					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的宝石位置"})
+					fail("无效的宝石位置")
 					return
 				}
 				positions = append(positions, posMap)
@@ -946,7 +1000,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			if err := gl.SpendPrivilege(message.PlayerID, privilegeCount, positions); err != nil {
 				log.Printf("花费特权失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				pics := strings.Join(inner, "")
 				html := fmt.Sprintf("花费了 %d 特权指示物，拿取 %s", privilegeCount, pics)
@@ -956,13 +1010,13 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "refillBoard":
 			var payload struct{}
 			if err := decodeActionPayload(message.Data, &payload); err != nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的补充版图数据"})
+				fail("无效的补充版图数据")
 				return
 			}
 			log.Printf("执行补充版图操作")
 			if err := gl.RefillBoard(message.PlayerID); err != nil {
 				log.Printf("补充版图失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				log.Printf("补充版图成功")
 				desc := "执行了补充版图，允许对手获取一个特权指示物"
@@ -971,27 +1025,27 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "grantOpponentPrivilege":
 			var payload struct{}
 			if err := decodeActionPayload(message.Data, &payload); err != nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的特权授予数据"})
+				fail("无效的特权授予数据")
 				return
 			}
 			log.Printf("执行让对手获得特权指示物操作")
 			if err := gl.GrantOpponentPrivilege(message.PlayerID); err != nil {
 				log.Printf("让对手获得特权指示物失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				log.Printf("让对手获得特权指示物成功")
 			}
 		case "discardGem":
 			var payload discardGemPayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemType == "" {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
+				fail("无效的丢弃宝石数据")
 				return
 			}
 			gemType := payload.GemType
 			log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)
 			if err := gl.DiscardGem(message.PlayerID, models.GemType(gemType)); err != nil {
 				log.Printf("丢弃宝石失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				log.Printf("丢弃宝石成功")
 				// 记录丢弃宝石，支持单枚
@@ -1003,7 +1057,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "discardGemsBatch":
 			var payload discardGemsBatchPayload
 			if err := decodeActionPayload(message.Data, &payload); err != nil || payload.GemDiscards == nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的丢弃宝石数据"})
+				fail("无效的丢弃宝石数据")
 				return
 			}
 			log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", payload.GemDiscards)
@@ -1013,7 +1067,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
 				log.Printf("批量丢弃宝石失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				log.Printf("批量丢弃宝石成功")
 				// 记录批量丢弃
@@ -1030,23 +1084,27 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		case "endTurn":
 			var payload struct{}
 			if err := decodeActionPayload(message.Data, &payload); err != nil {
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的回合结束数据"})
+				fail("无效的回合结束数据")
 				return
 			}
 			log.Printf("执行回合结束操作")
 			if err := gl.HandleTurnEnd(); err != nil {
 				log.Printf("回合结束处理失败: %v", err)
-				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
+				fail(err.Error())
 			} else {
 				log.Printf("回合结束处理成功")
 			}
 		default:
 			log.Printf("未知的游戏动作类型: %s", actionType)
-			room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "未知的游戏动作类型"})
+			fail("未知的游戏动作类型")
 		}
 
 		log.Printf("游戏状态已更新")
 	})
+	if duplicate {
+		room.broadcastToClient(c, models.WSMessage{Type: "action_result", Data: result})
+		return
+	}
 
 	// 获取最新的游戏状态并广播
 	latestRoom := room.Manager.GetRoom(c.RoomID)
@@ -1062,6 +1120,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			Type: "game_start",
 			Data: latestRoom,
 		})
+	}
+	if message.RequestID != "" {
+		room.broadcastToClient(c, models.WSMessage{Type: "action_result", Data: result})
 	}
 }
 

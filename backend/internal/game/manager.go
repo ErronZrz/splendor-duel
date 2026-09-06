@@ -87,6 +87,7 @@ func cloneRoom(source *models.Room) *models.Room {
 	}
 	result := *source
 	result.GameState = cloneGameState(source.GameState)
+	result.ActionReceipts = nil
 	return &result
 }
 
