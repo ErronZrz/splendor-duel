@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia } from 'pinia'
+import axios from 'axios'
 import { useGameStore } from './game'
 
 class FakeWebSocket {
@@ -136,6 +137,20 @@ describe('game store WebSocket lifecycle', () => {
       data: JSON.stringify({ type: 'game_state_update', gameState: { ...state, players: [{ id: 'bad' }] } })
     })
     expect(store.gameState).toEqual(state)
+  })
+
+  it('does not install a malformed successful room response', async () => {
+    store = useGameStore(createPinia())
+    vi.spyOn(axios, 'post').mockResolvedValue({
+      data: { success: true, data: { playerId: 'p1', room: { id: 'room-1' } } }
+    })
+
+    await expect(store.createRoom('Room 1', 'Player 1')).resolves.toEqual({
+      success: false,
+      message: '创建房间失败'
+    })
+    expect(store.currentRoom).toBeNull()
+    expect(store.currentPlayer).toBeNull()
   })
 
   it('ignores callbacks from a socket that has been replaced', () => {
