@@ -6,10 +6,10 @@ import { useGameStore } from './stores/game'
 import { createGameVisualFixture } from './visual-fixtures/game-fixture'
 import './style.css'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'discard'
+type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard'
 
 const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
-const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'discard'
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'discard'
   ? requestedScenario
   : 'default'
 
@@ -42,6 +42,8 @@ if (scenario === 'take-gems') {
   document.querySelector<HTMLElement>('.gem-board .gem-image')?.click()
 } else if (scenario === 'purchase') {
   document.querySelector<HTMLElement>('.development-cards .card-item')?.click()
+} else if (scenario === 'reserve') {
+  document.querySelector<HTMLElement>('.gem-board .gem-image[alt="gold"]')?.click()
 } else if (scenario === 'discard' && store.gameState) {
   store.gameState = {
     ...store.gameState,

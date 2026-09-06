@@ -1433,29 +1433,33 @@ const getRemainingTokens = (gemType) => {
 <style scoped>
 .dialog-overlay {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: max(var(--space-3), env(safe-area-inset-top)) max(var(--space-3), env(safe-area-inset-right)) max(var(--space-3), env(safe-area-inset-bottom)) max(var(--space-3), env(safe-area-inset-left));
   z-index: 1000;
+  overflow: hidden;
 }
 
 .dialog-content {
-  background: white;
-  border-radius: 12px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(600px, 100%);
+  min-width: 0;
+  background: var(--color-surface, white);
+  border-radius: var(--radius-card, 12px);
   max-width: 600px;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  max-height: calc(100vh - 2 * var(--space-3));
+  max-height: calc(100dvh - max(var(--space-3), env(safe-area-inset-top)) - max(var(--space-3), env(safe-area-inset-bottom)));
+  overflow: hidden;
+  box-shadow: var(--shadow-overlay, 0 12px 32px rgba(32, 36, 42, 0.18));
 }
 
 .dialog-content.wide-reserve {
-  width: 540px;
-  max-width: calc(100vw - 48px);
+  width: min(540px, 100%);
+  max-width: 540px;
 }
 
 .dialog-header {
@@ -1464,11 +1468,14 @@ const getRemainingTokens = (gemType) => {
   align-items: center;
   padding: 20px 24px 0;
   border-bottom: 1px solid #e9ecef;
+  min-width: 0;
 }
 
 .dialog-header h3 {
   margin: 0;
   color: #495057;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .close-btn {
@@ -1478,8 +1485,9 @@ const getRemainingTokens = (gemType) => {
   cursor: pointer;
   color: #6c757d;
   padding: 0;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1491,6 +1499,12 @@ const getRemainingTokens = (gemType) => {
 
 .dialog-body {
   padding: 24px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .dialog-body p {
@@ -1670,6 +1684,8 @@ const getRemainingTokens = (gemType) => {
   gap: 12px;
   padding: 20px 24px;
   border-top: 1px solid #e9ecef;
+  min-width: 0;
+  background: var(--color-surface, white);
 }
 
 .btn {
@@ -2007,6 +2023,7 @@ const getRemainingTokens = (gemType) => {
   display: flex;
   gap: 24px;
   align-items: flex-start;
+  min-width: 0;
 }
 
 .card-preview-section {
@@ -2015,6 +2032,7 @@ const getRemainingTokens = (gemType) => {
 
 .payment-section {
   flex: 1;
+  min-width: 0;
 }
 
 .payment-row {
@@ -2037,6 +2055,7 @@ const getRemainingTokens = (gemType) => {
   gap: 8px;
   flex-wrap: wrap;
   flex: 1;
+  min-width: 0;
 }
 
 .token-item {
@@ -2300,6 +2319,140 @@ const getRemainingTokens = (gemType) => {
 .btn-warning:hover:not(:disabled) {
   background-color: #e0a800;
 }
+
+@media (max-width: 767px) {
+  .dialog-overlay {
+    align-items: flex-end;
+    padding-top: max(var(--space-3), env(safe-area-inset-top));
+    padding-right: max(var(--space-3), env(safe-area-inset-right));
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: max(var(--space-3), env(safe-area-inset-left));
+  }
+
+  .dialog-content,
+  .dialog-content.wide-reserve {
+    width: 100%;
+    max-width: none;
+    max-height: calc(100vh - max(var(--space-3), env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(var(--space-3), env(safe-area-inset-top)));
+    border-radius: var(--radius-surface) var(--radius-surface) 0 0;
+  }
+
+  .dialog-header {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+  }
+
+  .dialog-header h3 {
+    font-size: 18px;
+    line-height: 24px;
+  }
+
+  .dialog-body {
+    padding: var(--space-3);
+  }
+
+  .dialog-body > p {
+    margin-bottom: var(--space-3);
+  }
+
+  .gem-selection,
+  .card-selection,
+  .reserve-selection,
+  .privilege-selection {
+    margin-top: var(--space-3);
+  }
+
+  .dialog-footer {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
+  }
+
+  .dialog-footer .btn {
+    flex: 1 1 96px;
+    min-height: 44px;
+    margin-left: 0;
+  }
+
+  .buy-card-content {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .card-preview-large {
+    width: 88px;
+    height: 132px;
+    margin-right: 0;
+  }
+
+  .payment-section {
+    margin-top: 0;
+  }
+
+  .payment-section h5 {
+    margin-top: 0;
+  }
+
+  .payment-row {
+    display: block;
+    margin-bottom: var(--space-3);
+    padding: 0;
+  }
+
+  .payment-label {
+    margin: 0 0 var(--space-1);
+    min-width: 0;
+  }
+
+  .token-display {
+    gap: var(--space-1);
+  }
+
+  .token-item {
+    min-width: 38px;
+    padding: 4px 7px;
+  }
+
+  .token-icon {
+    margin-right: 4px;
+  }
+
+  .payment-note {
+    grid-column: 1 / -1;
+    margin-top: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .gem-grid-preview {
+    padding: var(--space-2);
+  }
+
+  .gem-cell {
+    width: min(40px, calc((100vw - 72px) / 5));
+    height: min(40px, calc((100vw - 72px) / 5));
+  }
+
+  .level-section {
+    padding: var(--space-3);
+  }
+
+  .level-content {
+    gap: var(--space-2);
+  }
+
+  .gem-display .gem-row {
+    gap: var(--space-2);
+  }
+
+  .gem-item {
+    min-width: 72px;
+    padding: var(--space-2);
+  }
+
+  .gem-icon {
+    width: 48px;
+    height: 48px;
+  }
+}
 </style>
-
-

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'discard'
+type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -26,21 +26,89 @@ test('renders the deterministic game baseline', async ({ page }) => {
 })
 
 test.describe('mobile dialog baselines', () => {
-  test('@mobile-dialog captures the current take-gems dialog', async ({ page }) => {
+  const expectResponsiveDialog = async (page: Page, exerciseBodyScroll = false): Promise<void> => {
+    const metrics = await page.locator('.dialog-content').evaluate(element => {
+      const dialog = element.getBoundingClientRect()
+      const body = element.querySelector<HTMLElement>('.dialog-body')
+      const header = element.querySelector<HTMLElement>('.dialog-header')
+      const footer = element.querySelector<HTMLElement>('.dialog-footer')
+      if (!body || !header || !footer) throw new Error('dialog shell is incomplete')
+      const headerBox = header.getBoundingClientRect()
+      const footerBox = footer.getBoundingClientRect()
+      return {
+        dialog: { left: dialog.left, right: dialog.right, top: dialog.top, bottom: dialog.bottom },
+        bodyClientWidth: body.clientWidth,
+        bodyScrollWidth: body.scrollWidth,
+        bodyClientHeight: body.clientHeight,
+        bodyScrollHeight: body.scrollHeight,
+        headerTop: headerBox.top,
+        footerBottom: footerBox.bottom
+      }
+    })
+    const viewport = page.viewportSize()
+    expect(viewport).not.toBeNull()
+    expect(metrics.dialog.left).toBeGreaterThanOrEqual(0)
+    expect(metrics.dialog.right).toBeLessThanOrEqual(viewport!.width)
+    expect(metrics.dialog.top).toBeGreaterThanOrEqual(0)
+    expect(metrics.dialog.bottom).toBeLessThanOrEqual(viewport!.height)
+    expect(metrics.bodyScrollWidth).toBe(metrics.bodyClientWidth)
+    expect(metrics.headerTop).toBeGreaterThanOrEqual(0)
+    expect(metrics.footerBottom).toBeLessThanOrEqual(viewport!.height)
+    await expect(page.locator('.dialog-footer')).toBeVisible()
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+
+    if (exerciseBodyScroll && metrics.bodyScrollHeight > metrics.bodyClientHeight) {
+      const before = await page.locator('.dialog-footer').boundingBox()
+      await page.locator('.dialog-body').evaluate(element => { element.scrollTop = element.scrollHeight })
+      const after = await page.locator('.dialog-footer').boundingBox()
+      expect(after?.y).toBe(before?.y)
+      await expect(page.locator('.dialog-header')).toBeVisible()
+      await expect(page.locator('.dialog-footer')).toBeVisible()
+    }
+  }
+
+  test('@mobile-dialog keeps the take-gems shell inside the viewport', async ({ page }, testInfo) => {
     await openFixture(page, 'take-gems')
     await expect(page.locator('.dialog-content')).toBeVisible()
-    await expect(page).toHaveScreenshot('take-gems-dialog.png', { fullPage: true })
+    await expectResponsiveDialog(page)
+    if (testInfo.project.name === 'mobile-primary') {
+      await expect(page).toHaveScreenshot('take-gems-dialog.png', { fullPage: true })
+    }
   })
 
-  test('@mobile-dialog captures the current purchase payment dialog', async ({ page }) => {
+  test('@mobile-dialog keeps purchase payment from overflowing', async ({ page }, testInfo) => {
     await openFixture(page, 'purchase')
     await expect(page.locator('.dialog-header h3')).toHaveText('购买发展卡')
-    await expect(page).toHaveScreenshot('purchase-dialog.png', { fullPage: true })
+    await expectResponsiveDialog(page)
+    const payment = await page.locator('.buy-card-content').evaluate(element => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth
+    }))
+    expect(payment.scrollWidth).toBe(payment.clientWidth)
+    if (testInfo.project.name === 'mobile-primary') {
+      await expect(page).toHaveScreenshot('purchase-dialog.png', { fullPage: true })
+    }
   })
 
-  test('@mobile-dialog captures the mandatory discard dialog', async ({ page }) => {
+  test('@mobile-dialog keeps the mandatory discard footer reachable', async ({ page }, testInfo) => {
     await openFixture(page, 'discard')
     await expect(page.locator('.dialog-header h3')).toHaveText('丢弃宝石')
-    await expect(page).toHaveScreenshot('discard-dialog.png', { fullPage: true })
+    await expectResponsiveDialog(page)
+    if (testInfo.project.name === 'mobile-primary') {
+      await expect(page).toHaveScreenshot('discard-dialog.png', { fullPage: true })
+    }
+  })
+
+  test('@mobile-dialog scrolls long reserve content without moving its actions', async ({ page }, testInfo) => {
+    await openFixture(page, 'reserve')
+    await expect(page.locator('.dialog-header h3')).toHaveText('保留发展卡')
+    await expectResponsiveDialog(page, true)
+    if (testInfo.project.name === 'mobile-primary') {
+      await expect(page).toHaveScreenshot('reserve-dialog.png', { fullPage: true })
+    }
   })
 })
