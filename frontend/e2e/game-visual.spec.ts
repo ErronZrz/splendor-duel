@@ -13,7 +13,7 @@ const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   expect(applicationSockets).toEqual([])
 }
 
-test('renders the deterministic game baseline', async ({ page }) => {
+test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   await openFixture(page, 'default')
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
   await expect(page.locator('.player-card')).toHaveCount(2)
@@ -22,6 +22,15 @@ test('renders the deterministic game baseline', async ({ page }) => {
     scrollWidth: document.documentElement.scrollWidth
   }))
   expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+  if (testInfo.project.name.startsWith('mobile-')) {
+    const tracks = await page.locator('.development-cards .cards-row').evaluateAll(rows => rows.map(row => ({
+      clientWidth: row.clientWidth,
+      scrollWidth: row.scrollWidth
+    })))
+    expect(tracks).toHaveLength(3)
+    expect(tracks.every(track => track.scrollWidth >= track.clientWidth)).toBe(true)
+    await expect(page.locator('.development-cards .deck-count').first()).toBeVisible()
+  }
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
 })
 

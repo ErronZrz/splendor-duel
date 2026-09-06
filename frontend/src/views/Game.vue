@@ -1971,7 +1971,7 @@ watch(gameState, (newState, oldState) => {
   font-weight: 500;
   color: #334455;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  opacity: 0;
+  opacity: 1;
   transition: opacity 0.2s;
 }
 
@@ -2572,6 +2572,48 @@ watch(gameState, (newState, oldState) => {
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
   .gem-cell { width: auto; height: auto; min-width: 0; }
+
+  .development-cards {
+    min-width: 0;
+  }
+
+  .card-level {
+    min-width: 0;
+  }
+
+  .cards-row {
+    flex-wrap: nowrap;
+    gap: var(--space-2);
+    margin-inline: calc(-1 * var(--space-3));
+    padding: 0 var(--space-3) var(--space-2);
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scroll-padding-inline: var(--space-3);
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .cards-row > * {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  .deck-item {
+    margin-right: var(--space-2);
+  }
+
+  .card-image,
+  .deck-image {
+    width: 84px;
+    height: 126px;
+  }
+
+  .deck-item.deck-empty {
+    width: 92px;
+    height: 134px;
+  }
 
   .player-status, .action-panel, .chat-panel, .history-panel {
     padding: var(--space-4);
