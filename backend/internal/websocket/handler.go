@@ -580,17 +580,6 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
 				// 预处理：支付、特效与来源
 				paymentPlan, _ := data["paymentPlan"].(map[string]any)
-				var pics []string
-				totalPay := 0
-				for k, v := range paymentPlan {
-					if cnt, ok := v.(float64); ok {
-						c := int(cnt)
-						totalPay += c
-						for i := 0; i < c; i++ {
-							pics = append(pics, histGemImg(k))
-						}
-					}
-				}
 				// 查找当前玩家索引
 				idx := -1
 				for i, p := range roomData.GameState.Players {
@@ -615,10 +604,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				var extraPic string
 				if extraRaw, ok := effects["extraToken"].(map[string]any); ok {
 					if sel, ok := extraRaw["selectedGem"].(map[string]any); ok {
-						x := int(sel["x"].(float64))
-						y := int(sel["y"].(float64))
-						g := roomData.GameState.GemBoard[x][y]
-						extraPic = histGemImg(string(g))
+						if x, y, valid := parseBoardPosition(sel, roomData.GameState.GemBoard); valid {
+							extraPic = histGemImg(string(roomData.GameState.GemBoard[x][y]))
+						}
 					}
 				}
 				stealGem := ""
@@ -642,8 +630,18 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				// 执行购买
 				if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
 					log.Printf("购买发展卡失败: %v", err)
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 				} else {
 					// 组装购买历史
+					var pics []string
+					totalPay := 0
+					for k, v := range paymentPlan {
+						c := int(v.(float64)) // 支付计划已由规则层严格验证。
+						totalPay += c
+						for i := 0; i < c; i++ {
+							pics = append(pics, histGemImg(k))
+						}
+					}
 					cd := roomData.GameState.CardDetails[cardID]
 					level := int(cd.Level)
 					var html, desc string
@@ -705,17 +703,20 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 						broadcastHistory(room, message.PlayerID, message.PlayerName, "获得特权", "因贵族效果，获得一个特权指示物")
 					}
 				}
+			} else {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的卡牌ID"})
 			}
 		case "reserveCard":
-			if cardID, ok := data["cardId"].(string); ok {
+			cardID, cardOK := data["cardId"].(string)
+			goldX, xOK := data["goldX"].(float64)
+			goldY, yOK := data["goldY"].(float64)
+			if !cardOK || !xOK || !yOK || goldX != float64(int(goldX)) || goldY != float64(int(goldY)) {
+				room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "无效的保留卡数据"})
+				return
+			}
+			{
 				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
-				var goldX, goldY int
-				if goldXVal, ok := data["goldX"].(float64); ok {
-					goldX = int(goldXVal)
-				}
-				if goldYVal, ok := data["goldY"].(float64); ok {
-					goldY = int(goldYVal)
-				}
+				goldRow, goldCol := int(goldX), int(goldY)
 				// 执行前后比较找出真实卡ID
 				// 查找当前玩家索引
 				idx := -1
@@ -729,8 +730,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					idx = 0
 				}
 				before := roomData.GameState.Players[idx].ReservedCards
-				if err := gl.ReserveCard(message.PlayerID, cardID, goldX, goldY); err != nil {
+				if err := gl.ReserveCard(message.PlayerID, cardID, goldRow, goldCol); err != nil {
 					log.Printf("保留发展卡失败: %v", err)
+					room.broadcastToClient(c, models.WSMessage{Type: "error", Message: err.Error()})
 				} else {
 					after := roomData.GameState.Players[idx].ReservedCards
 					actual := ""

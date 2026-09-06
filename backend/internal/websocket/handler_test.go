@@ -225,3 +225,57 @@ func TestSpendPrivilegeRejectsMalformedPayloadBeforeHistory(t *testing.T) {
 		})
 	}
 }
+
+func TestReserveCardRejectsMalformedCoordinatesBeforeHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		goldX any
+		goldY any
+	}{
+		{"missing_x", nil, float64(0)},
+		{"string_x", "0", float64(0)},
+		{"fractional_x", 0.5, float64(0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manager, room, client, playerID := protocolTestRoom(t)
+			manager.UpdateRoom(room.ID, func(r *models.Room) {
+				r.GameState.Status = models.GameStatusPlaying
+				r.GameState.GemBoard[0][0] = models.GemGold
+				r.GameState.FlippedCards[models.Level1] = []string{"card-1"}
+			})
+			before, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			client.handleGameAction(models.WSMessage{
+				PlayerID: playerID, PlayerName: "p1", ActionType: "reserveCard",
+				Data: map[string]any{"cardId": "card-1", "goldX": tc.goldX, "goldY": tc.goldY},
+			}, room)
+			after, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+			if !bytes.Equal(before, after) || len(room.GameHistory) != 0 {
+				t.Fatal("rejected reservation changed state or history")
+			}
+			expectClientError(t, client)
+		})
+	}
+}
+
+func TestBuyCardRejectsMalformedEffectBeforeHistory(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	manager.UpdateRoom(room.ID, func(r *models.Room) {
+		r.GameState.Status = models.GameStatusPlaying
+		card := models.DevelopmentCard{ID: "extra", Level: models.Level1, Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}, Cost: map[models.GemType]int{}}
+		r.GameState.CardMap[card.ID], r.GameState.CardDetails[card.ID] = card, card
+		r.GameState.FlippedCards[models.Level1] = []string{card.ID}
+	})
+	before, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+	client.handleGameAction(models.WSMessage{
+		PlayerID: playerID, PlayerName: "p1", ActionType: "buyCard",
+		Data: map[string]any{
+			"cardId": "extra", "paymentPlan": map[string]any{},
+			"effects": map[string]any{"extraToken": map[string]any{"selectedGem": map[string]any{"x": "bad", "y": float64(0)}}},
+		},
+	}, room)
+	after, _ := json.Marshal(manager.GetRoom(room.ID).GameState)
+	if !bytes.Equal(before, after) || len(room.GameHistory) != 0 {
+		t.Fatal("rejected purchase changed state or history")
+	}
+	expectClientError(t, client)
+}

@@ -883,50 +883,31 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 		return errors.New("保留区已满，无法保留更多卡牌")
 	}
 
-	// 将黄金添加到玩家手中
-	gl.gameState.Players[playerIndex].Gems["gold"]++
-
-	// 从版图上移除黄金
-	gl.gameState.GemBoard[goldX][goldY] = ""
-
 	var reservedCardID string
+	var selectedLevel models.CardLevel
+	cardIndex := -1
+	fromDeck := false
 
 	if strings.HasPrefix(cardID, "deck_level_") {
-		// 从牌堆盲抽卡牌
-		// 解析等级信息
 		levelStr := strings.TrimPrefix(cardID, "deck_level_")
 		levelInt, err := strconv.Atoi(levelStr)
 		if err != nil {
 			return errors.New("无效的牌堆等级信息")
 		}
 
-		selectedLevel := models.CardLevel(levelInt)
+		selectedLevel = models.CardLevel(levelInt)
 		if selectedLevel < 1 || selectedLevel > 3 {
 			return errors.New("无效的牌堆等级")
 		}
-
-		// 检查该等级牌堆是否有剩余卡牌
-		if gl.gameState.UnflippedCards[selectedLevel] <= 0 {
+		deck := gl.deckForLevel(selectedLevel)
+		if len(deck) == 0 {
 			return errors.New("该等级牌堆已空，无法盲抽卡牌")
 		}
-
-		// 从该等级牌堆顶抽取一张卡牌
-		if gl.gameState.UnflippedCards[selectedLevel] > 0 {
-			drawnCards := gl.drawCardsFromDeck(selectedLevel, 1)
-			if len(drawnCards) > 0 {
-				reservedCardID = drawnCards[0]
-			} else {
-				return errors.New("无法从牌堆获取卡牌")
-			}
-		} else {
-			return errors.New("该等级牌堆已空，无法盲抽卡牌")
-		}
+		reservedCardID, fromDeck = deck[0], true
 	} else if cardID == "" {
-		// 兼容旧版本：空字符串表示随机选择等级
-		// 随机选择一个等级
 		availableLevels := []models.CardLevel{}
 		for level := models.CardLevel(1); level <= 3; level++ {
-			if gl.gameState.UnflippedCards[level] > 0 {
+			if len(gl.deckForLevel(level)) > 0 {
 				availableLevels = append(availableLevels, level)
 			}
 		}
@@ -937,32 +918,15 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 
 		// 随机选择一个等级
 		randomLevelIndex := gl.getRandomInt(0, len(availableLevels)-1)
-		selectedLevel := availableLevels[randomLevelIndex]
-
-		// 从该等级牌堆顶抽取一张卡牌
-		if gl.gameState.UnflippedCards[selectedLevel] > 0 {
-			drawnCards := gl.drawCardsFromDeck(selectedLevel, 1)
-			if len(drawnCards) > 0 {
-				reservedCardID = drawnCards[0]
-			} else {
-				return errors.New("无法从牌堆获取卡牌")
-			}
-		} else {
-			return errors.New("该等级牌堆已空，无法盲抽卡牌")
-		}
+		selectedLevel = availableLevels[randomLevelIndex]
+		reservedCardID, fromDeck = gl.deckForLevel(selectedLevel)[0], true
 	} else {
-		// 保留场上已翻开的卡牌
-		// 验证卡牌是否存在且可以被保留
-		var cardLevel models.CardLevel
 		var cardFound bool
-		var cardIndex int
-
-		// 检查已翻开的卡牌
 		for level := 1; level <= 3; level++ {
 			levelCards := gl.gameState.FlippedCards[models.CardLevel(level)]
 			for i, cardIDInLevel := range levelCards {
 				if cardIDInLevel == cardID {
-					cardLevel = models.CardLevel(level)
+					selectedLevel = models.CardLevel(level)
 					cardFound = true
 					cardIndex = i
 					break
@@ -976,20 +940,19 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 		if !cardFound {
 			return errors.New("卡牌不存在或无法保留")
 		}
-
 		reservedCardID = cardID
-
-		// 从场上移除该卡牌
-		levelCards := gl.gameState.FlippedCards[cardLevel]
-		gl.gameState.FlippedCards[cardLevel] = append(levelCards[:cardIndex], levelCards[cardIndex+1:]...)
-
-		// 将位置信息存储到游戏状态中，供回合结束时使用
-		gl.gameState.CardToRefill = models.PendingRefill{
-			Level: cardLevel,
-			Index: cardIndex,
-		}
 	}
 
+	// 所有输入均验证通过后再一次性改变黄金、牌堆/牌面和保留区。
+	gl.gameState.Players[playerIndex].Gems[models.GemGold]++
+	gl.gameState.GemBoard[goldX][goldY] = ""
+	if fromDeck {
+		gl.drawCardsFromDeck(selectedLevel, 1)
+	} else {
+		levelCards := gl.gameState.FlippedCards[selectedLevel]
+		gl.gameState.FlippedCards[selectedLevel] = append(levelCards[:cardIndex], levelCards[cardIndex+1:]...)
+		gl.gameState.CardToRefill = models.PendingRefill{Level: selectedLevel, Index: cardIndex}
+	}
 	// 将卡牌添加到玩家保留区
 	gl.gameState.Players[playerIndex].ReservedCards = append(gl.gameState.Players[playerIndex].ReservedCards, reservedCardID)
 
@@ -1000,6 +963,19 @@ func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY in
 	}
 
 	return nil
+}
+
+func (gl *GameLogic) deckForLevel(level models.CardLevel) []string {
+	switch level {
+	case models.Level1:
+		return gl.gameState.Level1Deck
+	case models.Level2:
+		return gl.gameState.Level2Deck
+	case models.Level3:
+		return gl.gameState.Level3Deck
+	default:
+		return nil
+	}
 }
 
 // SpendPrivilege 花费特权指示物
@@ -1206,41 +1182,36 @@ func getGemDisplayName(gemType models.GemType) string {
 
 // 验证支付计划是否有效
 func (gl *GameLogic) validatePaymentPlan(player *models.Player, paymentPlan map[string]any, requiredGems map[models.GemType]int) bool {
-	// 计算支付计划中的总支付金额
-	var totalPaid, goldRequired, goldPaid int
+	allowed := map[models.GemType]bool{
+		models.GemWhite: true, models.GemBlue: true, models.GemGreen: true,
+		models.GemRed: true, models.GemBlack: true, models.GemPearl: true, models.GemGold: true,
+	}
+	paid := make(map[models.GemType]int, len(paymentPlan))
 	for gemType, count := range paymentPlan {
-		var countInt int
-		if countFloat, ok := count.(float64); ok {
-			countInt = int(countFloat)
-			totalPaid += countInt
-		}
-		// 检查玩家是否有足够的宝石
-		if player.Gems[models.GemType(gemType)] < countInt {
+		gem := models.GemType(gemType)
+		countFloat, ok := count.(float64)
+		if !ok || !allowed[gem] || countFloat < 0 || countFloat != float64(int(countFloat)) {
 			return false
 		}
-		if gemType == "gold" {
-			goldPaid = countInt
-			continue
-		}
-		// 检查是否需要用黄金补足
-		required := requiredGems[models.GemType(gemType)]
-		if required > countInt {
-			goldRequired += required - countInt
+		paid[gem] = int(countFloat)
+		if player.Gems[gem] < paid[gem] {
+			return false
 		}
 	}
 
-	// 检查支付的黄金是否足够
-	if goldPaid < goldRequired {
-		return false
+	goldRequired := 0
+	for gem, required := range requiredGems {
+		if paid[gem] > required {
+			return false
+		}
+		goldRequired += required - paid[gem]
 	}
-
-	// 计算需要的总金额
-	var totalRequired int
-	for _, count := range requiredGems {
-		totalRequired += count
+	for gem, count := range paid {
+		if gem != models.GemGold && requiredGems[gem] == 0 && count != 0 {
+			return false
+		}
 	}
-
-	return totalPaid == totalRequired
+	return paid[models.GemGold] == goldRequired
 }
 
 // 从玩家扣除支付计划中的宝石和黄金
@@ -1313,6 +1284,9 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	// 验证支付计划是否完整
 	if !gl.validatePaymentPlan(player, paymentPlan, requiredGems) {
 		return errors.New("支付计划无效或宝石不足")
+	}
+	if err := gl.validatePurchaseEffects(player, &card, data); err != nil {
+		return err
 	}
 
 	// 扣除宝石和黄金
@@ -1390,6 +1364,107 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	return nil
 }
 
+func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models.DevelopmentCard, data map[string]any) error {
+	effects, ok := data["effects"].(map[string]any)
+	if !ok {
+		if data["effects"] == nil {
+			return nil
+		}
+		return errors.New("特效数据无效")
+	}
+	if extra, exists := effects["extraToken"]; exists {
+		if !cardHasEffect(card, models.ExtraToken) {
+			return errors.New("该卡牌没有额外宝石特效")
+		}
+		extraData, ok := extra.(map[string]any)
+		if !ok {
+			return errors.New("额外宝石特效数据无效")
+		}
+		if skipped, _ := extraData["skipped"].(bool); !skipped {
+			selected, ok := extraData["selectedGem"].(map[string]any)
+			if !ok {
+				return errors.New("额外宝石位置无效")
+			}
+			x, y, ok := parseGemPosition(selected)
+			if !ok || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[x]) {
+				return errors.New("额外宝石位置无效")
+			}
+			gem := gl.gameState.GemBoard[x][y]
+			if gem == "" || gem == models.GemGold || gem != card.Color {
+				return errors.New("额外宝石不符合卡牌特效")
+			}
+		}
+	}
+	if steal, exists := effects["steal"]; exists {
+		stealData, ok := steal.(map[string]any)
+		if !ok {
+			return errors.New("窃取特效数据无效")
+		}
+		nobleData, _ := effects["noble"].(map[string]any)
+		nobleID, _ := nobleData["id"].(string)
+		if !cardHasEffect(card, models.Steal) && nobleID != "noble1" {
+			return errors.New("当前购买不能执行窃取特效")
+		}
+		if skipped, _ := stealData["skipped"].(bool); !skipped {
+			gem, ok := stealData["gemType"].(string)
+			allowed := map[string]bool{"white": true, "blue": true, "green": true, "red": true, "black": true, "pearl": true}
+			if !ok || !allowed[gem] {
+				return errors.New("窃取的宝石类型无效")
+			}
+		}
+	}
+	if wildcard, exists := effects["wildcard"]; exists {
+		wildcardData, ok := wildcard.(map[string]any)
+		if !ok || !cardHasEffect(card, models.Wildcard) {
+			return errors.New("百搭颜色特效数据无效")
+		}
+		if skipped, _ := wildcardData["skipped"].(bool); !skipped {
+			color, ok := wildcardData["color"].(string)
+			allowed := map[string]bool{"white": true, "blue": true, "green": true, "red": true, "black": true}
+			if !ok || !allowed[color] {
+				return errors.New("百搭颜色无效")
+			}
+		}
+	}
+	if noble, exists := effects["noble"]; exists {
+		nobleData, ok := noble.(map[string]any)
+		if !ok {
+			return errors.New("贵族选择数据无效")
+		}
+		id, ok := nobleData["id"].(string)
+		if !ok || !containsString(gl.gameState.AvailableNobles, id) {
+			return errors.New("所选贵族当前不可用")
+		}
+		if containsString(player.Nobles, id) {
+			return errors.New("玩家已经获得该贵族")
+		}
+		owned := len(player.Nobles)
+		crownsAfter := player.Crowns + card.Crowns
+		if (owned == 0 && crownsAfter < 3) || (owned == 1 && crownsAfter < 6) || owned >= 2 {
+			return errors.New("尚未达到获得贵族的皇冠门槛")
+		}
+	}
+	return nil
+}
+
+func cardHasEffect(card *models.DevelopmentCard, target models.CardEffect) bool {
+	for _, effect := range card.Effects {
+		if effect == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 // 处理需要玩家二次确认的特效（额外token/窃取/百搭颜色）
 // 本次仅实现额外token
 func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID string, data map[string]any) {
@@ -1443,6 +1518,13 @@ func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]
 	}
 	player := gl.getPlayer(playerID)
 	if player == nil {
+		return false
+	}
+	if !containsString(gl.gameState.AvailableNobles, id) {
+		return false
+	}
+	owned := len(player.Nobles)
+	if (owned == 0 && player.Crowns < 3) || (owned == 1 && player.Crowns < 6) || owned >= 2 {
 		return false
 	}
 

@@ -1,6 +1,7 @@
 package game
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -268,5 +269,111 @@ func TestRuleBoundarySpendPrivilegeIsAtomic(t *testing.T) {
 				t.Fatal("rejected privilege action changed game state")
 			}
 		})
+	}
+}
+
+func TestReserveCardValidatesBeforeTakingGold(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		cardID string
+	}{
+		{"unknown_face_up_card", "missing"},
+		{"invalid_deck_level", "deck_level_9"},
+		{"empty_deck", "deck_level_1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			state.GemBoard[0][0] = models.GemGold
+			before, _ := json.Marshal(state)
+			if err := gl.ReserveCard("p1", tc.cardID, 0, 0); err == nil {
+				t.Fatal("invalid reservation was accepted")
+			}
+			after, _ := json.Marshal(state)
+			if !bytes.Equal(before, after) {
+				t.Fatal("rejected reservation changed game state")
+			}
+		})
+	}
+}
+
+func TestRegressionReserveFaceUpCard(t *testing.T) {
+	gl, state := regressionGame()
+	state.GemBoard[0][0] = models.GemGold
+	state.FlippedCards[models.Level1] = []string{"card-1"}
+	if err := gl.ReserveCard("p1", "card-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if state.Players[0].Gems[models.GemGold] != 1 || !reflect.DeepEqual(state.Players[0].ReservedCards, []string{"card-1"}) {
+		t.Fatal("valid reservation did not grant gold and reserve the card")
+	}
+}
+
+func TestPaymentPlanRequiresExactColorsAndIntegers(t *testing.T) {
+	gl, state := regressionGame()
+	player := &state.Players[0]
+	player.Gems = map[models.GemType]int{models.GemBlue: 2, models.GemRed: 2, models.GemGold: 2}
+	required := map[models.GemType]int{models.GemBlue: 2}
+	for _, tc := range []struct {
+		name string
+		plan map[string]any
+		want bool
+	}{
+		{"matching_color", map[string]any{"blue": float64(2), "gold": float64(0)}, true},
+		{"gold_substitution", map[string]any{"blue": float64(1), "gold": float64(1)}, true},
+		{"wrong_color", map[string]any{"red": float64(2)}, false},
+		{"fractional", map[string]any{"blue": 1.5, "gold": float64(1)}, false},
+		{"negative", map[string]any{"blue": float64(-1), "gold": float64(3)}, false},
+		{"unknown_type", map[string]any{"blue": float64(2), "ruby": float64(0)}, false},
+		{"too_much_color", map[string]any{"blue": float64(2), "gold": float64(1)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gl.validatePaymentPlan(player, tc.plan, required); got != tc.want {
+				t.Fatalf("validatePaymentPlan() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPurchaseRejectsInvalidEffectsAtomically(t *testing.T) {
+	gl, state := regressionGame()
+	card := models.DevelopmentCard{ID: "extra", Level: models.Level1, Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}, Cost: map[models.GemType]int{}}
+	state.CardMap[card.ID], state.CardDetails[card.ID] = card, card
+	state.FlippedCards[models.Level1] = []string{card.ID}
+	state.GemBoard[0][0] = models.GemBlue
+	before, _ := json.Marshal(state)
+	data := map[string]any{
+		"cardId": card.ID, "paymentPlan": map[string]any{},
+		"effects": map[string]any{"extraToken": map[string]any{"selectedGem": map[string]any{"x": 0.5, "y": float64(0)}}},
+	}
+	if err := gl.BuyCardWithPaymentPlanAndEffects("p1", data); err == nil {
+		t.Fatal("purchase with invalid effect data was accepted")
+	}
+	after, _ := json.Marshal(state)
+	if !bytes.Equal(before, after) {
+		t.Fatal("rejected purchase changed game state")
+	}
+}
+
+func TestNobleSelectionRequiresAvailabilityAndCrowns(t *testing.T) {
+	gl, state := regressionGame()
+	state.AvailableNobles = []string{"noble1"}
+	card := models.DevelopmentCard{Crowns: 1}
+	plan := func(id string) map[string]any {
+		return map[string]any{"effects": map[string]any{"noble": map[string]any{"id": id}}}
+	}
+	if err := gl.validatePurchaseEffects(&state.Players[0], &card, plan("noble1")); err == nil {
+		t.Fatal("noble was allowed below the first crown threshold")
+	}
+	state.Players[0].Crowns = 2
+	if err := gl.validatePurchaseEffects(&state.Players[0], &card, plan("noble1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gl.validatePurchaseEffects(&state.Players[0], &card, plan("noble2")); err == nil {
+		t.Fatal("unavailable noble was accepted")
+	}
+	state.Players[0].Nobles = []string{"noble4"}
+	state.Players[0].Crowns = 4
+	if err := gl.validatePurchaseEffects(&state.Players[0], &card, plan("noble1")); err == nil {
+		t.Fatal("second noble was allowed below six crowns")
 	}
 }
