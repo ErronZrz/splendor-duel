@@ -123,4 +123,53 @@ describe('game store WebSocket lifecycle', () => {
     expect(store.isConnected).toBe(false)
     expect(store.connectionStatus).toBe('connecting')
   })
+
+  it('adds a request id and tracks an action until acknowledgement', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const requestId = store.sendGameAction('refillBoard', {})
+    const sent = socket.sent[1]
+
+    expect(sent).toMatchObject({
+      type: 'game_action', playerId: 'p1', actionType: 'refillBoard', data: {}, requestId
+    })
+    expect(requestId).toMatch(/^[A-Za-z0-9_.:-]+$/)
+    expect(store.pendingActions[requestId]).toMatchObject({ actionType: 'refillBoard', status: 'pending' })
+
+    socket.onmessage({
+      data: JSON.stringify({ type: 'action_result', data: { requestId, actionType: 'refillBoard', success: true } })
+    })
+    expect(store.pendingActions[requestId]).toBeUndefined()
+    expect(store.lastActionResult).toMatchObject({ requestId, actionType: 'refillBoard', success: true })
+  })
+
+  it('ignores unknown and action-mismatched acknowledgements', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const requestId = store.sendGameAction('refillBoard', {})
+
+    socket.onmessage({
+      data: JSON.stringify({ type: 'action_result', data: { requestId: 'unknown', actionType: 'refillBoard', success: true } })
+    })
+    socket.onmessage({
+      data: JSON.stringify({ type: 'action_result', data: { requestId, actionType: 'takeGems', success: true } })
+    })
+
+    expect(store.pendingActions[requestId]).toBeDefined()
+    expect(store.lastActionResult).toBeNull()
+  })
+
+  it('keeps disconnected actions as unknown without automatically resending them', () => {
+    store = connectedStore()
+    const firstSocket = FakeWebSocket.instances[0]
+    const requestId = store.sendGameAction('refillBoard', {})
+    firstSocket.close()
+
+    expect(store.pendingActions[requestId].status).toBe('unknown')
+    vi.advanceTimersByTime(1000)
+    const secondSocket = FakeWebSocket.instances[1]
+    secondSocket.open()
+    expect(secondSocket.sent).toEqual([{ type: 'player_join', playerId: 'p1', playerName: 'Player 1' }])
+    expect(store.pendingActions[requestId].status).toBe('unknown')
+  })
 })

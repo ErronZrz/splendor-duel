@@ -633,7 +633,7 @@ const tooltipStyle = ref({
 })
 
 // 使用 storeToRefs 确保响应式
-const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory } = storeToRefs(gameStore)
+const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, lastActionResult } = storeToRefs(gameStore)
 const connectionStatusText = computed(() => ({
   connected: '已连接',
   connecting: '连接中…',
@@ -1515,9 +1515,7 @@ const executeAction = (actionType, data) => {
   try {
     gameStore.sendGameAction(actionType, data)
     console.log('操作请求已发送到后端')
-    if (notificationRef.value) {
-      notificationRef.value.success('成功', '操作请求已发送')
-    }
+    notificationRef.value?.info('请求已发送', '正在等待服务器确认')
   } catch (error) {
     console.error('发送操作请求失败:', error)
     if (notificationRef.value) {
@@ -1906,6 +1904,15 @@ onUnmounted(() => {
 watch(chatMessages, () => {
   scrollToBottom()
 }, { deep: true })
+
+watch(lastActionResult, (result) => {
+  if (!result || !notificationRef.value) return
+  if (result.success) {
+    notificationRef.value.success('操作成功', result.replayed ? '服务器已确认该操作此前完成' : '服务器已确认操作完成')
+  } else {
+    notificationRef.value.error('操作失败', result.message || '服务器拒绝了该操作')
+  }
+})
 
 // 监听回合变化
 watch(isMyTurn, (newValue, oldValue) => {

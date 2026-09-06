@@ -12,6 +12,8 @@ export const useGameStore = defineStore('game', () => {
   const gameHistory = ref([])
   const websocket = shallowRef(null)
   const connectionStatus = ref('disconnected')
+  const pendingActions = ref({})
+  const lastActionResult = ref(null)
 
   let activeRoomId = null
   let reconnectTimer = null
@@ -26,6 +28,22 @@ export const useGameStore = defineStore('game', () => {
   const isSocketConnecting = (socket = websocket.value) => (
     socket && socket.readyState === WebSocket.CONNECTING
   )
+
+  const createRequestId = () => {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID()
+    }
+    return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  }
+
+  const markPendingActionsUnknown = () => {
+    pendingActions.value = Object.fromEntries(
+      Object.entries(pendingActions.value).map(([requestId, action]) => [
+        requestId,
+        { ...action, status: 'unknown' }
+      ])
+    )
+  }
 
   const clearReconnectTimer = () => {
     if (reconnectTimer !== null) {
@@ -213,6 +231,7 @@ export const useGameStore = defineStore('game', () => {
       isConnected.value = false
       websocket.value = null
       connectionStatus.value = 'disconnected'
+      markPendingActionsUnknown()
       scheduleReconnect()
     }
 
@@ -280,6 +299,20 @@ export const useGameStore = defineStore('game', () => {
           })
         }
         break
+      case 'action_result': {
+        const result = data.data
+        if (!result?.requestId || typeof result.success !== 'boolean') break
+        const pending = pendingActions.value[result.requestId]
+        if (!pending || pending.actionType !== result.actionType) break
+        const remaining = { ...pendingActions.value }
+        delete remaining[result.requestId]
+        pendingActions.value = remaining
+        lastActionResult.value = {
+          ...result,
+          completedAt: Date.now()
+        }
+        break
+      }
       case 'player_joined':
         console.log('玩家加入:', data.data)
         // 更新游戏状态以反映新玩家
@@ -349,18 +382,7 @@ export const useGameStore = defineStore('game', () => {
 
   // 执行游戏动作
   const performGameAction = (action) => {
-    if (isConnected.value && isSocketOpen()) {
-      // 确保action.data存在，如果不存在则使用空对象
-      const data = action.data || {}
-      
-      websocket.value.send(JSON.stringify({
-        type: 'game_action',
-        playerId: currentPlayer.value.id,
-        playerName: currentPlayer.value.name,
-        data: data,
-        actionType: action.type
-      }))
-    }
+    return sendGameAction(action.type, action.data || {})
   }
 
   // 发送游戏操作
@@ -369,12 +391,19 @@ export const useGameStore = defineStore('game', () => {
     console.log('Store: WebSocket状态:', { websocket: !!websocket.value, isConnected: isConnected.value })
     
     if (isConnected.value && isSocketOpen()) {
+      const requestId = createRequestId()
       const message = {
         type: 'game_action',
         playerId: currentPlayer.value.id,
         playerName: currentPlayer.value.name,
         actionType: actionType,
-        data: data
+        data: data,
+        requestId
+      }
+
+      pendingActions.value = {
+        ...pendingActions.value,
+        [requestId]: { requestId, actionType, data, status: 'pending', sentAt: Date.now() }
       }
       
       console.log('Store: 发送WebSocket消息:', message)
@@ -382,7 +411,11 @@ export const useGameStore = defineStore('game', () => {
       try {
         websocket.value.send(JSON.stringify(message))
         console.log('Store: 游戏操作发送成功')
+        return requestId
       } catch (error) {
+        const remaining = { ...pendingActions.value }
+        delete remaining[requestId]
+        pendingActions.value = remaining
         console.error('Store: 发送游戏操作失败:', error)
         throw error
       }
@@ -411,6 +444,8 @@ export const useGameStore = defineStore('game', () => {
     gameState.value = null
     chatMessages.value = []
     gameHistory.value = []
+    pendingActions.value = {}
+    lastActionResult.value = null
   }
 
   // 从本地存储恢复玩家身份（断线重连）
@@ -449,6 +484,8 @@ export const useGameStore = defineStore('game', () => {
     chatMessages,
     gameHistory,
     connectionStatus,
+    pendingActions,
+    lastActionResult,
     
     // 方法
     createRoom,
