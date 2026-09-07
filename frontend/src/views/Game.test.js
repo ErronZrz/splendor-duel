@@ -103,6 +103,8 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.findAll('.mobile-collapsible-panel')[2].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
   expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
   await wrapper.find('.chat-input input').trigger('focus')
+  expect(wrapper.find('.chat-input input').attributes('aria-label')).toBe('聊天消息')
+  expect(wrapper.find('.status').attributes('role')).toBe('status')
   expect(wrapper.find('.mobile-game-nav').classes()).toContain('keyboard-hidden')
   await wrapper.find('.chat-input input').trigger('blur')
   expect(wrapper.find('.mobile-game-nav').classes()).not.toContain('keyboard-hidden')

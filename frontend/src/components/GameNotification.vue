@@ -10,9 +10,12 @@
         <div 
           class="notification"
           :class="[`notification-${notification.type}`]"
+          :role="notification.type === 'error' || notification.type === 'warning' ? 'alert' : 'status'"
+          :aria-live="notification.type === 'error' || notification.type === 'warning' ? 'assertive' : 'polite'"
+          aria-atomic="true"
         >
           <div class="notification-content">
-            <div class="notification-icon">
+            <div class="notification-icon" aria-hidden="true">
               {{ getIcon(notification.type) }}
             </div>
             <div class="notification-text">
@@ -24,6 +27,8 @@
           </div>
           <button 
             class="notification-close"
+            type="button"
+            :aria-label="`关闭通知：${notification.title}`"
             @click="removeNotification(notification.id)"
           >
             ×

@@ -50,6 +50,16 @@ describe('default payment after spending a privilege', () => {
     expect(await confirmPayment()).toEqual({ white: 1, gold: 1 })
   })
 
+  it('names icon-only controls and supports keyboard payment conversion', async () => {
+    await openPurchase(2)
+    expect(wrapper.find('.close-btn').attributes('aria-label')).toBe('关闭对话框')
+    const conversion = wrapper.find('.payment-row .token-item.clickable')
+    expect(conversion.attributes('role')).toBe('button')
+    expect(conversion.attributes('aria-label')).toContain('转换为黄金支付')
+    await conversion.trigger('keydown', { key: 'Enter' })
+    expect(await confirmPayment()).toEqual({ white: 1, gold: 1 })
+  })
+
   it('reopening the same card resets the prior payment choice', async () => {
     await openPurchase(1)
     await wrapper.setProps({ visible: false })

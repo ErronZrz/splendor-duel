@@ -16,6 +16,13 @@ const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
 test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   await openFixture(page, 'default')
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
+  await expect(page.locator('.status[role="status"]')).toHaveAttribute('aria-live', 'polite')
+  await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
+  const firstBoardGem = page.locator('.game-board .gem-image').first()
+  await firstBoardGem.focus()
+  await expect(firstBoardGem).toBeFocused()
+  await expect(firstBoardGem).toHaveAttribute('aria-label', /第\d+行第\d+列/)
+  await firstBoardGem.blur()
   await expect(page.locator('.player-card')).toHaveCount(2)
   const pageWidth = await page.evaluate(() => ({
     clientWidth: document.documentElement.clientWidth,
@@ -127,6 +134,14 @@ test.describe('mobile dialog baselines', () => {
     await expect(page.locator('.dialog-content')).toBeVisible()
     await expect(page.locator('.dialog-content')).toBeFocused()
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
+    const dialog = page.getByRole('dialog', { name: '拿取宝石' })
+    const selectableGem = dialog.getByRole('button', { name: '选择蓝色，第1行第2列', exact: true })
+    await selectableGem.focus()
+    await page.keyboard.press('Enter')
+    await expect(selectableGem).toHaveAttribute('aria-pressed', 'true')
+    await dialog.getByRole('button', { name: '清除选择' }).click()
+    await dialog.getByRole('button', { name: '选择白色，第1行第1列', exact: true }).click()
+    await page.locator('.dialog-content').focus()
     const dialogButtons = page.locator('.dialog-content button:not([disabled])')
     await dialogButtons.last().focus()
     await page.keyboard.press('Tab')

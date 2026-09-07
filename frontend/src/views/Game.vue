@@ -8,7 +8,7 @@
       </div>
       <div class="player-info">
         <span>玩家: {{ currentPlayer?.name }}</span>
-        <span :class="['status', isConnected ? 'connected' : 'disconnected']">
+        <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
           {{ connectionStatusText }}
         </span>
       </div>
@@ -61,12 +61,12 @@
                     @mouseenter="bagHover = true"
                     @mouseleave="bagHover = false"
                   >
-                    <span class="bag-pill" @click.stop="handleRefillBoard" title="点击补充版图">袋中宝石</span>
+                    <span class="bag-pill" role="button" tabindex="0" aria-label="补充版图：查看并使用袋中宝石" @click.stop="handleRefillBoard" @keydown.enter.stop.prevent="handleRefillBoard" @keydown.space.stop.prevent="handleRefillBoard" title="点击补充版图">袋中宝石</span>
                     <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
                       <div class="bag-row">
                         <div v-for="item in bagCounts" :key="`bag-${item.type}`" class="bag-item">
                           <span class="bag-count">{{ item.count }}×</span>
-                          <img :src="`/images/gems/${getGemImageName(item.type)}.jpg`" :alt="item.type" class="bag-gem" />
+                          <img :src="`/images/gems/${getGemImageName(item.type)}.jpg`" alt="" class="bag-gem" />
                         </div>
                       </div>
                     </div>
@@ -93,9 +93,14 @@
                         v-if="gem" 
                         :src="`/images/gems/${getGemImageName(gem)}.jpg`" 
                         :alt="gem"
+                        role="button"
+                        tabindex="0"
+                        :aria-label="`选择${selectGemDisplayName(gem)}，第${rowIndex + 1}行第${colIndex + 1}列`"
                         class="gem-image"
                         @error="handleImageError"
                         @click="handleGemClick(rowIndex, colIndex, gem)"
+                        @keydown.enter.prevent="handleGemClick(rowIndex, colIndex, gem)"
+                        @keydown.space.prevent="handleGemClick(rowIndex, colIndex, gem)"
                       />
                       <span v-else class="empty-cell">空</span>
                     </div>
@@ -134,7 +139,12 @@
                         v-for="card in getCardsByLevel(level)" 
                         :key="card.id"
                         class="card-item"
+                        role="button"
+                        tabindex="0"
+                        :aria-label="`购买发展卡：${card.name}`"
                         @click="handleCardClick(card)"
+                        @keydown.enter.prevent="handleCardClick(card)"
+                        @keydown.space.prevent="handleCardClick(card)"
                       >
                         <img 
                           :src="`/images/cards/${card.id}.jpg`" 
@@ -156,11 +166,13 @@
                     v-for="nobleId in gameState?.availableNobles || []" 
                     :key="nobleId"
                     class="noble-item"
+                    role="img"
+                    :aria-label="getNobleName(nobleId)"
                     @click="handleNobleSelected(nobleId)"
                   >
                     <img 
                       :src="`/images/nobles/${nobleId}.jpg`" 
-                      :alt="getNobleName(nobleId)"
+                      alt=""
                       class="noble-image"
                       @error="handleNobleImageError"
                     />
@@ -279,6 +291,7 @@
             <div class="chat-input">
               <input
                 v-model="newMessage"
+                aria-label="聊天消息"
                 @focus="isChatInputFocused = true"
                 @blur="isChatInputFocused = false"
                 @keyup.enter="sendMessage"
@@ -318,7 +331,7 @@
                 <span class="action-text" v-else v-html="getActionHtml(action)"></span>
               </div>
               <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef">
-                <img :src="preview.image" alt="预览" />
+                <img :src="preview.image" alt="" />
               </div>
             </div>
           </div>

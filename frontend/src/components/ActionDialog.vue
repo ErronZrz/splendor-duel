@@ -14,7 +14,7 @@
       <div class="dialog-header">
         <h3 id="action-dialog-title">{{ title }}</h3>
         <!-- 对于宝石丢弃操作，不显示关闭按钮 -->
-        <button v-if="actionType !== 'discardGems'" class="close-btn" @click="handleCancel">&times;</button>
+        <button v-if="actionType !== 'discardGems'" class="close-btn" type="button" aria-label="关闭对话框" @click="handleCancel">&times;</button>
       </div>
       
       <div class="dialog-body">
@@ -43,7 +43,14 @@
                     'selected': isGemSelected(rowIndex, colIndex),
                     'clickable': gem && !isGemSelected(rowIndex, colIndex) && selectedGems.length < 3 && gem !== 'gold'
                   }"
+                  role="button"
+                  :tabindex="gem && gem !== 'gold' ? 0 : -1"
+                  :aria-label="gem ? `选择${getGemDisplayName(gem)}，第${rowIndex + 1}行第${colIndex + 1}列` : undefined"
+                  :aria-pressed="gem && gem !== 'gold' ? isGemSelected(rowIndex, colIndex) : undefined"
+                  :aria-disabled="gem && gem !== 'gold' ? (!isGemSelected(rowIndex, colIndex) && selectedGems.length >= 3) : true"
                   @click="selectGem(rowIndex, colIndex, gem)"
+                  @keydown.enter.prevent="selectGem(rowIndex, colIndex, gem)"
+                  @keydown.space.prevent="selectGem(rowIndex, colIndex, gem)"
                 >
                   <img 
                     v-if="gem" 
@@ -104,7 +111,12 @@
                     :key="`suggested-${index}-${entry[0]}`"
                     class="token-item"
                     :class="{ 'clickable': entry[0] !== 'gold' && canConvertToGold(entry[0]) }"
+                    :role="entry[0] !== 'gold' && canConvertToGold(entry[0]) ? 'button' : undefined"
+                    :tabindex="entry[0] !== 'gold' && canConvertToGold(entry[0]) ? 0 : undefined"
+                    :aria-label="entry[0] !== 'gold' && canConvertToGold(entry[0]) ? `将${getGemDisplayName(entry[0])}支付转换为黄金支付` : undefined"
                     @click="convertToGold(entry[0])"
+                    @keydown.enter.prevent="convertToGold(entry[0])"
+                    @keydown.space.prevent="convertToGold(entry[0])"
                   >
                     <img 
                       :src="`/images/gems/${getGemImageName(entry[0])}.jpg`" 
@@ -169,7 +181,14 @@
                   'clickable': gem && gem !== 'gold' && gem === (selectedCard?.bonus || selectedCard?.color) && !isGemSelected(rowIndex, colIndex) && selectedGems.length < 1,
                   'disabled': !gem || gem === 'gold' || gem !== (selectedCard?.bonus || selectedCard?.color) || selectedGems.length >= 1
                 }"
+                role="button"
+                :tabindex="gem && gem !== 'gold' && gem === (selectedCard?.bonus || selectedCard?.color) ? 0 : -1"
+                :aria-label="gem ? `选择额外${getGemDisplayName(gem)}，第${rowIndex + 1}行第${colIndex + 1}列` : undefined"
+                :aria-pressed="gem ? isGemSelected(rowIndex, colIndex) : undefined"
+                :aria-disabled="!gem || gem === 'gold' || gem !== (selectedCard?.bonus || selectedCard?.color) || (!isGemSelected(rowIndex, colIndex) && selectedGems.length >= 1)"
                 @click="selectGem(rowIndex, colIndex, gem)"
+                @keydown.enter.prevent="selectGem(rowIndex, colIndex, gem)"
+                @keydown.space.prevent="selectGem(rowIndex, colIndex, gem)"
               >
                 <img 
                   v-if="gem" 
@@ -192,7 +211,14 @@
                 :key="`steal-${gemType}`"
                 class="gem-item"
                 :class="{ 'clickable': (opponentGemCount(gemType) > 0) && !isSelectedGemType(gemType), 'disabled': opponentGemCount(gemType) <= 0, 'selected': isSelectedGemType(gemType) }"
+                role="button"
+                :tabindex="opponentGemCount(gemType) > 0 ? 0 : -1"
+                :aria-label="`窃取${getGemDisplayName(gemType)}，对手有${opponentGemCount(gemType)}枚`"
+                :aria-pressed="isSelectedGemType(gemType)"
+                :aria-disabled="opponentGemCount(gemType) <= 0"
                 @click="selectStealGemType(gemType)"
+                @keydown.enter.prevent="selectStealGemType(gemType)"
+                @keydown.space.prevent="selectStealGemType(gemType)"
               >
                 <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
                 <span class="gem-count">×{{ opponentGemCount(gemType) }}</span>
@@ -204,7 +230,14 @@
                 :key="`steal-${gemType}`"
                 class="gem-item"
                 :class="{ 'clickable': (opponentGemCount(gemType) > 0) && !isSelectedGemType(gemType), 'disabled': opponentGemCount(gemType) <= 0, 'selected': isSelectedGemType(gemType) }"
+                role="button"
+                :tabindex="opponentGemCount(gemType) > 0 ? 0 : -1"
+                :aria-label="`窃取${getGemDisplayName(gemType)}，对手有${opponentGemCount(gemType)}枚`"
+                :aria-pressed="isSelectedGemType(gemType)"
+                :aria-disabled="opponentGemCount(gemType) <= 0"
                 @click="selectStealGemType(gemType)"
+                @keydown.enter.prevent="selectStealGemType(gemType)"
+                @keydown.space.prevent="selectStealGemType(gemType)"
               >
                 <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
                 <span class="gem-count">×{{ opponentGemCount(gemType) }}</span>
@@ -222,7 +255,14 @@
                 :key="`wild-${gemType}`"
                 class="gem-item"
                 :class="{ 'clickable': (getPlayerBonus(gemType) > 0) && !isSelectedWildcardColor(gemType), 'disabled': getPlayerBonus(gemType) <= 0, 'selected': isSelectedWildcardColor(gemType) }"
+                role="button"
+                :tabindex="getPlayerBonus(gemType) > 0 ? 0 : -1"
+                :aria-label="`选择${getGemDisplayName(gemType)}作为百搭颜色，优惠${getPlayerBonus(gemType)}`"
+                :aria-pressed="isSelectedWildcardColor(gemType)"
+                :aria-disabled="getPlayerBonus(gemType) <= 0"
                 @click="selectWildcardColor(gemType)"
+                @keydown.enter.prevent="selectWildcardColor(gemType)"
+                @keydown.space.prevent="selectWildcardColor(gemType)"
               >
                 <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
                 <span class="gem-count">×{{ getPlayerBonus(gemType) }}</span>
@@ -234,7 +274,14 @@
                 :key="`wild-${gemType}`"
                 class="gem-item"
                 :class="{ 'clickable': (getPlayerBonus(gemType) > 0) && !isSelectedWildcardColor(gemType), 'disabled': getPlayerBonus(gemType) <= 0, 'selected': isSelectedWildcardColor(gemType) }"
+                role="button"
+                :tabindex="getPlayerBonus(gemType) > 0 ? 0 : -1"
+                :aria-label="`选择${getGemDisplayName(gemType)}作为百搭颜色，优惠${getPlayerBonus(gemType)}`"
+                :aria-pressed="isSelectedWildcardColor(gemType)"
+                :aria-disabled="getPlayerBonus(gemType) <= 0"
                 @click="selectWildcardColor(gemType)"
+                @keydown.enter.prevent="selectWildcardColor(gemType)"
+                @keydown.space.prevent="selectWildcardColor(gemType)"
               >
                 <img :src="`/images/gems/${gemType}.jpg`" :alt="gemType" class="gem-icon" />
                 <span class="gem-count">×{{ getPlayerBonus(gemType) }}</span>
@@ -252,7 +299,13 @@
                 :key="`noble-${nobleId}`"
                 class="gem-item"
                 :class="{ 'clickable': selectedNobleId !== nobleId, 'selected': selectedNobleId === nobleId }"
+                role="button"
+                tabindex="0"
+                :aria-label="`选择贵族${nobleId}`"
+                :aria-pressed="selectedNobleId === nobleId"
                 @click="selectNoble(nobleId)"
+                @keydown.enter.prevent="selectNoble(nobleId)"
+                @keydown.space.prevent="selectNoble(nobleId)"
               >
                 <img :src="`/images/nobles/${nobleId}.jpg`" :alt="nobleId" class="noble-thumb" />
               </div>
@@ -277,7 +330,13 @@
                   'clickable': getCurrentGemCount(gemType) > 0,
                   'disabled': getCurrentGemCount(gemType) <= 0
                 }"
+                role="button"
+                :tabindex="getCurrentGemCount(gemType) > 0 ? 0 : -1"
+                :aria-label="`丢弃一枚${getGemDisplayName(gemType)}，当前${getCurrentGemCount(gemType)}枚`"
+                :aria-disabled="getCurrentGemCount(gemType) <= 0"
                 @click="discardGem(gemType)"
+                @keydown.enter.prevent="discardGem(gemType)"
+                @keydown.space.prevent="discardGem(gemType)"
               >
                 <img 
                   :src="`/images/gems/${gemType}.jpg`" 
@@ -326,7 +385,13 @@
                       v-if="getUnflippedCount(level) > 0"
                       class="deck-card-item"
                       :class="{ 'selected': selectedCard && selectedCard.type === 'deck' && selectedCard.level === level }"
+                      role="button"
+                      tabindex="0"
+                      :aria-label="`保留等级${level}牌堆顶牌`"
+                      :aria-pressed="selectedCard && selectedCard.type === 'deck' && selectedCard.level === level"
                       @click="selectDeckCard(level)"
+                      @keydown.enter.prevent="selectDeckCard(level)"
+                      @keydown.space.prevent="selectDeckCard(level)"
                     >
                       <img 
                         :src="`/images/cards/back${level}.jpg`" 
@@ -347,7 +412,13 @@
                       :key="card.id"
                       class="card-item"
                       :class="{ 'selected': selectedCard && selectedCard.id === card.id }"
+                      role="button"
+                      tabindex="0"
+                      :aria-label="`保留发展卡：${card.name}`"
+                      :aria-pressed="selectedCard && selectedCard.id === card.id"
                       @click="selectCard(card)"
+                      @keydown.enter.prevent="selectCard(card)"
+                      @keydown.space.prevent="selectCard(card)"
                     >
                       <img 
                         :src="`/images/cards/${card.id}.jpg`" 
@@ -407,7 +478,7 @@
             <div class="selected-gems">
               <div v-for="(gem, index) in selectedGems" :key="index" class="selected-gem">
                 <span>{{ gem.type }} ({{ gem.x }}, {{ gem.y }})</span>
-                <button @click="removeGem(index)" class="remove-btn">×</button>
+                <button type="button" @click="removeGem(index)" class="remove-btn" :aria-label="`移除已选${getGemDisplayName(gem.type)}`">×</button>
               </div>
             </div>
             <div class="gem-grid-preview">
@@ -421,7 +492,14 @@
                     'selected': isGemSelected(rowIndex, colIndex),
                     'clickable': gem && gem !== 'gold' && !isGemSelected(rowIndex, colIndex) && selectedGems.length < privilegeCount
                   }"
+                  role="button"
+                  :tabindex="gem && gem !== 'gold' ? 0 : -1"
+                  :aria-label="gem ? `选择${getGemDisplayName(gem)}，第${rowIndex + 1}行第${colIndex + 1}列` : undefined"
+                  :aria-pressed="gem && gem !== 'gold' ? isGemSelected(rowIndex, colIndex) : undefined"
+                  :aria-disabled="gem && gem !== 'gold' ? (!isGemSelected(rowIndex, colIndex) && selectedGems.length >= privilegeCount) : true"
                   @click="selectGem(rowIndex, colIndex, gem)"
+                  @keydown.enter.prevent="selectGem(rowIndex, colIndex, gem)"
+                  @keydown.space.prevent="selectGem(rowIndex, colIndex, gem)"
                 >
                   <img 
                     v-if="gem" 

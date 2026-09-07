@@ -12,16 +12,27 @@
           class="metric-badge privilege-badge"
           :class="{ clickable: canSpendPrivilege }"
           :title="canSpendPrivilege ? '点击花费特权' : ''"
+          :role="canSpendPrivilege ? 'button' : undefined"
+          :tabindex="canSpendPrivilege ? 0 : undefined"
+          :aria-label="canSpendPrivilege ? `花费特权指示物，当前${player.privilegeTokens || 0}枚` : `特权指示物${player.privilegeTokens || 0}枚`"
           @click="canSpendPrivilege ? emit('spend-privilege') : null"
+          @keydown.enter.prevent="canSpendPrivilege ? emit('spend-privilege') : null"
+          @keydown.space.prevent="canSpendPrivilege ? emit('spend-privilege') : null"
         >
           {{ player.privilegeTokens || 0 }}♟
         </span>
-        <span class="metric-badge">{{ player.points || 0 }}🔸{{ maxSameColorPoints }}</span>
+        <span class="metric-badge" :aria-label="`总分${player.points || 0}，单色最高分${maxSameColorPoints}`">{{ player.points || 0 }}🔸{{ maxSameColorPoints }}</span>
         <span
           class="metric-badge crown-badge"
           :class="{ 'has-nobles': nobleIds.length > 0 }"
+          :role="nobleIds.length > 0 ? 'button' : undefined"
+          :tabindex="nobleIds.length > 0 ? 0 : undefined"
+          :aria-label="`皇冠${player.crowns || 0}枚${nobleIds.length > 0 ? `，查看${nobleIds.length}位贵族` : ''}`"
+          :aria-expanded="nobleIds.length > 0 ? showNobleTooltip : undefined"
           @mouseenter="showNobleTooltip = true"
           @mouseleave="showNobleTooltip = false"
+          @focus="showNobleTooltip = true"
+          @blur="showNobleTooltip = false"
         >
           {{ player.crowns || 0 }}👑
           <div v-if="showNobleTooltip && nobleIds.length > 0" class="noble-tooltip">
@@ -45,17 +56,17 @@
       <div class="token-board">
         <div class="token-row">
           <div v-for="(cell, idx) in tokenLayout.firstRow" :key="`cell-1-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
-            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" />
+            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
           </div>
         </div>
         <div class="token-row">
           <div v-for="(cell, idx) in tokenLayout.secondRow" :key="`cell-2-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
-            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="cell" />
+            <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
           </div>
         </div>
         <div v-for="(row, rIdx) in tokenLayout.overflowRows" :key="`overflow-${rIdx}`" class="token-row overflow">
           <div v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" class="token-cell no-placeholder">
-            <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="gem" />
+            <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(gem)" />
           </div>
         </div>
       </div>
@@ -81,7 +92,12 @@
           :key="index"
           class="reserved-card-item"
           :class="{ clickable: player.id === currentTurnPlayerId }"
+          role="button"
+          tabindex="0"
+          :aria-label="`操作保留的发展卡${cardId}`"
           @click="emit('reserved-card-click', { cardId, playerId: player.id })"
+          @keydown.enter.prevent="emit('reserved-card-click', { cardId, playerId: player.id })"
+          @keydown.space.prevent="emit('reserved-card-click', { cardId, playerId: player.id })"
         >
           <img
             v-if="shouldShowReservedCardFace(player.id, localPlayerId)"
