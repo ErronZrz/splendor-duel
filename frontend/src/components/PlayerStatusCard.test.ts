@@ -75,6 +75,11 @@ describe('PlayerStatusCard', () => {
     expect(card.emitted('noble-image-error')).toHaveLength(1)
     await card.find('.crown-badge').trigger('mouseleave')
     expect(card.find('.noble-tooltip').exists()).toBe(false)
+    await card.find('.crown-badge').trigger('click')
+    expect(card.find('.crown-badge').attributes('aria-expanded')).toBe('true')
+    expect(card.find('.noble-tooltip-close').attributes('aria-label')).toBe('关闭贵族预览')
+    await card.find('.crown-badge').trigger('keydown', { key: 'Escape' })
+    expect(card.find('.noble-tooltip').exists()).toBe(false)
   })
 
   it('preserves reserved-card faces, backs, empty slots, click payloads and privilege gating', async () => {

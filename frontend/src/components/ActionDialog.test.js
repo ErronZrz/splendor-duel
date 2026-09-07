@@ -60,6 +60,18 @@ describe('default payment after spending a privilege', () => {
     expect(await confirmPayment()).toEqual({ white: 1, gold: 1 })
   })
 
+  it('uses a labelled neutral fallback instead of a misleading asset', async () => {
+    await openPurchase(2)
+    const image = wrapper.find('.payment-row .token-icon')
+    const originalSrc = image.attributes('src')
+    await image.trigger('error')
+    expect(wrapper.find('.gem-image-fallback').attributes('role')).toBe('img')
+    expect(wrapper.find('.gem-image-fallback').attributes('aria-label')).toBe('white')
+    expect(wrapper.find('.gem-image-fallback').text()).toBe('white')
+    expect(wrapper.html()).not.toContain('/images/gems/white.jpg" alt="加载失败')
+    expect(originalSrc).toContain('/images/gems/')
+  })
+
   it('reopening the same card resets the prior payment choice', async () => {
     await openPurchase(1)
     await wrapper.setProps({ visible: false })

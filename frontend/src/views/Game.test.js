@@ -67,6 +67,10 @@ it('renders player status cards with the local player first and preserves names'
     status: 'playing', currentPlayerIndex: 0, players: [player('p1', '对手'), player('p2', '本地玩家')],
     flippedCards: { 1: [], 2: [], 3: [] }, cardDetails: {}, unflippedCards: {}, gemBoard: [], availableNobles: []
   }
+  store.gameHistory = [{
+    playerId: 'p1', playerName: '对手', description: '购买了发展卡', timestamp: '2026-09-07T00:00:00Z',
+    descriptionHtml: '<span class="hist-link" data-preview="/images/cards/a1.jpg">发展卡</span>'
+  }]
   vi.spyOn(store, 'connectWebSocket').mockImplementation(() => {})
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
   await router.push('/')
@@ -108,4 +112,11 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.find('.mobile-game-nav').classes()).toContain('keyboard-hidden')
   await wrapper.find('.chat-input input').trigger('blur')
   expect(wrapper.find('.mobile-game-nav').classes()).not.toContain('keyboard-hidden')
+  const historyLink = wrapper.find('.hist-link')
+  expect(historyLink.attributes('role')).toBe('button')
+  expect(historyLink.attributes('aria-label')).toBe('查看发展卡图片预览')
+  await historyLink.trigger('keydown', { key: 'Enter' })
+  expect(wrapper.find('.history-preview-tooltip').attributes('role')).toBe('dialog')
+  await wrapper.find('.history-preview-close').trigger('click')
+  expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
 })

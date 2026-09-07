@@ -150,7 +150,7 @@ export const createGameVisualFixture = (): GameVisualFixture => {
     ],
     gameHistory: [
       { playerId: players[1].id, playerName: players[1].name, description: '拿取了三枚宝石', descriptionHtml: '', timestamp },
-      { playerId: players[0].id, playerName: players[0].name, description: '购买了发展卡 a2', descriptionHtml: '', timestamp }
+      { playerId: players[0].id, playerName: players[0].name, description: '购买了发展卡 a2', descriptionHtml: '购买了<span class="hist-link" data-preview="/images/cards/a2.jpg">发展卡</span> a2', timestamp }
     ]
   }
 }

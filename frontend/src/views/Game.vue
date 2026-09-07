@@ -60,6 +60,8 @@
                     class="bag-container"
                     @mouseenter="bagHover = true"
                     @mouseleave="bagHover = false"
+                    @focusin="bagHover = true"
+                    @focusout="bagHover = false"
                   >
                     <span class="bag-pill" role="button" tabindex="0" aria-label="补充版图：查看并使用袋中宝石" @click.stop="handleRefillBoard" @keydown.enter.stop.prevent="handleRefillBoard" @keydown.space.stop.prevent="handleRefillBoard" title="点击补充版图">袋中宝石</span>
                     <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
@@ -328,10 +330,11 @@
                 <span class="action-time">{{ formatTime(action.timestamp) }}</span>
                 <span class="action-player">{{ action.playerName }}</span>
                 <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
-                <span class="action-text" v-else v-html="getActionHtml(action)"></span>
+                <span class="action-text" v-else v-html="getAccessibleActionHtml(action)"></span>
               </div>
-              <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef">
+              <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef" role="dialog" aria-label="历史图片预览">
                 <img :src="preview.image" alt="" />
+                <button type="button" class="history-preview-close" aria-label="关闭历史图片预览" @click="closeHistoryPreview">×</button>
               </div>
             </div>
           </div>
@@ -399,6 +402,10 @@ const preview = ref({ visible: false, image: '', x: 0, y: 0 })
 const historyPreviewRef = ref(null)
 
 const getActionHtml = (action) => action?.descriptionHtml || ''
+const getAccessibleActionHtml = (action) => getActionHtml(action).replace(
+  /<span class="hist-link" data-preview="([^"]+)">([^<]+)<\/span>/g,
+  '<span class="hist-link" data-preview="$1" role="button" tabindex="0" aria-label="查看$2图片预览">$2</span>'
+)
 // 根据本地玩家优先展示自己的卡片
 const orderedPlayers = computed(() => {
   return orderPlayersLocalFirst(gameState.value?.players, currentPlayer.value?.id)
@@ -453,18 +460,58 @@ onMounted(() => {
       preview.value = { ...preview.value, visible: false }
     }
   }
+  const showPreviewFromTarget = (target) => {
+    const img = target?.getAttribute('data-preview')
+    if (!img) return
+    const bounds = target.getBoundingClientRect()
+    preview.value = { visible: true, image: img, x: bounds.left, y: bounds.bottom + 8 }
+  }
+  const onClick = (e) => {
+    const target = e.target.closest('[data-preview]')
+    if (!target) return
+    e.stopPropagation()
+    if (preview.value.visible && preview.value.image === target.getAttribute('data-preview')) {
+      closeHistoryPreview()
+    } else {
+      showPreviewFromTarget(target)
+    }
+  }
+  const onFocusIn = (e) => {
+    const target = e.target.closest('[data-preview]')
+    if (target) showPreviewFromTarget(target)
+  }
+  const onKeyDown = (e) => {
+    const target = e.target.closest('[data-preview]')
+    if (!target) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      showPreviewFromTarget(target)
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      closeHistoryPreview()
+    }
+  }
 
   el.addEventListener('mouseover', onMouseOver)
   el.addEventListener('mousemove', onMouseMove)
   el.addEventListener('mouseout', onMouseOut)
+  el.addEventListener('click', onClick)
+  el.addEventListener('focusin', onFocusIn)
+  el.addEventListener('keydown', onKeyDown)
 
   // 清理函数
   onUnmounted(() => {
     el.removeEventListener('mouseover', onMouseOver)
     el.removeEventListener('mousemove', onMouseMove)
     el.removeEventListener('mouseout', onMouseOut)
+    el.removeEventListener('click', onClick)
+    el.removeEventListener('focusin', onFocusIn)
+    el.removeEventListener('keydown', onKeyDown)
   })
 })
+const closeHistoryPreview = () => {
+  preview.value = { visible: false, image: '', x: 0, y: 0 }
+}
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/game'
 import { storeToRefs } from 'pinia'
@@ -788,24 +835,32 @@ const getNoblePoints = (nobleId) => {
 // 处理图片加载错误
 const handleImageError = (event) => {
   console.warn('宝石图片加载失败:', event.target.src)
-  // 可以在这里设置默认图片或显示文本
-  event.target.style.display = 'none'
-  const textSpan = document.createElement('span')
-  textSpan.textContent = event.target.alt || '宝石'
-  textSpan.className = 'gem-text-fallback'
-  event.target.parentNode.appendChild(textSpan)
+  replaceBrokenImageWithLabel(event.target, event.target.alt || '宝石', 'gem-text-fallback')
 }
 
 // 处理发展卡图片加载错误
 const handleCardImageError = (event) => {
   console.warn('发展卡图片加载失败:', event.target.src)
-  event.target.style.display = 'none'
+  replaceBrokenImageWithLabel(event.target, event.target.alt || '发展卡', 'card-text-fallback')
 }
 
 // 处理贵族卡图片加载错误
 const handleNobleImageError = (event) => {
   console.warn('贵族卡图片加载失败:', event.target.src)
-  event.target.style.display = 'none'
+  replaceBrokenImageWithLabel(event.target, event.target.alt || '贵族', 'card-text-fallback')
+}
+
+const replaceBrokenImageWithLabel = (image, label, className) => {
+  if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === 'true') return
+  image.dataset.fallbackApplied = 'true'
+  const fallback = document.createElement('span')
+  fallback.textContent = label
+  fallback.className = `${image.className} ${className}`
+  fallback.setAttribute('role', 'img')
+  fallback.setAttribute('aria-label', label)
+  Array.from(image.attributes).filter(attribute => attribute.name.startsWith('data-v-')).forEach(attribute => fallback.setAttribute(attribute.name, ''))
+  fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:4px;background:#f8f6f1;color:#687078;font-size:10px;text-align:center;'
+  image.replaceWith(fallback)
 }
 
 // 发送聊天消息
@@ -1989,6 +2044,19 @@ watch(gameState, (newState, oldState) => {
   font-weight: 600;
 }
 
+.card-text-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: var(--color-surface-subtle);
+  color: var(--color-ink-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 /* 发展卡样式 */
 .development-cards {
   margin-bottom: 24px;
@@ -2982,13 +3050,25 @@ watch(gameState, (newState, oldState) => {
   border-radius: 8px;
   padding: 6px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25);
-  pointer-events: none; /* 不拦截鼠标，避免闪烁 */
+  pointer-events: auto;
 }
 .history-preview-tooltip img {
   max-width: 150px;
   max-height: 220px;
   display: block;
   border-radius: 8px;
+}
+
+.history-preview-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .9);
+  color: var(--color-ink);
 }
 /* 悬停可预览的文字样式 */
 .hist-link {

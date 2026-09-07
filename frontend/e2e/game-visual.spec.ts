@@ -54,7 +54,18 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(panelBoundsAreValid).toBe(true)
     await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
     await expect(page.locator('.history-list')).toBeVisible()
+    const historyPreviewTrigger = page.getByRole('button', { name: '查看发展卡图片预览' })
+    await historyPreviewTrigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('dialog', { name: '历史图片预览' })).toBeVisible()
+    await page.getByRole('button', { name: '关闭历史图片预览' }).click()
+    await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
     await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    const nobleDisclosure = page.getByRole('button', { name: /查看1位贵族/ }).first()
+    await nobleDisclosure.click()
+    await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'true')
+    await page.getByRole('button', { name: '关闭贵族预览' }).click()
+    await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'false')
     const mobileNav = page.locator('.mobile-game-nav')
     await expect(mobileNav).toBeVisible()
     await expect(mobileNav.getByText('轮到你', { exact: true })).toBeVisible()
@@ -81,6 +92,19 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
   }
   await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
+})
+
+test('uses a labelled neutral fallback for a broken business image', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-primary')
+  await openFixture(page, 'default')
+  const card = page.locator('.development-cards .card-image').first()
+  const label = await card.getAttribute('alt')
+  await card.evaluate(image => { (image as HTMLImageElement).src = '/images/cards/__missing-stage31__.jpg' })
+  const fallback = page.locator('.development-cards .card-text-fallback').first()
+  await expect(fallback).toBeVisible()
+  await expect(fallback).toHaveAttribute('role', 'img')
+  await expect(fallback).toHaveAttribute('aria-label', label || '发展卡')
+  await expect(fallback).not.toHaveText('加载失败')
 })
 
 test.describe('mobile dialog baselines', () => {
