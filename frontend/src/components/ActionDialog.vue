@@ -569,6 +569,7 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
 import { replaceBrokenImageWithLabel } from '../image-fallback'
+import { getGemDisplayName, getGemImageName } from '../game-view-selectors'
 
 const props = defineProps({
   visible: Boolean,
@@ -756,35 +757,6 @@ const getCurrentGemCount = (gemType) => {
   const originalCount = props.playerData.gems[gemType] || 0
   const discardedCount = discardedGems.value[gemType] || 0
   return Math.max(0, originalCount - discardedCount)
-}
-
-// 获取宝石显示名称
-const getGemDisplayName = (gemType) => {
-  const gemMap = {
-    'white': '白色',
-    'blue': '蓝色',
-    'green': '绿色',
-    'red': '红色',
-    'black': '黑色',
-    'pearl': '珍珠',
-    'gold': '黄金',
-    'gray': '无色'
-  }
-  return gemMap[gemType] || gemType
-}
-
-// 获取宝石图片名称
-const getGemImageName = (gemType) => {
-  const gemMap = {
-    'white': 'white',
-    'blue': 'blue',
-    'green': 'green',
-    'red': 'red',
-    'black': 'black',
-    'pearl': 'pearl',
-    'gold': 'gold'
-  }
-  return gemMap[gemType] || gemType
 }
 
 // 格式化卡牌费用

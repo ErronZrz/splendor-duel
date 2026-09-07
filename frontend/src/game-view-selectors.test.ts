@@ -123,10 +123,13 @@ describe('card payment shortfall', () => {
 
 describe('game display selectors', () => {
   it('preserves gem and noble display names including unknown fallbacks', () => {
-    expect(getGemDisplayName('white')).toBe('白色')
-    expect(getGemDisplayName('gray')).toBe('无色')
+    expect(['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold', 'gray'].map(getGemDisplayName)).toEqual([
+      '白色', '蓝色', '绿色', '红色', '黑色', '珍珠', '黄金', '无色'
+    ])
+    expect(['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold', 'gray'].map(getGemImageName)).toEqual([
+      'white', 'blue', 'green', 'red', 'black', 'pearl', 'gold', 'gray'
+    ])
     expect(getGemDisplayName('future')).toBe('future')
-    expect(getGemImageName('gold')).toBe('gold')
     expect(getGemImageName('future')).toBe('future')
     expect(getNobleDisplayName('noble4')).toBe('贵族4')
     expect(getNobleDisplayName('future')).toBe('贵族future')
