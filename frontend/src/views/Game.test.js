@@ -4,6 +4,8 @@ import { createPinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import Game from './Game.vue'
 import ActionDialog from '../components/ActionDialog.vue'
+import ContextActionBar from '../components/ContextActionBar.vue'
+import GemBoard from '../components/GemBoard.vue'
 import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import { useGameStore } from '../stores/game'
 
@@ -341,18 +343,92 @@ describe('existing game action orchestration', () => {
   })
 
   it.each([
-    { selectedGems: [{ x: 0, y: 0, type: 'white' }, { x: 1, y: 0, type: 'white' }, { x: 2, y: 0, type: 'white' }] },
-    { selectedGems: [{ x: 0, y: 1, type: 'pearl' }, { x: 1, y: 1, type: 'pearl' }] },
-  ])('sends grantOpponentPrivilege before takeGems without changing either payload', async ({ selectedGems }) => {
-    const { sendAction } = await createGameFlowHarness()
-    await emitConfirm({ actionType: 'takeGems', selectedGems })
-    expect(actionDialog().props('actionType')).toBe('confirmTakeGemsGrantPrivilege')
-    await emitConfirm({ actionType: 'confirmTakeGemsGrantPrivilege' })
+    {
+      gemBoard: [
+        ['white', 'white', 'white', 'blue', 'gold'],
+        ['blue', 'green', 'red', 'black', 'white'],
+        ['green', 'red', 'black', 'white', 'blue'],
+        ['red', 'black', 'white', 'blue', 'green'],
+        ['black', 'white', 'blue', 'green', 'red']
+      ],
+      positions: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }]
+    },
+    {
+      gemBoard: [
+        ['pearl', 'pearl', 'white', 'blue', 'gold'],
+        ['blue', 'green', 'red', 'black', 'white'],
+        ['green', 'red', 'black', 'white', 'blue'],
+        ['red', 'black', 'white', 'blue', 'green'],
+        ['black', 'white', 'blue', 'green', 'red']
+      ],
+      positions: [{ x: 0, y: 0 }, { x: 0, y: 1 }]
+    }
+  ])('selects on the real board and sends grantOpponentPrivilege before takeGems', async ({ gemBoard, positions }) => {
+    const { sendAction } = await createGameFlowHarness({ stateOverrides: { gemBoard } })
+    for (const position of positions) {
+      await wrapper.get(`[data-board-position="${position.x}-${position.y}"]`).trigger('click')
+      await flushPromises()
+    }
+
+    expect(actionDialog().props('visible')).toBe(false)
+    const bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.exists()).toBe(true)
+    expect(bar.text()).toContain('对手将获得特权')
+    await bar.get('.context-actions .btn-primary').trigger('click')
 
     expect(sendAction.mock.calls).toEqual([
       ['grantOpponentPrivilege', {}],
-      ['takeGems', { gemPositions: selectedGems.map(({ x, y }) => ({ x, y })) }],
+      ['takeGems', { gemPositions: positions }]
     ])
+  })
+
+  it('changes the privilege target, clears selection and submits exact coordinates from the real board', async () => {
+    const gemBoard = [
+      ['white', 'blue', 'green', 'red', 'gold'],
+      ['pearl', 'green', 'red', 'black', 'white'],
+      ['green', 'red', 'black', 'white', 'blue'],
+      ['red', 'black', 'white', 'blue', 'green'],
+      ['black', 'white', 'blue', 'green', 'red']
+    ]
+    const { sendAction } = await createGameFlowHarness({
+      playerOverrides: { privilegeTokens: 2 },
+      stateOverrides: { gemBoard }
+    })
+    await wrapper.findComponent(PlayerStatusCard).get('.privilege-badge').trigger('click')
+    await flushPromises()
+    expect(actionDialog().props('visible')).toBe(false)
+
+    let bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.props('mode')).toBe('spend-privilege')
+    await wrapper.get('[data-board-position="0-0"]').trigger('click')
+    await bar.findAll('.privilege-count button')[1].trigger('click')
+    await flushPromises()
+    bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.props('selectedGems')).toEqual([])
+
+    await wrapper.get('[data-board-position="0-0"]').trigger('click')
+    await wrapper.get('[data-board-position="1-1"]').trigger('click')
+    await bar.get('.context-actions .btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledWith('spendPrivilege', {
+      privilegeCount: 2,
+      gemPositions: [{ x: 0, y: 0 }, { x: 1, y: 1 }]
+    })
+  })
+
+  it('keeps direct board controls locked for pending and unknown actions', async () => {
+    const { store } = await createGameFlowHarness()
+    const firstGem = wrapper.findComponent(GemBoard).get('[data-board-position="0-0"]')
+    store.pendingActions = {
+      pending: { requestId: 'pending', actionType: 'takeGems', data: {}, status: 'pending', sentAt: Date.now() }
+    }
+    await flushPromises()
+    expect(firstGem.attributes('disabled')).toBeDefined()
+
+    store.pendingActions = {
+      unknown: { requestId: 'unknown', actionType: 'takeGems', data: {}, status: 'unknown', sentAt: Date.now() }
+    }
+    await flushPromises()
+    expect(firstGem.attributes('disabled')).toBeDefined()
   })
 
   it('reopens an authority-required discard after a non-normal close, but not after completion', async () => {
@@ -392,6 +468,10 @@ describe('existing game action orchestration', () => {
   it('surfaces pending and rejected ACK feedback without changing unknown-action recovery', async () => {
     const { store } = await createGameFlowHarness()
     const requestId = 'request-ack'
+    store.lastActionResult = { requestId: 'request-success', actionType: 'takeGems', success: true, completedAt: Date.now() }
+    await flushPromises()
+    expect(document.body.textContent).toContain('操作成功')
+
     store.lastActionResult = { requestId, actionType: 'takeGems', success: false, message: '规则拒绝', completedAt: Date.now() }
     await flushPromises()
     expect(document.body.textContent).toContain('操作失败')

@@ -37,9 +37,8 @@ export interface NobleChoiceContext {
 
 export type ActionInteractionState =
   | { kind: 'idle' }
-  | { kind: 'take-gems'; message: string; initialGemPosition?: SelectedGem }
-  | { kind: 'confirm-take-gems-grant-privilege'; message: string; gemPositions: GemPosition[] }
-  | { kind: 'spend-privilege' }
+  | { kind: 'take-gems'; message: string; selectedGems: SelectedGem[]; warning: string | null }
+  | { kind: 'spend-privilege'; message: string; targetCount: number; maxPrivilegeCount: number; selectedGems: SelectedGem[] }
   | { kind: 'reserve-card'; selectedGold: GemPosition }
   | { kind: 'refill-confirm' }
   | { kind: 'purchase-payment'; title: string; card: InteractionCard | null; playerData?: unknown }
@@ -79,12 +78,16 @@ export interface InteractionTransition {
 
 export type GameInteractionEvent =
   | { type: 'OPEN_TAKE_GEMS'; message: string; initialGemPosition?: SelectedGem }
-  | { type: 'OPEN_SPEND_PRIVILEGE' }
+  | { type: 'OPEN_SPEND_PRIVILEGE'; maxPrivilegeCount: number }
+  | { type: 'SELECT_BOARD_GEM'; gem: SelectedGem }
+  | { type: 'DESELECT_BOARD_GEM'; position: GemPosition }
+  | { type: 'CLEAR_BOARD_GEMS' }
+  | { type: 'SET_PRIVILEGE_COUNT'; count: number }
   | { type: 'OPEN_RESERVE_CARD'; selectedGold: GemPosition }
   | { type: 'OPEN_REFILL_CONFIRM' }
   | { type: 'OPEN_PURCHASE_PAYMENT'; title: string; card: InteractionCard | null; playerData?: unknown }
-  | { type: 'CONFIRM_TAKE_GEMS'; selectedGems: SelectedGem[]; grantsPrivilege: boolean; privilegeMessage: string }
-  | { type: 'CONFIRM_TAKE_GEMS_GRANT_PRIVILEGE' }
+  | { type: 'CONFIRM_TAKE_GEMS' }
+  | { type: 'CONFIRM_SPEND_PRIVILEGE' }
   | { type: 'CONFIRM_PURCHASE_PAYMENT'; card: InteractionCard; paymentPlan: PaymentPlan; effects: readonly string[]; extraTokenMessage: string; extraTokenPlayerData?: unknown; stealPlayerData?: unknown; wildcardPlayerData?: unknown; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_EXTRA_TOKEN'; selectedGems: SelectedGem[]; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_STEAL_TOKEN'; stealGemType: string | null; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
@@ -118,6 +121,16 @@ export interface RequestFeedbackView {
   tone: 'info' | 'success' | 'error' | 'warning'
   title: string
   message: string
+}
+
+export interface ContextActionBarView {
+  mode: 'take-gems' | 'spend-privilege'
+  message: string
+  selectedGems: SelectedGem[]
+  warning: string | null
+  targetCount: number
+  maxPrivilegeCount: number
+  confirmDisabled: boolean
 }
 
 const noCommands = (state: GameInteractionState): InteractionTransition => ({
@@ -158,6 +171,87 @@ const completePurchaseStep = (
   return withAction(state, { kind: 'idle' }, [buyCardCommand(purchase, effects)])
 }
 
+const samePosition = (left: GemPosition, right: GemPosition): boolean =>
+  left.x === right.x && left.y === right.y
+
+const isSelectableGem = (gem: SelectedGem): boolean => gem.type.length > 0 && gem.type !== 'gold'
+
+export const isValidTakeGemSelection = (selectedGems: readonly SelectedGem[]): boolean => {
+  if (selectedGems.length < 1 || selectedGems.length > 3 || selectedGems.some(gem => !isSelectableGem(gem))) {
+    return false
+  }
+  if (selectedGems.some((gem, index) => selectedGems.slice(index + 1).some(other => samePosition(gem, other)))) {
+    return false
+  }
+  if (selectedGems.length === 1) return true
+
+  const sameRow = selectedGems.every(gem => gem.x === selectedGems[0].x)
+  if (sameRow) {
+    const columns = selectedGems.map(gem => gem.y).sort((left, right) => left - right)
+    return columns.every((column, index) => index === 0 || column === columns[index - 1] + 1)
+  }
+
+  const sameColumn = selectedGems.every(gem => gem.y === selectedGems[0].y)
+  if (sameColumn) {
+    const rows = selectedGems.map(gem => gem.x).sort((left, right) => left - right)
+    return rows.every((row, index) => index === 0 || row === rows[index - 1] + 1)
+  }
+
+  const sameDescendingDiagonal = selectedGems.every(gem => gem.x - gem.y === selectedGems[0].x - selectedGems[0].y)
+  const sameAscendingDiagonal = selectedGems.every(gem => gem.x + gem.y === selectedGems[0].x + selectedGems[0].y)
+  if (!sameDescendingDiagonal && !sameAscendingDiagonal) return false
+  const rows = selectedGems.map(gem => gem.x).sort((left, right) => left - right)
+  return rows.every((row, index) => index === 0 || row === rows[index - 1] + 1)
+}
+
+export const getTakeGemsPrivilegeWarning = (selectedGems: readonly SelectedGem[]): string | null => {
+  if (selectedGems.length === 3 && selectedGems.every(gem => gem.type === selectedGems[0].type)) {
+    return '拿取 3 个同色宝石，对手将获得特权'
+  }
+  if (selectedGems.filter(gem => gem.type === 'pearl').length >= 2) {
+    return '拿取 2 枚珍珠，对手将获得特权'
+  }
+  return null
+}
+
+const boardPositions = (board: readonly (readonly string[])[]): SelectedGem[] =>
+  board.flatMap((row, x) => row.map((type, y) => ({ x, y, type })))
+
+export const getSelectableGemPositions = (
+  board: readonly (readonly string[])[],
+  action: ActionInteractionState
+): GemPosition[] => {
+  if (action.kind !== 'take-gems' && action.kind !== 'spend-privilege') return []
+  const limit = action.kind === 'take-gems' ? 3 : action.targetCount
+  if (action.selectedGems.length >= limit) return []
+
+  return boardPositions(board)
+    .filter(gem => isSelectableGem(gem))
+    .filter(gem => !action.selectedGems.some(selected => samePosition(selected, gem)))
+    .filter(gem => action.kind === 'spend-privilege' || isValidTakeGemSelection([...action.selectedGems, gem]))
+    .map(({ x, y }) => ({ x, y }))
+}
+
+export const getIllegalGemPositions = (
+  board: readonly (readonly string[])[],
+  action: ActionInteractionState
+): GemPosition[] => {
+  const selected = action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.selectedGems : []
+  const selectable = getSelectableGemPositions(board, action)
+  return boardPositions(board)
+    .filter(position => !selected.some(gem => samePosition(gem, position)))
+    .filter(position => !selectable.some(gem => samePosition(gem, position)))
+    .map(({ x, y }) => ({ x, y }))
+}
+
+const isValidSpendPrivilegeSelection = (selectedGems: readonly SelectedGem[], targetCount: number): boolean =>
+  selectedGems.length === targetCount &&
+  selectedGems.every(isSelectableGem) &&
+  !selectedGems.some((gem, index) => selectedGems.slice(index + 1).some(other => samePosition(gem, other)))
+
+const boardInteractionLocked = (state: GameInteractionState): boolean =>
+  state.feedback.kind === 'pending' || state.feedback.kind === 'unknown'
+
 export const createGameInteractionState = (): GameInteractionState => ({
   action: { kind: 'idle' },
   feedback: { kind: 'idle' },
@@ -169,14 +263,70 @@ export const transitionGameInteraction = (
   event: GameInteractionEvent
 ): InteractionTransition => {
   switch (event.type) {
-    case 'OPEN_TAKE_GEMS':
+    case 'OPEN_TAKE_GEMS': {
+      if (boardInteractionLocked(state)) return noCommands(state)
+      const selectedGems = event.initialGemPosition && isSelectableGem(event.initialGemPosition)
+        ? [event.initialGemPosition]
+        : []
       return withAction(state, {
         kind: 'take-gems',
         message: event.message,
-        ...(event.initialGemPosition ? { initialGemPosition: event.initialGemPosition } : {})
+        selectedGems,
+        warning: getTakeGemsPrivilegeWarning(selectedGems)
       })
-    case 'OPEN_SPEND_PRIVILEGE':
-      return withAction(state, { kind: 'spend-privilege' })
+    }
+    case 'OPEN_SPEND_PRIVILEGE': {
+      if (boardInteractionLocked(state)) return noCommands(state)
+      const maxPrivilegeCount = Math.max(1, Math.min(3, event.maxPrivilegeCount))
+      return withAction(state, {
+        kind: 'spend-privilege',
+        message: '请选择要花费的特权数量，并在棋盘选择相同数量的非黄金宝石。',
+        targetCount: 1,
+        maxPrivilegeCount,
+        selectedGems: []
+      })
+    }
+    case 'SELECT_BOARD_GEM': {
+      if (boardInteractionLocked(state) || (state.action.kind !== 'take-gems' && state.action.kind !== 'spend-privilege')) {
+        return noCommands(state)
+      }
+      if (!isSelectableGem(event.gem) || state.action.selectedGems.some(gem => samePosition(gem, event.gem))) {
+        return noCommands(state)
+      }
+      if (state.action.kind === 'take-gems') {
+        const selectedGems = [...state.action.selectedGems, event.gem]
+        if (!isValidTakeGemSelection(selectedGems)) return noCommands(state)
+        return withAction(state, {
+          ...state.action,
+          selectedGems,
+          warning: getTakeGemsPrivilegeWarning(selectedGems)
+        })
+      }
+      if (state.action.selectedGems.length >= state.action.targetCount) return noCommands(state)
+      return withAction(state, { ...state.action, selectedGems: [...state.action.selectedGems, event.gem] })
+    }
+    case 'DESELECT_BOARD_GEM': {
+      if (boardInteractionLocked(state) || (state.action.kind !== 'take-gems' && state.action.kind !== 'spend-privilege')) {
+        return noCommands(state)
+      }
+      const selectedGems = state.action.selectedGems.filter(gem => !samePosition(gem, event.position))
+      return state.action.kind === 'take-gems'
+        ? withAction(state, { ...state.action, selectedGems, warning: getTakeGemsPrivilegeWarning(selectedGems) })
+        : withAction(state, { ...state.action, selectedGems })
+    }
+    case 'CLEAR_BOARD_GEMS':
+      if (boardInteractionLocked(state) || (state.action.kind !== 'take-gems' && state.action.kind !== 'spend-privilege')) {
+        return noCommands(state)
+      }
+      return state.action.kind === 'take-gems'
+        ? withAction(state, { ...state.action, selectedGems: [], warning: null })
+        : withAction(state, { ...state.action, selectedGems: [] })
+    case 'SET_PRIVILEGE_COUNT':
+      if (boardInteractionLocked(state) || state.action.kind !== 'spend-privilege') return noCommands(state)
+      if (event.count < 1 || event.count > state.action.maxPrivilegeCount || event.count === state.action.targetCount) {
+        return noCommands(state)
+      }
+      return withAction(state, { ...state.action, targetCount: event.count, selectedGems: [] })
     case 'OPEN_RESERVE_CARD':
       return withAction(state, { kind: 'reserve-card', selectedGold: event.selectedGold })
     case 'OPEN_REFILL_CONFIRM':
@@ -189,23 +339,30 @@ export const transitionGameInteraction = (
         ...(event.playerData === undefined ? {} : { playerData: event.playerData })
       })
     case 'CONFIRM_TAKE_GEMS': {
-      if (state.action.kind !== 'take-gems' && state.action.kind !== 'idle') return noCommands(state)
-      const gemPositions = event.selectedGems.map(({ x, y }) => ({ x, y }))
-      if (event.grantsPrivilege) {
-        return withAction(state, {
-          kind: 'confirm-take-gems-grant-privilege',
-          message: event.privilegeMessage,
-          gemPositions
-        })
+      if (boardInteractionLocked(state) || state.action.kind !== 'take-gems' || !isValidTakeGemSelection(state.action.selectedGems)) {
+        return noCommands(state)
       }
-      return withAction(state, { kind: 'idle' }, [{ actionType: 'takeGems', data: { gemPositions } }])
+      const gemPositions = state.action.selectedGems.map(({ x, y }) => ({ x, y }))
+      const commands = state.action.warning
+        ? [
+            { actionType: 'grantOpponentPrivilege', data: {} },
+            { actionType: 'takeGems', data: { gemPositions } }
+          ]
+        : [{ actionType: 'takeGems', data: { gemPositions } }]
+      return withAction(state, { kind: 'idle' }, commands)
     }
-    case 'CONFIRM_TAKE_GEMS_GRANT_PRIVILEGE':
-      if (state.action.kind !== 'confirm-take-gems-grant-privilege') return noCommands(state)
-      return withAction(state, { kind: 'idle' }, [
-        { actionType: 'grantOpponentPrivilege', data: {} },
-        { actionType: 'takeGems', data: { gemPositions: state.action.gemPositions } }
-      ])
+    case 'CONFIRM_SPEND_PRIVILEGE':
+      if (boardInteractionLocked(state) || state.action.kind !== 'spend-privilege' ||
+          !isValidSpendPrivilegeSelection(state.action.selectedGems, state.action.targetCount)) {
+        return noCommands(state)
+      }
+      return withAction(state, { kind: 'idle' }, [{
+        actionType: 'spendPrivilege',
+        data: {
+          privilegeCount: state.action.targetCount,
+          gemPositions: state.action.selectedGems.map(({ x, y }) => ({ x, y }))
+        }
+      }])
     case 'CONFIRM_PURCHASE_PAYMENT': {
       if (state.action.kind !== 'purchase-payment') return noCommands(state)
       const purchase = { card: event.card, paymentPlan: event.paymentPlan }
@@ -366,18 +523,8 @@ export const toActionDialogView = (action: ActionInteractionState): ActionDialog
     case 'idle':
       return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'take-gems':
-      return {
-        visible: true,
-        actionType: 'takeGems',
-        title: '拿取宝石',
-        message: action.message,
-        selectedCard: null,
-        ...(action.initialGemPosition ? { initialGemPosition: action.initialGemPosition } : {})
-      }
-    case 'confirm-take-gems-grant-privilege':
-      return { visible: true, actionType: 'confirmTakeGemsGrantPrivilege', title: '确认操作', message: action.message, selectedCard: null }
     case 'spend-privilege':
-      return { visible: true, actionType: 'spendPrivilege', title: '花费特权指示物', message: '请选择要花费的特权指示物数量和要拿取的宝石。', selectedCard: null }
+      return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'reserve-card':
       return { visible: true, actionType: 'reserveCard', title: '保留发展卡', message: '请选择要保留的发展卡。', selectedCard: null, selectedGold: action.selectedGold }
     case 'refill-confirm':
@@ -410,4 +557,30 @@ export const toRequestFeedbackView = (feedback: RequestFeedbackState): RequestFe
     case 'ack-failure':
       return { tone: 'error', title: '操作失败', message: feedback.message }
   }
+}
+
+export const toContextActionBarView = (action: ActionInteractionState): ContextActionBarView | null => {
+  if (action.kind === 'take-gems') {
+    return {
+      mode: action.kind,
+      message: action.message,
+      selectedGems: action.selectedGems,
+      warning: action.warning,
+      targetCount: 3,
+      maxPrivilegeCount: 3,
+      confirmDisabled: !isValidTakeGemSelection(action.selectedGems)
+    }
+  }
+  if (action.kind === 'spend-privilege') {
+    return {
+      mode: action.kind,
+      message: action.message,
+      selectedGems: action.selectedGems,
+      warning: null,
+      targetCount: action.targetCount,
+      maxPrivilegeCount: action.maxPrivilegeCount,
+      confirmDisabled: !isValidSpendPrivilegeSelection(action.selectedGems, action.targetCount)
+    }
+  }
+  return null
 }

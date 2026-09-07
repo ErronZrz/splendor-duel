@@ -16,7 +16,7 @@
     </header>
 
     <!-- 游戏主体 -->
-    <main class="game-main" :inert="victoryDialog.visible || undefined">
+    <main class="game-main" :class="{ 'has-context-action': Boolean(contextActionBar) }" :inert="victoryDialog.visible || undefined">
       <!-- 游戏版图区域 -->
       <div class="game-board-area">
         <div v-if="showWaitingArea" class="waiting-area">
@@ -74,39 +74,33 @@
               </div>
               
               <!-- 宝石版图 -->
-              <div class="gem-board">
-                <h4>宝石版图 (5x5)</h4>
-                <div class="gem-grid">
-                  <div 
-                    v-for="(row, rowIndex) in gameState?.gemBoard || []" 
-                    :key="`row-${rowIndex}`"
-                    class="gem-row"
-                  >
-                    <div 
-                      v-for="(gem, colIndex) in row" 
-                      :key="`cell-${rowIndex}-${colIndex}`"
-                      class="gem-cell"
-                      :class="{ 'has-gem': gem }"
-                    >
-                      <img 
-                        v-if="gem" 
-                        :src="`/images/gems/${getGemImageName(gem)}.jpg`" 
-                        :alt="gem"
-                        role="button"
-                        tabindex="0"
-                        :aria-label="`选择${selectGemDisplayName(gem)}，第${rowIndex + 1}行第${colIndex + 1}列`"
-                        class="gem-image"
-                        @error="handleImageError"
-                        @click="handleGemClick(rowIndex, colIndex, gem)"
-                        @keydown.enter.prevent="handleGemClick(rowIndex, colIndex, gem)"
-                        @keydown.space.prevent="handleGemClick(rowIndex, colIndex, gem)"
-                      />
-                      <span v-else class="empty-cell">空</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
+              <GemBoard
+                :board="gameState?.gemBoard || []"
+                :mode="gemBoardMode"
+                :selected-gems="selectedBoardGems"
+                :selectable-positions="boardSelectablePositions"
+                :illegal-positions="boardIllegalPositions"
+                :pending="isBoardActionPending"
+                @select="handleBoardGemSelect"
+                @cancel="handleBoardGemCancel"
+              />
+
+              <ContextActionBar
+                v-if="contextActionBar && !actionDialog.visible && !victoryDialog.visible"
+                :mode="contextActionBar.mode"
+                :selected-gems="contextActionBar.selectedGems"
+                :message="contextActionBar.message"
+                :warning="contextActionBar.warning"
+                :target-count="contextActionBar.targetCount"
+                :max-target-count="contextActionBar.maxPrivilegeCount"
+                :confirm-disabled="contextActionBar.confirmDisabled"
+                :pending="isBoardActionPending"
+                @change-count="handlePrivilegeCountChange"
+                @clear="handleBoardSelectionClear"
+                @cancel="handleBoardSelectionCancel"
+                @confirm="handleBoardSelectionConfirm"
+              />
+
               <!-- 发展卡区域 -->
               <div class="development-cards">
                 <h4>发展卡</h4>
@@ -210,7 +204,7 @@
                       :card-details="gameState?.cardDetails || {}"
                       :local-player-id="currentPlayer?.id"
                       :current-turn-player-id="gameState?.players?.[gameState.currentPlayerIndex]?.id"
-                      :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id"
+                      :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id && player.privilegeTokens > 0 && !gameState?.refilledThisTurn && !isBoardActionPending && interactionState.action.kind === 'idle'"
                       @spend-privilege="handleSpendPrivilege"
                       @reserved-card-click="handleReservedCardClick"
                       @card-image-error="handleCardImageError"
@@ -341,7 +335,7 @@
       </div>
     </main>
 
-    <nav v-if="!showWaitingArea && !actionDialog.visible" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
+    <nav v-if="!showWaitingArea && !actionDialog.visible && !contextActionBar" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
       <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
       <button type="button" @click="scrollToMobileSection('game-board-section')">棋盘</button>
       <button type="button" @click="scrollToMobileSection('game-player-section')">玩家</button>
@@ -359,11 +353,9 @@
       :title="actionDialog.title"
       :message="actionDialog.message"
       :gem-board="gameState?.gemBoard || []"
-      :available-privileges="getCurrentPlayerData().privilegeTokens || 0"
       :flipped-cards="gameState?.flippedCards || {}"
       :unflipped-cards="gameState?.unflippedCards || {}"
       :selected-gold-position="actionDialog.selectedGold || null"
-      :initial-gem-position="actionDialog.initialGemPosition || null"
       :player-data="actionDialog.actionType === 'buyCard' ? getCurrentPlayerData() : actionDialog.playerData || null"
       :selected-card="actionDialog.selectedCard || null"
       :card-details="gameState?.cardDetails || {}"
@@ -516,11 +508,16 @@ import { useGameStore } from '../stores/game'
 import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
+import ContextActionBar from '../components/ContextActionBar.vue'
+import GemBoard from '../components/GemBoard.vue'
 import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import { replaceBrokenImageWithLabel } from '../image-fallback'
 import {
   createGameInteractionState,
+  getIllegalGemPositions,
+  getSelectableGemPositions,
   toActionDialogView,
+  toContextActionBarView,
   toRequestFeedbackView,
   transitionGameInteraction
 } from '../game-interaction-state'
@@ -561,6 +558,7 @@ const notificationRef = ref(null)
 // 页面临时交互由一个显式模型承载，网络与权威状态仍由 store 管理
 const interactionState = ref(createGameInteractionState())
 const actionDialog = computed(() => toActionDialogView(interactionState.value.action))
+const contextActionBar = computed(() => toContextActionBarView(interactionState.value.action))
 const victoryDialog = computed(() => interactionState.value.victory.kind === 'victory'
   ? { visible: true, message: interactionState.value.victory.message }
   : { visible: false, message: '' })
@@ -711,6 +709,38 @@ const isMyTurn = computed(() => {
   return isLocalPlayersTurn(gameState.value, currentPlayer.value?.id)
 })
 
+const isBoardActionPending = computed(() => {
+  const feedback = interactionState.value.feedback
+  if (feedback.kind === 'pending' || feedback.kind === 'unknown') return true
+  return Object.values(pendingActions.value).some(action => action.status === 'pending' || action.status === 'unknown')
+})
+const selectedBoardGems = computed(() => {
+  const action = interactionState.value.action
+  return action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.selectedGems : []
+})
+const gemBoardMode = computed(() => {
+  const action = interactionState.value.action
+  return action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.kind : 'idle'
+})
+const occupiedBoardPositions = computed(() => (gameState.value?.gemBoard || []).flatMap((row, x) =>
+  row.flatMap((type, y) => type ? [{ x, y }] : [])
+))
+const boardSelectablePositions = computed(() => {
+  const action = interactionState.value.action
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
+    return isBoardActionPending.value ? [] : getSelectableGemPositions(gameState.value?.gemBoard || [], action)
+  }
+  if (action.kind !== 'idle' || !isMyTurn.value || isBoardActionPending.value || victoryDialog.value.visible) return []
+  return occupiedBoardPositions.value
+})
+const boardIllegalPositions = computed(() => {
+  const action = interactionState.value.action
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
+    return getIllegalGemPositions(gameState.value?.gemBoard || [], action)
+  }
+  return []
+})
+
 const getCurrentPlayerData = () => {
   return findPlayerById(gameState.value?.players, currentPlayer.value?.id) || {}
 }
@@ -853,21 +883,6 @@ const leaveGame = () => {
   router.push('/')
 }
 
-// 处理拿取宝石操作
-const handleTakeGems = () => {
-  if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
-    return
-  }
-  
-  applyInteractionEvent({
-    type: 'OPEN_TAKE_GEMS',
-    message: '请选择1-3个宝石，必须在一条直线上且连续。'
-  })
-}
-
 // 处理购买发展卡操作
 const handleBuyCard = () => {
   if (!isMyTurn.value) {
@@ -921,9 +936,10 @@ const handleSpendPrivilege = () => {
     return
   }
   
-  // 打开花费特权对话框
-  // 前端只负责收集用户输入，具体特权逻辑由后端处理
-  applyInteractionEvent({ type: 'OPEN_SPEND_PRIVILEGE' })
+  applyInteractionEvent({
+    type: 'OPEN_SPEND_PRIVILEGE',
+    maxPrivilegeCount: currentPlayerData.privilegeTokens
+  })
 }
 
 // 处理补充版图操作（先确认对话框）
@@ -950,17 +966,6 @@ const handleRefillBoard = () => {
 // 处理操作对话框确认
 const handleActionConfirm = (data) => {
   switch (data.actionType) {
-    case 'takeGems':
-      applyInteractionEvent({
-        type: 'CONFIRM_TAKE_GEMS',
-        selectedGems: data.selectedGems,
-        grantsPrivilege: shouldGrantPrivilegeForTakeGems(data.selectedGems),
-        privilegeMessage: getGrantPrivilegeMessage(data.selectedGems)
-      })
-      return
-    case 'confirmTakeGemsGrantPrivilege':
-      applyInteractionEvent({ type: 'CONFIRM_TAKE_GEMS_GRANT_PRIVILEGE' })
-      return
     case 'buyCard': {
       if (!data.selectedCard?.id) {
         notificationRef.value?.error('错误', '没有选择要购买的发展卡')
@@ -1036,13 +1041,6 @@ const handleActionConfirm = (data) => {
       applyInteractionEvent({ type: 'CANCEL_ACTION' })
       return
     }
-    case 'spendPrivilege':
-      executeAction('spendPrivilege', {
-        privilegeCount: data.privilegeCount,
-        gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
-      })
-      applyInteractionEvent({ type: 'CANCEL_ACTION' })
-      return
     case 'refillBoard':
       executeAction('refillBoard', {})
       applyInteractionEvent({ type: 'CANCEL_ACTION' })
@@ -1158,76 +1156,66 @@ const stopDiscardDialogCheck = () => {
   }
 }
 
-// 处理宝石点击（向后端发送操作请求）
-const handleGemClick = (rowIndex, colIndex, gemType) => {
-  if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
+// 真实棋盘只上报坐标意图，页面决定当前动作模式
+const handleBoardGemSelect = (position) => {
+  const type = gameState.value?.gemBoard?.[position.x]?.[position.y]
+  if (!type) return
+  const gem = { ...position, type }
+  const action = interactionState.value.action
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
+    applyInteractionEvent({ type: 'SELECT_BOARD_GEM', gem })
     return
   }
-  
-  // 如果点击的是黄金，打开保留发展卡对话框
-  if (gemType === 'gold') {
-    const me = getCurrentPlayerData()
-    const reserved = me?.reservedCards?.length || 0
+  if (action.kind !== 'idle') return
+  if (!isMyTurn.value) {
+    notificationRef.value?.error('错误', '不是你的回合')
+    return
+  }
+  if (isBoardActionPending.value) {
+    notificationRef.value?.info('请稍候', '正在等待上一项棋盘操作的服务器结果')
+    return
+  }
+
+  if (gem.type === 'gold') {
+    const reserved = getCurrentPlayerData()?.reservedCards?.length || 0
     if (reserved >= 3) {
-      if (notificationRef.value) {
-        notificationRef.value.error('无法保留', '已经保留 3 张发展卡')
-      }
+      notificationRef.value?.error('无法保留', '已经保留 3 张发展卡')
       return
     }
-    handleReserveCard(rowIndex, colIndex)
-  } else {
-    // 如果点击的是其他宝石，直接打开拿取宝石对话框
-    // 前端只负责收集用户输入，具体逻辑由后端处理
-    applyInteractionEvent({
-      type: 'OPEN_TAKE_GEMS',
-      message: '选择要拿取的宝石 (1-3个，必须在一条直线上且连续)',
-      initialGemPosition: { x: rowIndex, y: colIndex, type: gemType }
-    })
+    handleReserveCard(gem.x, gem.y)
+    return
   }
+
+  applyInteractionEvent({
+    type: 'OPEN_TAKE_GEMS',
+    message: '请选择 1–3 枚连续同线的非黄金宝石。',
+    initialGemPosition: gem
+  })
 }
 
-// 判断是否触发“让对手获得P”的条件
-const shouldGrantPrivilegeForTakeGems = (selectedGems) => {
-  if (!Array.isArray(selectedGems) || selectedGems.length === 0) return false
-  // 统计颜色数量
-  const colorCount = {}
-  let pearlCount = 0
-  for (const g of selectedGems) {
-    const t = g.type
-    if (t === 'pearl') pearlCount++
-    colorCount[t] = (colorCount[t] || 0) + 1
-  }
-  // 条件1：3个同色（排除黄金）
-  if (selectedGems.length === 3) {
-    for (const [t, c] of Object.entries(colorCount)) {
-      if (t !== 'gold' && c === 3) return true
-    }
-  }
-  // 条件2：包含2个珍珠
-  if (pearlCount >= 2) return true
-  return false
+const handleBoardGemCancel = (position) => {
+  applyInteractionEvent({ type: 'DESELECT_BOARD_GEM', position })
 }
 
-// 生成提示文案
-const getGrantPrivilegeMessage = (selectedGems) => {
-  // 判断是哪种情况
-  const colorCount = {}
-  let pearlCount = 0
-  for (const g of selectedGems) {
-    const t = g.type
-    if (t === 'pearl') pearlCount++
-    colorCount[t] = (colorCount[t] || 0) + 1
+const handleBoardSelectionClear = () => {
+  applyInteractionEvent({ type: 'CLEAR_BOARD_GEMS' })
+}
+
+const handleBoardSelectionCancel = () => {
+  applyInteractionEvent({ type: 'CANCEL_ACTION' })
+}
+
+const handlePrivilegeCountChange = (count) => {
+  applyInteractionEvent({ type: 'SET_PRIVILEGE_COUNT', count })
+}
+
+const handleBoardSelectionConfirm = () => {
+  const action = interactionState.value.action
+  if (action.kind === 'take-gems') {
+    applyInteractionEvent({ type: 'CONFIRM_TAKE_GEMS' })
+  } else if (action.kind === 'spend-privilege') {
+    applyInteractionEvent({ type: 'CONFIRM_SPEND_PRIVILEGE' })
   }
-  let reason = ''
-  for (const [t, c] of Object.entries(colorCount)) {
-    if (t !== 'gold' && c === 3) { reason = '拿取 3 个同色宝石'; break }
-  }
-  if (!reason && pearlCount >= 2) reason = '拿取 2 枚珍珠'
-  const msg = `${reason}将允许对手获得一个特权指示物，是否继续？`
-  return msg
 }
 
 // 统一的购买发展卡点击处理函数
@@ -1622,87 +1610,6 @@ watch(gameState, (newState, oldState) => {
 .bag-item { display: flex; align-items: center; gap: 4px; }
 .bag-count { font-weight: 700; color: #495057; font-size: 12px; }
 .bag-gem { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
-
-/* 宝石版图样式 */
-.gem-board {
-  margin-bottom: 24px;
-}
-
-.gem-board h4 {
-  margin: 0 0 12px 0;
-  color: #495057;
-}
-
-.gem-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 300px;
-}
-
-.gem-row {
-  display: flex;
-  gap: 4px;
-}
-
-.gem-cell {
-  aspect-ratio: 1;
-  border: 2px solid #dee2e6;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: white;
-  font-size: 12px;
-  font-weight: 600;
-  color: #6c757d;
-  width: 50px;
-  height: 50px;
-}
-
-.gem-cell.has-gem {
-  background: #e3f2fd;
-  border-color: #2196f3;
-  color: #1976d2;
-}
-
-.gem-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 50%;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.gem-image:hover {
-  transform: scale(1.1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.empty-cell {
-  color: #6c757d;
-  font-size: 10px;
-}
-
-.gem-text-fallback {
-  color: #495057;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.card-text-fallback {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  background: var(--color-surface-subtle);
-  color: var(--color-ink-muted);
-  font-size: 12px;
-  text-align: center;
-}
 
 /* 发展卡样式 */
 .development-cards {
@@ -2425,12 +2332,9 @@ watch(gameState, (newState, oldState) => {
   }
   .bag-container { margin-left: auto; }
 
-  .gem-grid { width: min(100%, 266px); }
-  .gem-row {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  .game-main.has-context-action {
+    padding-bottom: calc(230px + env(safe-area-inset-bottom));
   }
-  .gem-cell { width: auto; height: auto; min-width: 0; }
 
   .development-cards {
     min-width: 0;

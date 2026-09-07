@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   createGameInteractionState,
+  getSelectableGemPositions,
+  isValidTakeGemSelection,
   toActionDialogView,
+  toContextActionBarView,
   toRequestFeedbackView,
   transitionGameInteraction,
   type GameInteractionEvent,
@@ -36,39 +39,148 @@ const confirmPurchase = (effects: readonly string[], context?: NobleChoiceContex
 })
 
 describe('game interaction action transitions', () => {
-  it.each([
-    [{ type: 'OPEN_TAKE_GEMS', message: '请选择宝石' } as const, 'take-gems', 'takeGems'],
-    [{ type: 'OPEN_SPEND_PRIVILEGE' } as const, 'spend-privilege', 'spendPrivilege'],
-    [{ type: 'OPEN_RESERVE_CARD', selectedGold: { x: 1, y: 2 } } as const, 'reserve-card', 'reserveCard'],
-    [{ type: 'OPEN_REFILL_CONFIRM' } as const, 'refill-confirm', 'refillBoard'],
-    [{ type: 'OPEN_PURCHASE_PAYMENT', title: '购买发展卡', card } as const, 'purchase-payment', 'buyCard']
-  ])('opens idle into %s', (event, kind, actionType) => {
-    const result = apply(createGameInteractionState(), event)
-    expect(result.state.action.kind).toBe(kind)
-    expect(toActionDialogView(result.state.action)).toMatchObject({ visible: true, actionType })
-    expect(result.commands).toEqual([])
+  it('opens idle into direct take and spend modes without ActionDialog', () => {
+    const take = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS',
+      message: '请选择宝石',
+      initialGemPosition: { x: 1, y: 2, type: 'blue' }
+    })
+    expect(take.state.action).toMatchObject({
+      kind: 'take-gems',
+      selectedGems: [{ x: 1, y: 2, type: 'blue' }],
+      warning: null
+    })
+    expect(toActionDialogView(take.state.action).visible).toBe(false)
+    expect(toContextActionBarView(take.state.action)).toMatchObject({ mode: 'take-gems', confirmDisabled: false })
+
+    const spend = apply(createGameInteractionState(), { type: 'OPEN_SPEND_PRIVILEGE', maxPrivilegeCount: 2 })
+    expect(spend.state.action).toMatchObject({
+      kind: 'spend-privilege', targetCount: 1, maxPrivilegeCount: 2, selectedGems: []
+    })
+    expect(toActionDialogView(spend.state.action).visible).toBe(false)
+    expect(toContextActionBarView(spend.state.action)).toMatchObject({ mode: 'spend-privilege', confirmDisabled: true })
   })
 
-  it('keeps the warning confirmation and grant/take command order', () => {
-    const take = apply(createGameInteractionState(), { type: 'OPEN_TAKE_GEMS', message: '请选择宝石' }).state
-    const warning = apply(take, {
-      type: 'CONFIRM_TAKE_GEMS',
-      selectedGems: [
-        { x: 0, y: 0, type: 'white' },
-        { x: 0, y: 1, type: 'white' },
-        { x: 0, y: 2, type: 'white' }
-      ],
-      grantsPrivilege: true,
-      privilegeMessage: '对手获得特权'
-    })
-    expect(warning.state.action.kind).toBe('confirm-take-gems-grant-privilege')
-    expect(warning.commands).toEqual([])
+  it.each([
+    [[{ x: 2, y: 1, type: 'white' }, { x: 2, y: 2, type: 'blue' }, { x: 2, y: 3, type: 'green' }], 'horizontal'],
+    [[{ x: 1, y: 2, type: 'white' }, { x: 2, y: 2, type: 'blue' }, { x: 3, y: 2, type: 'green' }], 'vertical'],
+    [[{ x: 1, y: 1, type: 'white' }, { x: 2, y: 2, type: 'blue' }, { x: 3, y: 3, type: 'green' }], 'descending diagonal'],
+    [[{ x: 1, y: 3, type: 'white' }, { x: 2, y: 2, type: 'blue' }, { x: 3, y: 1, type: 'green' }], 'ascending diagonal']
+  ])('accepts a contiguous %s selection', (gems) => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: gems[0]
+    }).state
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: gems[1] }).state
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: gems[2] }).state
+    expect(state.action).toMatchObject({ kind: 'take-gems', selectedGems: gems })
+    expect(isValidTakeGemSelection(gems)).toBe(true)
+  })
 
-    const confirmed = apply(warning.state, { type: 'CONFIRM_TAKE_GEMS_GRANT_PRIVILEGE' })
+  it('exposes only contiguous next candidates and rejects a gap', () => {
+    const board = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 'white'))
+    const opened = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: { x: 2, y: 2, type: 'white' }
+    }).state
+    const selectable = getSelectableGemPositions(board, opened.action)
+    expect(selectable).toContainEqual({ x: 2, y: 3 })
+    expect(selectable).toContainEqual({ x: 1, y: 1 })
+    expect(selectable).not.toContainEqual({ x: 2, y: 4 })
+
+    const rejected = apply(opened, { type: 'SELECT_BOARD_GEM', gem: { x: 2, y: 4, type: 'white' } })
+    expect(rejected.state).toBe(opened)
+    expect(rejected.commands).toEqual([])
+  })
+
+  it('rejects gold, empty types and duplicate positions', () => {
+    const opened = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: { x: 0, y: 0, type: 'white' }
+    }).state
+    expect(apply(opened, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 1, type: 'gold' } }).state).toBe(opened)
+    expect(apply(opened, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 1, type: '' } }).state).toBe(opened)
+    expect(apply(opened, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 0, type: 'white' } }).state).toBe(opened)
+  })
+
+  it('supports single deselection, clear and cancel', () => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: { x: 0, y: 0, type: 'white' }
+    }).state
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 1, type: 'blue' } }).state
+    state = apply(state, { type: 'DESELECT_BOARD_GEM', position: { x: 0, y: 0 } }).state
+    expect(state.action).toMatchObject({ selectedGems: [{ x: 0, y: 1, type: 'blue' }] })
+    state = apply(state, { type: 'CLEAR_BOARD_GEMS' }).state
+    expect(state.action).toMatchObject({ selectedGems: [] })
+    expect(apply(state, { type: 'CANCEL_ACTION' }).state.action.kind).toBe('idle')
+  })
+
+  it.each([
+    [{ count: 1, gems: [{ x: 0, y: 0, type: 'white' }] }],
+    [{ count: 2, gems: [{ x: 0, y: 0, type: 'white' }, { x: 0, y: 1, type: 'blue' }] }],
+    [{ count: 3, gems: [{ x: 0, y: 0, type: 'white' }, { x: 0, y: 1, type: 'blue' }, { x: 0, y: 2, type: 'green' }] }]
+  ])('submits an ordinary $count-gem take without UI-only fields', ({ gems }) => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: gems[0]
+    }).state
+    for (const gem of gems.slice(1)) state = apply(state, { type: 'SELECT_BOARD_GEM', gem }).state
+
+    expect(toContextActionBarView(state.action)?.warning).toBeNull()
+    expect(apply(state, { type: 'CONFIRM_TAKE_GEMS' }).commands).toEqual([{
+      actionType: 'takeGems',
+      data: { gemPositions: gems.map(({ x, y }) => ({ x, y })) }
+    }])
+  })
+
+  it.each([
+    [
+      [{ x: 0, y: 0, type: 'white' }, { x: 0, y: 1, type: 'white' }, { x: 0, y: 2, type: 'white' }],
+      '拿取 3 个同色宝石'
+    ],
+    [
+      [{ x: 0, y: 0, type: 'pearl' }, { x: 0, y: 1, type: 'pearl' }],
+      '拿取 2 枚珍珠'
+    ]
+  ])('keeps the %s warning visible and emits grant before take', (gems, warningText) => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: gems[0]
+    }).state
+    for (const gem of gems.slice(1)) state = apply(state, { type: 'SELECT_BOARD_GEM', gem }).state
+    expect(toContextActionBarView(state.action)?.warning).toContain(warningText)
+
+    const confirmed = apply(state, { type: 'CONFIRM_TAKE_GEMS' })
     expect(confirmed.commands).toEqual([
       { actionType: 'grantOpponentPrivilege', data: {} },
-      { actionType: 'takeGems', data: { gemPositions: [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 0, y: 2 }] } }
+      { actionType: 'takeGems', data: { gemPositions: gems.map(({ x, y }) => ({ x, y })) } }
     ])
+  })
+
+  it('resets privilege selections when the target changes and submits only an exact count', () => {
+    let state = apply(createGameInteractionState(), { type: 'OPEN_SPEND_PRIVILEGE', maxPrivilegeCount: 3 }).state
+    expect(apply(state, { type: 'CONFIRM_SPEND_PRIVILEGE' }).commands).toEqual([])
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 0, type: 'white' } }).state
+    state = apply(state, { type: 'SET_PRIVILEGE_COUNT', count: 2 }).state
+    expect(state.action).toMatchObject({ targetCount: 2, selectedGems: [] })
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 0, type: 'white' } }).state
+    expect(apply(state, { type: 'CONFIRM_SPEND_PRIVILEGE' }).commands).toEqual([])
+    state = apply(state, { type: 'SELECT_BOARD_GEM', gem: { x: 4, y: 4, type: 'blue' } }).state
+    const overflow = apply(state, { type: 'SELECT_BOARD_GEM', gem: { x: 2, y: 2, type: 'green' } })
+    expect(overflow.state).toBe(state)
+
+    const confirmed = apply(state, { type: 'CONFIRM_SPEND_PRIVILEGE' })
+    expect(confirmed.commands).toEqual([{
+      actionType: 'spendPrivilege',
+      data: { privilegeCount: 2, gemPositions: [{ x: 0, y: 0 }, { x: 4, y: 4 }] }
+    }])
+  })
+
+  it('locks board mutation and confirmation while pending or unknown', () => {
+    const take = apply(createGameInteractionState(), {
+      type: 'OPEN_TAKE_GEMS', message: '请选择宝石', initialGemPosition: { x: 0, y: 0, type: 'white' }
+    }).state
+    const pending = apply(take, { type: 'REQUEST_SENT', requestId: 'r1', actionType: 'takeGems' }).state
+    expect(apply(pending, { type: 'SELECT_BOARD_GEM', gem: { x: 0, y: 1, type: 'blue' } }).state).toBe(pending)
+    expect(apply(pending, { type: 'CONFIRM_TAKE_GEMS' }).commands).toEqual([])
+
+    const unknown = apply(pending, { type: 'REQUEST_UNKNOWN', requestId: 'r1', actionType: 'takeGems' }).state
+    expect(apply(unknown, { type: 'CONFIRM_TAKE_GEMS' }).commands).toEqual([])
   })
 
   it.each([

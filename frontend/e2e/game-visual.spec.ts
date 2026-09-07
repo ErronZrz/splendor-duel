@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'discard' | 'victory'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -18,7 +18,7 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
   await expect(page.locator('.status[role="status"]')).toHaveAttribute('aria-live', 'polite')
   await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
-  const firstBoardGem = page.locator('.game-board .gem-image').first()
+  const firstBoardGem = page.locator('.game-board .gem-cell:not(:disabled)').first()
   await firstBoardGem.focus()
   await expect(firstBoardGem).toBeFocused()
   await expect(firstBoardGem).toHaveAttribute('aria-label', /第\d+行第\d+列/)
@@ -167,28 +167,62 @@ test.describe('mobile dialog baselines', () => {
     }
   }
 
-  test('@mobile-dialog keeps the take-gems shell inside the viewport', async ({ page }, testInfo) => {
+  test('keeps direct take-gems interaction accessible without overflow', async ({ page }, testInfo) => {
     await openFixture(page, 'take-gems')
-    await expect(page.locator('.dialog-content')).toBeVisible()
-    await expect(page.locator('.dialog-content')).toBeFocused()
+    await expect(page.locator('.dialog-content')).toBeHidden()
+    const actionBar = page.getByRole('region', { name: '拿取宝石' })
+    await expect(actionBar).toBeVisible()
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
-    const dialog = page.getByRole('dialog', { name: '拿取宝石' })
-    const selectableGem = dialog.getByRole('button', { name: '选择蓝色，第1行第2列', exact: true })
+
+    const selectableGem = page.locator('[data-board-position="0-1"]')
+    await expect(selectableGem).toHaveAttribute('aria-label', '选择蓝色，第1行第2列')
     await selectableGem.focus()
+    await expect(selectableGem).toHaveCSS('outline-width', '3px')
     await page.keyboard.press('Enter')
     await expect(selectableGem).toHaveAttribute('aria-pressed', 'true')
-    await dialog.getByRole('button', { name: '清除选择' }).click()
-    await dialog.getByRole('button', { name: '选择白色，第1行第1列', exact: true }).click()
-    await page.locator('.dialog-content').focus()
-    const dialogButtons = page.locator('.dialog-content button:not([disabled])')
-    await dialogButtons.last().focus()
-    await page.keyboard.press('Tab')
-    await expect(dialogButtons.first()).toBeFocused()
-    await page.locator('.dialog-content').focus()
-    await expectResponsiveDialog(page)
-    if (testInfo.project.name === 'mobile-primary') {
-      await expect(page).toHaveScreenshot('take-gems-dialog.png', { fullPage: true })
-    }
+    await actionBar.getByRole('button', { name: '清除' }).click()
+    await page.getByRole('button', { name: '选择白色，第1行第1列', exact: true }).click()
+
+    const boardMetrics = await page.locator('.gem-grid').evaluate(element => {
+      const bounds = element.getBoundingClientRect()
+      const cells = Array.from(element.querySelectorAll<HTMLElement>('.gem-cell'))
+      return {
+        left: bounds.left,
+        right: bounds.right,
+        minimumCellWidth: Math.min(...cells.map(cell => cell.getBoundingClientRect().width)),
+        minimumCellHeight: Math.min(...cells.map(cell => cell.getBoundingClientRect().height))
+      }
+    })
+    const viewport = page.viewportSize()
+    expect(viewport).not.toBeNull()
+    expect(boardMetrics.left).toBeGreaterThanOrEqual(0)
+    expect(boardMetrics.right).toBeLessThanOrEqual(viewport!.width)
+    expect(boardMetrics.minimumCellWidth).toBeGreaterThanOrEqual(44)
+    expect(boardMetrics.minimumCellHeight).toBeGreaterThanOrEqual(44)
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+    await page.screenshot({ path: testInfo.outputPath('take-gems-direct-actual.png'), fullPage: true, animations: 'disabled' })
+  })
+
+  test('keeps direct privilege interaction inside the primary mobile viewport', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'mobile-primary')
+    await openFixture(page, 'spend-privilege')
+    await expect(page.locator('.dialog-content')).toBeHidden()
+    const actionBar = page.getByRole('region', { name: '花费特权' })
+    await expect(actionBar).toBeVisible()
+    await actionBar.getByRole('button', { name: '2', exact: true }).click()
+    await page.getByRole('button', { name: '选择白色，第1行第1列', exact: true }).click()
+    await page.getByRole('button', { name: '选择蓝色，第1行第2列', exact: true }).tap()
+    await expect(actionBar.getByRole('button', { name: '确认' })).toBeEnabled()
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+    await page.screenshot({ path: testInfo.outputPath('spend-privilege-direct-actual.png'), fullPage: true, animations: 'disabled' })
   })
 
   test('@mobile-dialog keeps purchase payment from overflowing', async ({ page }, testInfo) => {

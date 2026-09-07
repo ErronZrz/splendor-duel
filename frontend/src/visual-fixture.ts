@@ -6,10 +6,10 @@ import { useGameStore } from './stores/game'
 import { createGameVisualFixture } from './visual-fixtures/game-fixture'
 import './style.css'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'discard' | 'victory'
 
 const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
-const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'discard' || requestedScenario === 'victory'
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'spend-privilege' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'discard' || requestedScenario === 'victory'
   ? requestedScenario
   : 'default'
 
@@ -39,11 +39,13 @@ app.mount('#app')
 await nextTick()
 
 if (scenario === 'take-gems') {
-  document.querySelector<HTMLElement>('.gem-board .gem-image')?.click()
+  document.querySelector<HTMLButtonElement>('.gem-board .gem-cell:not(:disabled)')?.click()
+} else if (scenario === 'spend-privilege') {
+  document.querySelector<HTMLElement>('.player-card .privilege-badge[role="button"]')?.click()
 } else if (scenario === 'purchase') {
   document.querySelector<HTMLElement>('.development-cards .card-item')?.click()
 } else if (scenario === 'reserve') {
-  document.querySelector<HTMLElement>('.gem-board .gem-image[alt="gold"]')?.click()
+  document.querySelector<HTMLButtonElement>('.gem-board .gem-cell[aria-label^="选择黄金"]')?.click()
 } else if (scenario === 'discard' && store.gameState) {
   store.gameState = {
     ...store.gameState,
