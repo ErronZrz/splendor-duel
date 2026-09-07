@@ -45,7 +45,7 @@ import { replaceBrokenImageWithLabel } from '../image-fallback'
 import { getGemDisplayName } from '../game-view-selectors'
 import type { GemPosition, SelectedGem } from '../game-interaction-state'
 
-export type GemBoardMode = 'idle' | 'take-gems' | 'spend-privilege' | 'reserve-card'
+export type GemBoardMode = 'idle' | 'take-gems' | 'spend-privilege' | 'reserve-card' | 'extra-token'
 
 const props = defineProps<{
   board: readonly (readonly string[])[]

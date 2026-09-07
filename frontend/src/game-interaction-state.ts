@@ -46,10 +46,10 @@ export type ActionInteractionState =
   | { kind: 'reserve-card'; selectedGold: GemPosition; target: ReserveTarget | null }
   | { kind: 'refill-confirm' }
   | { kind: 'purchase-payment'; title: string; card: InteractionCard | null; playerData?: unknown }
-  | { kind: 'extra-token'; purchase: PendingPurchase; effects: PurchaseEffects; message: string; playerData?: unknown }
-  | { kind: 'steal-token'; purchase: PendingPurchase; effects: PurchaseEffects; playerData?: unknown; returnToNoble: boolean; nobleContext?: NobleChoiceContext }
-  | { kind: 'wildcard'; purchase: PendingPurchase; effects: PurchaseEffects; playerData?: unknown; phase: 'selecting' | 'awaiting-followup' }
-  | { kind: 'noble'; purchase: PendingPurchase; effects: PurchaseEffects; context: NobleChoiceContext }
+  | { kind: 'extra-token'; purchase: PendingPurchase; effects: PurchaseEffects; message: string; selectedGem?: SelectedGem; playerData?: unknown }
+  | { kind: 'steal-token'; purchase: PendingPurchase; effects: PurchaseEffects; selectedGemType?: string; playerData?: unknown; returnToNoble: boolean; nobleContext?: NobleChoiceContext }
+  | { kind: 'wildcard'; purchase: PendingPurchase; effects: PurchaseEffects; selectedColor?: string; playerData?: unknown; phase: 'selecting' | 'awaiting-followup' }
+  | { kind: 'noble'; purchase: PendingPurchase; effects: PurchaseEffects; selectedNobleId?: string; context: NobleChoiceContext }
   | { kind: 'mandatory-discard'; open: boolean; completed: boolean; playerData?: unknown }
 
 export type RequestFeedbackState =
@@ -97,6 +97,11 @@ export type GameInteractionEvent =
   | { type: 'CONFIRM_RESERVE_CARD' }
   | { type: 'CONFIRM_REFILL_BOARD' }
   | { type: 'CONFIRM_PURCHASE_PAYMENT'; card: InteractionCard; paymentPlan: PaymentPlan; effects: readonly string[]; extraTokenMessage: string; extraTokenPlayerData?: unknown; stealPlayerData?: unknown; wildcardPlayerData?: unknown; nobleContext?: NobleChoiceContext }
+  | { type: 'SELECT_EXTRA_TOKEN'; gem: SelectedGem }
+  | { type: 'SELECT_STEAL_TOKEN'; gemType: string }
+  | { type: 'SELECT_WILDCARD'; color: string }
+  | { type: 'SELECT_NOBLE'; nobleId: string }
+  | { type: 'CLEAR_PURCHASE_EFFECT_SELECTION' }
   | { type: 'CONFIRM_EXTRA_TOKEN'; selectedGems: SelectedGem[]; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_STEAL_TOKEN'; stealGemType: string | null; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_WILDCARD'; wildcardColor: string }
@@ -132,7 +137,7 @@ export interface RequestFeedbackView {
 }
 
 export interface ContextActionBarView {
-  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm'
+  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble'
   message: string
   selectedGems: SelectedGem[]
   selectedGold: GemPosition | null
@@ -141,6 +146,8 @@ export interface ContextActionBarView {
   targetCount: number
   maxPrivilegeCount: number
   confirmDisabled: boolean
+  allowSkip?: boolean
+  selectionLabel?: string
 }
 
 const noCommands = (state: GameInteractionState): InteractionTransition => ({
@@ -240,6 +247,10 @@ export const getSelectableGemPositions = (
   board: readonly (readonly string[])[],
   action: ActionInteractionState
 ): GemPosition[] => {
+  if (action.kind === 'extra-token') {
+    const color = action.purchase.card.bonus || action.purchase.card.color
+    return boardPositions(board).filter(gem => gem.type !== 'gold' && gem.type === color).map(({ x, y }) => ({ x, y }))
+  }
   if (action.kind !== 'take-gems' && action.kind !== 'spend-privilege') return []
   const limit = action.kind === 'take-gems' ? 3 : action.targetCount
   if (action.selectedGems.length >= limit) return []
@@ -255,7 +266,7 @@ export const getIllegalGemPositions = (
   board: readonly (readonly string[])[],
   action: ActionInteractionState
 ): GemPosition[] => {
-  const selected = action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.selectedGems : []
+  const selected = action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.selectedGems : action.kind === 'extra-token' && action.selectedGem ? [action.selectedGem] : []
   const selectable = getSelectableGemPositions(board, action)
   return boardPositions(board)
     .filter(position => !selected.some(gem => samePosition(gem, position)))
@@ -444,20 +455,39 @@ export const transitionGameInteraction = (
       }
       return completePurchaseStep(state, purchase, {}, event.nobleContext)
     }
+    case 'SELECT_EXTRA_TOKEN':
+      if (boardInteractionLocked(state) || state.action.kind !== 'extra-token') return noCommands(state)
+      return withAction(state, { ...state.action, selectedGem: event.gem })
+    case 'SELECT_STEAL_TOKEN':
+      if (boardInteractionLocked(state) || state.action.kind !== 'steal-token') return noCommands(state)
+      return withAction(state, { ...state.action, selectedGemType: event.gemType })
+    case 'SELECT_WILDCARD':
+      if (boardInteractionLocked(state) || state.action.kind !== 'wildcard' || state.action.phase !== 'selecting') return noCommands(state)
+      return withAction(state, { ...state.action, selectedColor: event.color })
+    case 'SELECT_NOBLE':
+      if (boardInteractionLocked(state) || state.action.kind !== 'noble') return noCommands(state)
+      return withAction(state, { ...state.action, selectedNobleId: event.nobleId })
+    case 'CLEAR_PURCHASE_EFFECT_SELECTION':
+      if (boardInteractionLocked(state)) return noCommands(state)
+      if (state.action.kind === 'extra-token') return withAction(state, { ...state.action, selectedGem: undefined })
+      if (state.action.kind === 'steal-token') return withAction(state, { ...state.action, selectedGemType: undefined })
+      if (state.action.kind === 'wildcard') return withAction(state, { ...state.action, selectedColor: undefined })
+      if (state.action.kind === 'noble') return withAction(state, { ...state.action, selectedNobleId: undefined })
+      return noCommands(state)
     case 'CONFIRM_EXTRA_TOKEN':
       if (state.action.kind !== 'extra-token') return noCommands(state)
       if (event.purchaseValid === false) return withAction(state, { kind: 'idle' })
       return completePurchaseStep(state, state.action.purchase, {
         ...state.action.effects,
-        extraToken: event.selectedGems[0]
-          ? { selectedGem: { x: event.selectedGems[0].x, y: event.selectedGems[0].y } }
+        extraToken: (event.selectedGems[0] || state.action.selectedGem)
+          ? { selectedGem: { x: (event.selectedGems[0] || state.action.selectedGem)!.x, y: (event.selectedGems[0] || state.action.selectedGem)!.y } }
           : { skipped: true }
       }, event.nobleContext)
     case 'CONFIRM_STEAL_TOKEN': {
       if (state.action.kind !== 'steal-token') return noCommands(state)
       const effects: PurchaseEffects = {
         ...state.action.effects,
-        steal: event.stealGemType ? { gemType: event.stealGemType } : { skipped: true }
+        steal: (event.stealGemType || state.action.selectedGemType) ? { gemType: (event.stealGemType || state.action.selectedGemType)! } : { skipped: true }
       }
       if (effects.noble?.id === 'noble1') {
         return withAction(state, { kind: 'idle' }, [buyCardCommand(state.action.purchase, effects)])
@@ -575,17 +605,13 @@ export const toActionDialogView = (action: ActionInteractionState): ActionDialog
     case 'spend-privilege':
     case 'reserve-card':
     case 'refill-confirm':
+    case 'extra-token':
+    case 'steal-token':
+    case 'wildcard':
+    case 'noble':
       return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'purchase-payment':
       return { visible: true, actionType: 'buyCard', title: action.title, message: action.card ? '请确认要支付的token数量' : '请选择要购买的发展卡。', selectedCard: action.card, playerData: action.playerData }
-    case 'extra-token':
-      return { visible: true, actionType: 'takeExtraToken', title: '选择额外 token', message: action.message, selectedCard: action.purchase.card, playerData: action.playerData }
-    case 'steal-token':
-      return { visible: true, actionType: 'stealToken', title: '选择要窃取的宝石', message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过', selectedCard: action.purchase.card, playerData: action.playerData }
-    case 'wildcard':
-      return { visible: action.phase === 'selecting', actionType: 'chooseWildcardColor', title: '选择百搭颜色', message: '请选择一个你已拥有优惠的颜色作为本卡的百搭颜色', selectedCard: action.purchase.card, playerData: action.playerData }
-    case 'noble':
-      return { visible: true, actionType: 'chooseNoble', title: '选择贵族', message: '请选择一个可获得的贵族', selectedCard: action.purchase.card, playerData: action.context.playerData }
     case 'mandatory-discard':
       return { visible: action.open, actionType: 'discardGems', title: '丢弃宝石', message: '您的宝石总数超过10个，请丢弃一些宝石', selectedCard: null, playerData: action.playerData }
   }
@@ -658,6 +684,18 @@ export const toContextActionBarView = (action: ActionInteractionState): ContextA
       maxPrivilegeCount: 0,
       confirmDisabled: false
     }
+  }
+  if (action.kind === 'extra-token') {
+    return { mode: action.kind, message: action.message, selectedGems: action.selectedGem ? [action.selectedGem] : [], selectedGold: null, reserveTarget: null, warning: null, targetCount: 1, maxPrivilegeCount: 1, confirmDisabled: !action.selectedGem, selectionLabel: action.selectedGem ? `已选 ${action.selectedGem.type}` : undefined }
+  }
+  if (action.kind === 'steal-token') {
+    return { mode: action.kind, message: '请从对手实际持有的 token 中选择一种颜色。', selectedGems: [], selectedGold: null, reserveTarget: null, warning: null, targetCount: 1, maxPrivilegeCount: 1, confirmDisabled: !action.selectedGemType, selectionLabel: action.selectedGemType }
+  }
+  if (action.kind === 'wildcard') {
+    return { mode: action.kind, message: '请选择百搭发展卡要提供的优惠颜色。', selectedGems: [], selectedGold: null, reserveTarget: null, warning: null, targetCount: 1, maxPrivilegeCount: 1, confirmDisabled: !action.selectedColor || action.phase !== 'selecting', selectionLabel: action.selectedColor }
+  }
+  if (action.kind === 'noble') {
+    return { mode: action.kind, message: '请从当前可用贵族中选择一位。', selectedGems: [], selectedGold: null, reserveTarget: null, warning: null, targetCount: 1, maxPrivilegeCount: 1, confirmDisabled: !action.selectedNobleId, selectionLabel: action.selectedNobleId }
   }
   return null
 }

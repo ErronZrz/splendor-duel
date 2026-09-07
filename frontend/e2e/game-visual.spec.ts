@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -321,4 +321,40 @@ test.describe('mobile dialog baselines', () => {
     expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
     await page.screenshot({ path: testInfo.outputPath('refill-inline-actual.png'), fullPage: true, animations: 'disabled' })
   })
+
+  for (const [scenario, region] of [
+    ['extra-token', '选择额外 token'],
+    ['steal-token', '从对手处窃取 token'],
+    ['wildcard', '选择百搭颜色'],
+    ['noble', '选择贵族']
+  ] as const) {
+    test(`keeps ${scenario} on real page elements without overflow`, async ({ page }, testInfo) => {
+      await openFixture(page, scenario)
+      await expect(page.locator('.dialog-content')).toBeHidden()
+      const actionBar = page.getByRole('region', { name: region })
+      await expect(actionBar).toBeVisible()
+      if (scenario === 'steal-token' && testInfo.project.name.startsWith('mobile-')) {
+        await page.locator('.player-details').nth(1).locator('.player-summary').click()
+      }
+      const target = scenario === 'extra-token'
+        ? page.locator('.gem-cell.selectable').first()
+        : scenario === 'steal-token'
+          ? page.locator('.player-card:not(.current-player) .token-cell.selectable').first()
+          : scenario === 'wildcard'
+            ? page.locator('.inline-effect-choices button').first()
+            : page.locator('.noble-item.selectable').first()
+      await expect(target).toBeVisible()
+      if (testInfo.project.name.startsWith('mobile-')) await target.tap()
+      else await target.click()
+      await expect(actionBar.getByRole('button', { name: '确认' })).toBeEnabled()
+      const metrics = await target.evaluate(element => {
+        const bounds = element.getBoundingClientRect()
+        return { width: bounds.width, height: bounds.height, pageWidth: document.documentElement.scrollWidth, viewportWidth: document.documentElement.clientWidth }
+      })
+      expect(metrics.width).toBeGreaterThanOrEqual(44)
+      expect(metrics.height).toBeGreaterThanOrEqual(44)
+      expect(metrics.pageWidth).toBe(metrics.viewportWidth)
+      await page.screenshot({ path: testInfo.outputPath(`${scenario}-direct-actual.png`), fullPage: true, animations: 'disabled' })
+    })
+  }
 })

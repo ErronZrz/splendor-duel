@@ -259,7 +259,8 @@ describe('existing game action orchestration', () => {
     })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1, gold: 0 } })
-    expect(actionDialog().props('actionType')).toBe('takeExtraToken')
+    expect(actionDialog().props('visible')).toBe(false)
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('extra-token')
 
     await emitConfirm({ actionType: 'takeExtraToken', selectedGems: [{ x: 2, y: 1, type: 'blue' }] })
     expect(sendAction).toHaveBeenCalledTimes(1)
@@ -284,7 +285,7 @@ describe('existing game action orchestration', () => {
     const steal = await createGameFlowHarness({ card: makeCard({ effects: ['steal'] }) })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: steal.card, paymentPlan: { white: 1 } })
-    expect(actionDialog().props('actionType')).toBe('stealToken')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('steal-token')
     await emitConfirm({ actionType: 'stealToken', stealGemType: null })
     expect(steal.sendAction).toHaveBeenCalledWith('buyCard', {
       cardId: 'flow-card', paymentPlan: { white: 1 }, effects: { steal: { skipped: true } },
@@ -295,7 +296,8 @@ describe('existing game action orchestration', () => {
     const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ effects: ['wildcard'] }) })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
-    expect(actionDialog().props('actionType')).toBe('chooseWildcardColor')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('wildcard')
+    expect(wrapper.get('.inline-effect-choices').exists()).toBe(true)
     await emitConfirm({ actionType: 'chooseWildcardColor', wildcardColor: 'white' })
     expect(sendAction).not.toHaveBeenCalled()
     await vi.runAllTimersAsync()
@@ -308,12 +310,12 @@ describe('existing game action orchestration', () => {
     const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ crowns: 3 }) })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
-    expect(actionDialog().props('actionType')).toBe('chooseNoble')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('noble')
 
     await emitConfirm({ actionType: 'chooseNoble', nobleId: 'noble1' })
-    expect(actionDialog().props('actionType')).toBe('stealToken')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('steal-token')
     await emitCancel()
-    expect(actionDialog().props('actionType')).toBe('chooseNoble')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('noble')
 
     await emitConfirm({ actionType: 'chooseNoble', nobleId: 'noble2' })
     expect(sendAction).toHaveBeenCalledTimes(1)
@@ -343,7 +345,7 @@ describe('existing game action orchestration', () => {
     })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
-    expect(actionDialog().props('actionType')).toBe('takeExtraToken')
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('extra-token')
     await emitConfirm({ actionType: 'takeExtraToken', selectedGems: [{ x: 0, y: 1, type: 'blue' }] })
 
     expect(sendAction).toHaveBeenCalledTimes(1)
@@ -352,6 +354,60 @@ describe('existing game action orchestration', () => {
       paymentPlan: { white: 1 },
       effects: { extraToken: { selectedGem: { x: 0, y: 1 } } },
     })
+  })
+
+  it('completes extra token through the real board and the inline action bar', async () => {
+    const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ effects: ['extra_token'] }) })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
+    await wrapper.get('[data-board-position="0-1"]').trigger('click')
+    const bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.props('confirmDisabled')).toBe(false)
+    await bar.get('.btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledTimes(1)
+    expect(sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { extraToken: { selectedGem: { x: 0, y: 1 } } } }))
+  })
+
+  it('completes steal through the opponent real token display', async () => {
+    const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ effects: ['steal'] }) })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
+    const opponent = wrapper.findAllComponents(PlayerStatusCard).find(item => item.props('player').id === 'p2')
+    await opponent.get('.token-cell.selectable').trigger('keydown', { key: 'Enter' })
+    await opponent.get('.token-cell.selectable').trigger('click')
+    await wrapper.findComponent(ContextActionBar).get('.btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledTimes(1)
+    expect(sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { steal: { gemType: 'white' } } }))
+  })
+
+  it('completes wildcard and noble from their existing inline page regions', async () => {
+    let flow = await createGameFlowHarness({ card: makeCard({ effects: ['wildcard'] }) })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: flow.card, paymentPlan: { white: 1 } })
+    await wrapper.get('.inline-effect-choices button').trigger('click')
+    await wrapper.findComponent(ContextActionBar).get('.btn-primary').trigger('click')
+    await vi.runAllTimersAsync()
+    expect(flow.sendAction).toHaveBeenCalledTimes(1)
+
+    wrapper.unmount()
+    wrapper = undefined
+    flow = await createGameFlowHarness({ card: makeCard({ crowns: 3 }) })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: flow.card, paymentPlan: { white: 1 } })
+    await wrapper.get('.noble-item.selectable:nth-child(2)').trigger('keydown', { key: ' ' })
+    await wrapper.findComponent(ContextActionBar).get('.btn-primary').trigger('click')
+    expect(flow.sendAction).toHaveBeenCalledTimes(1)
+    expect(flow.sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { noble: { id: 'noble2' } } }))
+  })
+
+  it('only exposes explicit effect skipping when authority has no legal target', async () => {
+    const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ effects: ['extra_token'] }), stateOverrides: { gemBoard: [['white', 'gold']] } })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
+    const bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.findAll('.context-actions button').map(button => button.text())).toContain('明确跳过')
+    await bar.findAll('.context-actions button').find(button => button.text() === '明确跳过').trigger('click')
+    expect(sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { extraToken: { skipped: true } } }))
   })
 
   it.each([

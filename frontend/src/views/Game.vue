@@ -108,12 +108,21 @@
                 :target-count="contextActionBar.targetCount"
                 :max-target-count="contextActionBar.maxPrivilegeCount"
                 :confirm-disabled="contextActionBar.confirmDisabled"
+                :allow-skip="purchaseEffectCanSkip"
+                :selection-label="contextActionBar.selectionLabel"
                 :pending="isBoardActionPending"
                 @change-count="handlePrivilegeCountChange"
                 @clear="handleBoardSelectionClear"
                 @cancel="handleBoardSelectionCancel"
                 @confirm="handleBoardSelectionConfirm"
+                @skip="handlePurchaseEffectSkip"
               />
+
+              <div v-if="interactionState.action.kind === 'wildcard'" class="inline-effect-choices" role="group" aria-label="百搭颜色选择">
+                <button v-for="color in wildcardSelectableColors" :key="color" type="button" :class="{ selected: interactionState.action.selectedColor === color }" :aria-pressed="interactionState.action.selectedColor === color" :disabled="isBoardActionPending" @click="selectWildcardColor(color)">
+                  <img :src="`/images/gems/${getGemImageName(color)}.jpg`" alt="" />{{ getGemDisplayName(color) }}
+                </button>
+              </div>
 
               <!-- 发展卡区域 -->
               <div class="development-cards">
@@ -189,8 +198,14 @@
                     v-for="nobleId in gameState?.availableNobles || []" 
                     :key="nobleId"
                     class="noble-item"
-                    role="img"
-                    :aria-label="getNobleName(nobleId)"
+                    :class="{ selectable: isNobleSelectable(nobleId), selected: selectedNobleId === nobleId }"
+                    :role="isNobleSelectable(nobleId) ? 'button' : 'img'"
+                    :tabindex="isNobleSelectable(nobleId) ? 0 : undefined"
+                    :aria-label="isNobleSelectable(nobleId) ? `选择${getNobleName(nobleId)}` : getNobleName(nobleId)"
+                    :aria-pressed="isNobleSelectable(nobleId) ? selectedNobleId === nobleId : undefined"
+                    @click="selectNoble(nobleId)"
+                    @keydown.enter.prevent="selectNoble(nobleId)"
+                    @keydown.space.prevent="selectNoble(nobleId)"
                   >
                     <img 
                       :src="`/images/nobles/${nobleId}.jpg`" 
@@ -235,10 +250,13 @@
                       :local-player-id="currentPlayer?.id"
                       :current-turn-player-id="gameState?.players?.[gameState.currentPlayerIndex]?.id"
                       :can-spend-privilege="isMyTurn && player.id === currentPlayer?.id && player.privilegeTokens > 0 && !gameState?.refilledThisTurn && !isBoardActionPending && interactionState.action.kind === 'idle'"
+                      :steal-selectable-types="player.id !== currentPlayer?.id ? stealSelectableTypes : []"
+                      :selected-steal-type="selectedStealType"
                       @spend-privilege="handleSpendPrivilege"
                       @reserved-card-click="handleReservedCardClick"
                       @card-image-error="handleCardImageError"
                       @noble-image-error="handleNobleImageError"
+                      @select-steal-token="selectStealToken"
                     />
                   </div>
                 </div>
@@ -744,11 +762,12 @@ const selectedBoardGems = computed(() => {
   const action = interactionState.value.action
   if (action.kind === 'take-gems' || action.kind === 'spend-privilege') return action.selectedGems
   if (action.kind === 'reserve-card') return [{ ...action.selectedGold, type: 'gold' }]
+  if (action.kind === 'extra-token' && action.selectedGem) return [action.selectedGem]
   return []
 })
 const gemBoardMode = computed(() => {
   const action = interactionState.value.action
-  return action.kind === 'take-gems' || action.kind === 'spend-privilege' || action.kind === 'reserve-card'
+  return action.kind === 'take-gems' || action.kind === 'spend-privilege' || action.kind === 'reserve-card' || action.kind === 'extra-token'
     ? action.kind
     : 'idle'
 })
@@ -766,7 +785,7 @@ const occupiedBoardPositions = computed(() => (gameState.value?.gemBoard || []).
 ))
 const boardSelectablePositions = computed(() => {
   const action = interactionState.value.action
-  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege' || action.kind === 'extra-token') {
     return isBoardActionPending.value ? [] : getSelectableGemPositions(gameState.value?.gemBoard || [], action)
   }
   if (action.kind !== 'idle' || !isMyTurn.value || isBoardActionPending.value || victoryDialog.value.visible) return []
@@ -774,10 +793,30 @@ const boardSelectablePositions = computed(() => {
 })
 const boardIllegalPositions = computed(() => {
   const action = interactionState.value.action
-  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege' || action.kind === 'extra-token') {
     return getIllegalGemPositions(gameState.value?.gemBoard || [], action)
   }
   return []
+})
+const legalStealTypes = ['white', 'blue', 'green', 'red', 'black', 'pearl']
+const stealSelectableTypes = computed(() => {
+  if (interactionState.value.action.kind !== 'steal-token' || isBoardActionPending.value) return []
+  const gems = getOpponentData()?.gems || {}
+  return legalStealTypes.filter(type => (gems[type] || 0) > 0)
+})
+const selectedStealType = computed(() => interactionState.value.action.kind === 'steal-token' ? interactionState.value.action.selectedGemType : undefined)
+const wildcardSelectableColors = computed(() => {
+  if (interactionState.value.action.kind !== 'wildcard') return []
+  const bonus = getCurrentPlayerData()?.bonus || {}
+  return ['white', 'blue', 'green', 'red', 'black'].filter(color => (bonus[color] || 0) > 0)
+})
+const selectedNobleId = computed(() => interactionState.value.action.kind === 'noble' ? interactionState.value.action.selectedNobleId : undefined)
+const isNobleSelectable = (nobleId) => interactionState.value.action.kind === 'noble' && !isBoardActionPending.value && (gameState.value?.availableNobles || []).includes(nobleId)
+const purchaseEffectCanSkip = computed(() => {
+  const action = interactionState.value.action
+  if (action.kind === 'extra-token') return boardSelectablePositions.value.length === 0
+  if (action.kind === 'steal-token') return stealSelectableTypes.value.length === 0
+  return false
 })
 
 const getCurrentPlayerData = () => {
@@ -1179,6 +1218,12 @@ const handleBoardGemSelect = (position) => {
   if (!type) return
   const gem = { ...position, type }
   const action = interactionState.value.action
+  if (action.kind === 'extra-token') {
+    if (boardSelectablePositions.value.some(item => item.x === position.x && item.y === position.y)) {
+      applyInteractionEvent({ type: 'SELECT_EXTRA_TOKEN', gem })
+    }
+    return
+  }
   if (action.kind === 'take-gems' || action.kind === 'spend-privilege') {
     applyInteractionEvent({ type: 'SELECT_BOARD_GEM', gem })
     return
@@ -1216,10 +1261,17 @@ const handleBoardGemCancel = (position) => {
     applyInteractionEvent({ type: 'CANCEL_ACTION' })
     return
   }
+  if (action.kind === 'extra-token' && action.selectedGem?.x === position.x && action.selectedGem?.y === position.y) {
+    applyInteractionEvent({ type: 'CLEAR_PURCHASE_EFFECT_SELECTION' })
+    return
+  }
   applyInteractionEvent({ type: 'DESELECT_BOARD_GEM', position })
 }
 
 const handleBoardSelectionClear = () => {
+  const action = interactionState.value.action
+  if (action.kind === 'extra-token' || action.kind === 'steal-token' || action.kind === 'wildcard' || action.kind === 'noble') applyInteractionEvent({ type: 'CLEAR_PURCHASE_EFFECT_SELECTION' })
+  else
   applyInteractionEvent({
     type: interactionState.value.action.kind === 'reserve-card' ? 'CLEAR_RESERVE_TARGET' : 'CLEAR_BOARD_GEMS'
   })
@@ -1244,6 +1296,31 @@ const handleBoardSelectionConfirm = () => {
   }
 
   const action = interactionState.value.action
+  if (action.kind === 'extra-token') {
+    const currentType = action.selectedGem && gameState.value?.gemBoard?.[action.selectedGem.x]?.[action.selectedGem.y]
+    const expected = action.purchase.card.bonus || action.purchase.card.color
+    if (!action.selectedGem || currentType !== expected || currentType === 'gold') return notificationRef.value?.error('目标已变化', '请选择仍在版图上的匹配 token')
+    const followup = getPurchaseFollowup(action.purchase.card)
+    applyInteractionEvent({ type: 'CONFIRM_EXTRA_TOKEN', selectedGems: [action.selectedGem], purchaseValid: followup.valid, ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {}) })
+    return
+  }
+  if (action.kind === 'steal-token') {
+    if (!action.selectedGemType || !stealSelectableTypes.value.includes(action.selectedGemType)) return notificationRef.value?.error('目标已变化', '请选择对手仍实际持有的 token')
+    const followup = getPurchaseFollowup(action.purchase.card)
+    applyInteractionEvent({ type: 'CONFIRM_STEAL_TOKEN', stealGemType: action.selectedGemType, purchaseValid: followup.valid, ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {}) })
+    return
+  }
+  if (action.kind === 'wildcard') {
+    if (!action.selectedColor || !wildcardSelectableColors.value.includes(action.selectedColor)) return notificationRef.value?.error('目标已变化', '请选择仍有优惠的颜色')
+    applyInteractionEvent({ type: 'CONFIRM_WILDCARD', wildcardColor: action.selectedColor })
+    return
+  }
+  if (action.kind === 'noble') {
+    const fresh = getPurchaseFollowup(action.purchase.card)
+    if (!fresh.nobleContext || !action.selectedNobleId || !fresh.nobleContext.playerData.availableNobles.includes(action.selectedNobleId)) return notificationRef.value?.error('目标已变化', '请选择当前仍可用的贵族')
+    applyInteractionEvent({ type: 'CONFIRM_NOBLE', nobleId: action.selectedNobleId, stealPlayerData: buildStealDialogPlayerData() })
+    return
+  }
   if (action.kind === 'take-gems') {
     applyInteractionEvent({ type: 'CONFIRM_TAKE_GEMS' })
     return
@@ -1285,6 +1362,23 @@ const handleBoardSelectionConfirm = () => {
     }
     applyInteractionEvent({ type: 'CONFIRM_REFILL_BOARD' })
   }
+}
+
+const selectStealToken = (gemType) => {
+  if (stealSelectableTypes.value.includes(gemType)) applyInteractionEvent({ type: 'SELECT_STEAL_TOKEN', gemType })
+}
+const selectWildcardColor = (color) => {
+  if (wildcardSelectableColors.value.includes(color)) applyInteractionEvent({ type: 'SELECT_WILDCARD', color })
+}
+const selectNoble = (nobleId) => {
+  if (isNobleSelectable(nobleId)) applyInteractionEvent({ type: 'SELECT_NOBLE', nobleId })
+}
+const handlePurchaseEffectSkip = () => {
+  const action = interactionState.value.action
+  if (!purchaseEffectCanSkip.value) return
+  const followup = getPurchaseFollowup(action.purchase.card)
+  if (action.kind === 'extra-token') applyInteractionEvent({ type: 'CONFIRM_EXTRA_TOKEN', selectedGems: [], purchaseValid: followup.valid, ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {}) })
+  if (action.kind === 'steal-token') applyInteractionEvent({ type: 'CONFIRM_STEAL_TOKEN', stealGemType: null, purchaseValid: followup.valid, ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {}) })
 }
 
 // 统一的购买发展卡点击处理函数
@@ -1909,6 +2003,12 @@ watch(gameState, (newState, oldState) => {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
+.noble-item.selectable { cursor: pointer; min-width: 44px; min-height: 44px; outline: 2px solid var(--color-action); outline-offset: 2px; }
+.noble-item.selected { box-shadow: 0 0 0 4px rgba(37, 99, 235, .28); }
+.inline-effect-choices { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+.inline-effect-choices button { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 44px; min-height: 44px; padding: var(--space-2); border: 2px solid var(--color-border); border-radius: var(--radius-control); background: var(--color-surface); }
+.inline-effect-choices button.selected { border-color: var(--color-action); box-shadow: 0 0 0 3px rgba(37, 99, 235, .24); }
+.inline-effect-choices img { width: 32px; height: 32px; border-radius: 50%; }
 
 .noble-image {
   width: 80px;

@@ -39,6 +39,9 @@
       <span v-if="reserveTarget" class="selected-gem selected-target">目标：{{ reserveTargetLabel }}</span>
       <span v-else class="empty-selection">尚未选择市场卡或牌堆</span>
     </div>
+    <div v-else-if="selectionLabel" class="selected-list" aria-live="polite">
+      <span class="selected-gem">已选：{{ getGemDisplayName(selectionLabel) }}</span>
+    </div>
 
     <p v-if="warning" class="context-warning" role="alert">{{ warning }}</p>
     <p v-if="pending" class="context-pending" role="status">等待服务器确认，不能重复提交</p>
@@ -46,6 +49,7 @@
     <div class="context-actions">
       <button type="button" class="btn btn-secondary" :disabled="pending" @click="emit('cancel')">取消</button>
       <button v-if="mode !== 'refill-confirm'" type="button" class="btn btn-secondary" :disabled="pending || clearDisabled" @click="emit('clear')">清除</button>
+      <button v-if="allowSkip" type="button" class="btn btn-secondary" :disabled="pending" @click="emit('skip')">明确跳过</button>
       <button type="button" class="btn btn-primary" :disabled="pending || confirmDisabled" @click="emit('confirm')">{{ confirmLabel }}</button>
     </div>
   </section>
@@ -57,7 +61,7 @@ import { getGemDisplayName } from '../game-view-selectors'
 import type { GemPosition, ReserveTarget, SelectedGem } from '../game-interaction-state'
 
 const props = defineProps<{
-  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm'
+  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble'
   selectedGems: readonly SelectedGem[]
   selectedGold?: GemPosition | null
   reserveTarget?: ReserveTarget | null
@@ -67,6 +71,8 @@ const props = defineProps<{
   maxTargetCount: number
   confirmDisabled: boolean
   pending: boolean
+  allowSkip?: boolean
+  selectionLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -74,13 +80,18 @@ const emit = defineEmits<{
   clear: []
   cancel: []
   confirm: []
+  skip: []
 }>()
 
 const title = computed(() => ({
   'take-gems': '拿取宝石',
   'spend-privilege': '花费特权',
   'reserve-card': '保留发展卡',
-  'refill-confirm': '确认补充版图'
+  'refill-confirm': '确认补充版图',
+  'extra-token': '选择额外 token',
+  'steal-token': '从对手处窃取 token',
+  wildcard: '选择百搭颜色',
+  noble: '选择贵族'
 })[props.mode])
 const showsGemSelection = computed(() => props.mode === 'take-gems' || props.mode === 'spend-privilege')
 const requiredCount = computed(() => props.mode === 'take-gems' ? 3 : props.targetCount)
@@ -95,7 +106,7 @@ const reserveTargetLabel = computed(() => {
 })
 const clearDisabled = computed(() => props.mode === 'reserve-card'
   ? !props.reserveTarget
-  : props.selectedGems.length === 0)
+  : props.selectedGems.length === 0 && !props.selectionLabel)
 const confirmLabel = computed(() => props.mode === 'reserve-card'
   ? '确认保留'
   : props.mode === 'refill-confirm' ? '确认补盘' : '确认')

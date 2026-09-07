@@ -332,6 +332,21 @@ describe('game interaction action transitions', () => {
       expect(canceled.state.action.context).toEqual(nobleContext)
     }
   })
+
+  it('keeps direct purchase-effect selections temporary until one final confirmation command', () => {
+    const extra = confirmPurchase(['extra_token']).state
+    const selectedExtra = apply(extra, { type: 'SELECT_EXTRA_TOKEN', gem: { x: 0, y: 1, type: 'blue' } }).state
+    expect(toContextActionBarView(selectedExtra.action)).toMatchObject({ mode: 'extra-token', confirmDisabled: false })
+    expect(apply(selectedExtra, { type: 'CLEAR_PURCHASE_EFFECT_SELECTION' }).commands).toEqual([])
+    expect(apply(selectedExtra, { type: 'CONFIRM_EXTRA_TOKEN', selectedGems: [] }).commands).toEqual([{
+      actionType: 'buyCard',
+      data: { cardId: 'flow-card', paymentPlan, effects: { extraToken: { selectedGem: { x: 0, y: 1 } } } }
+    }])
+
+    const wildcard = apply(confirmPurchase(['wildcard']).state, { type: 'SELECT_WILDCARD', color: 'white' }).state
+    expect(toContextActionBarView(wildcard.action)).toMatchObject({ mode: 'wildcard', selectionLabel: 'white', confirmDisabled: false })
+    expect(apply(wildcard, { type: 'CONFIRM_WILDCARD', wildcardColor: 'white' }).commands).toEqual([])
+  })
 })
 
 describe('mandatory discard authority transitions', () => {

@@ -6,10 +6,10 @@ import { useGameStore } from './stores/game'
 import { createGameVisualFixture } from './visual-fixtures/game-fixture'
 import './style.css'
 
-type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory'
 
 const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
-const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'spend-privilege' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'refill' || requestedScenario === 'discard' || requestedScenario === 'victory'
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'spend-privilege' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'refill' || requestedScenario === 'extra-token' || requestedScenario === 'steal-token' || requestedScenario === 'wildcard' || requestedScenario === 'noble' || requestedScenario === 'discard' || requestedScenario === 'victory'
   ? requestedScenario
   : 'default'
 
@@ -19,6 +19,14 @@ const router = createRouter({
   routes: [{ path: '/', component: { template: '<div />' } }]
 })
 const fixture = createGameVisualFixture()
+if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
+  const firstCardId = fixture.room.gameState?.flippedCards?.['1']?.[0]
+  const card = firstCardId ? fixture.room.gameState?.cardDetails?.[firstCardId] : undefined
+  if (card) {
+    card.effects = scenario === 'extra-token' ? ['extra_token'] : scenario === 'steal-token' ? ['steal'] : scenario === 'wildcard' ? ['wildcard'] : []
+    if (scenario === 'noble') card.crowns = 4
+  }
+}
 const store = useGameStore(pinia)
 
 store.currentRoom = fixture.room
@@ -48,6 +56,12 @@ if (scenario === 'take-gems') {
   document.querySelector<HTMLButtonElement>('.gem-board .gem-cell[aria-label^="选择黄金"]')?.click()
 } else if (scenario === 'refill') {
   document.querySelector<HTMLElement>('.bag-pill')?.click()
+} else if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
+  document.querySelector<HTMLElement>('.development-cards .card-item[aria-label^="购买发展卡：a1"]')?.click()
+  await nextTick()
+  await new Promise(resolve => requestAnimationFrame(() => resolve(undefined)))
+  document.querySelector<HTMLButtonElement>('.dialog-footer .btn-primary')?.click()
+  await nextTick()
 } else if (scenario === 'discard' && store.gameState) {
   store.gameState = {
     ...store.gameState,

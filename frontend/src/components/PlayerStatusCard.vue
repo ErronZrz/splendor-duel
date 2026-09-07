@@ -58,19 +58,19 @@
       <h5>宝石</h5>
       <div class="token-board">
         <div class="token-row">
-          <div v-for="(cell, idx) in tokenLayout.firstRow" :key="`cell-1-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
+          <button v-for="(cell, idx) in tokenLayout.firstRow" :key="`cell-1-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
             <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
-          </div>
+          </button>
         </div>
         <div class="token-row">
-          <div v-for="(cell, idx) in tokenLayout.secondRow" :key="`cell-2-${idx}`" class="token-cell" :class="{ 'has-token': !!cell }">
+          <button v-for="(cell, idx) in tokenLayout.secondRow" :key="`cell-2-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
             <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
-          </div>
+          </button>
         </div>
         <div v-for="(row, rIdx) in tokenLayout.overflowRows" :key="`overflow-${rIdx}`" class="token-row overflow">
-          <div v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" class="token-cell no-placeholder">
+          <button v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" type="button" class="token-cell no-placeholder" :class="{ selectable: isStealSelectable(gem), selected: selectedStealType === gem }" :disabled="!isStealSelectable(gem)" :aria-pressed="selectedStealType === gem" @click="emit('select-steal-token', gem)">
             <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(gem)" />
-          </div>
+          </button>
         </div>
       </div>
     </div>
@@ -146,6 +146,8 @@ const props = defineProps<{
   localPlayerId?: string
   currentTurnPlayerId?: string
   canSpendPrivilege: boolean
+  stealSelectableTypes?: readonly string[]
+  selectedStealType?: string
 }>()
 
 const emit = defineEmits<{
@@ -153,7 +155,9 @@ const emit = defineEmits<{
   'reserved-card-click': [data: { cardId: string, playerId: string }]
   'card-image-error': [event: Event]
   'noble-image-error': [event: Event]
+  'select-steal-token': [gemType: string]
 }>()
+const isStealSelectable = (gem: string | null): boolean => Boolean(gem && props.stealSelectableTypes?.includes(gem))
 
 const showNobleTooltip = ref(false)
 const bonusColorRows: readonly (readonly GemType[])[] = [
@@ -203,6 +207,8 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .token-row.overflow { margin-top: 6px; }
 .token-cell { width: 40px; height: 40px; border-radius: 50%; border: 2px dashed #ced4da; display: flex; align-items: center; justify-content: center; background: transparent; }
 .token-cell.has-token { border: 2px solid transparent; }
+.token-cell.selectable { cursor: pointer; border-color: var(--color-action); min-width: 44px; min-height: 44px; }
+.token-cell.selected { box-shadow: 0 0 0 3px rgba(37, 99, 235, .28); }
 .token-cell.no-placeholder { border: none; }
 .token-gem-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .bonus-stacks { display: flex; gap: 20px; align-items: flex-end; margin-bottom: 8px; }
