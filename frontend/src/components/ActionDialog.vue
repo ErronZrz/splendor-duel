@@ -688,7 +688,6 @@ watch(() => props.visible, (newVal) => {
     // 对于宝石丢弃操作，记录原始宝石数量
     if (props.actionType === 'discardGems' && props.playerData?.gems) {
       originalGemCounts.value = { ...props.playerData.gems }
-      console.log('记录原始宝石数量:', originalGemCounts.value)
     }
   } else if (previouslyFocusedElement instanceof HTMLElement) {
     nextTick(() => previouslyFocusedElement?.focus())
@@ -719,11 +718,6 @@ watch(() => JSON.stringify([
     initializePaymentPlan()
   }
 })
-
-// 调试：监听 paymentPlan 变化
-watch(() => paymentPlan.value, (newVal) => {
-  console.log('paymentPlan 变化:', newVal)
-}, { deep: true })
 
 // 计算当前宝石总数
 const currentTotalGems = computed(() => {
@@ -793,62 +787,50 @@ const getCardsByLevel = (level) => {
 
 // 选择宝石
 const selectGem = (x, y, gemType) => {
-  console.log('选择宝石:', { x, y, gemType, actionType: props.actionType })
-  
   // 禁止选择空位置（无宝石）
   if (!gemType) {
-    console.log('该位置没有宝石，忽略点击')
     return
   }
 
   // 禁止选择黄金：拿取宝石与花费特权均不可选
   if ((props.actionType === 'takeGems' || props.actionType === 'spendPrivilege') && gemType === 'gold') {
-    console.log('拿取宝石操作中不能选择黄金')
     return
   }
   // 额外token：只能选择与卡牌颜色一致且非黄金，且最多1枚
   if (props.actionType === 'takeExtraToken') {
     const cardColor = props.selectedCard?.bonus || props.selectedCard?.color
     if (!gemType || gemType === 'gold' || gemType !== cardColor) {
-      console.log('额外token操作中只能选择与卡牌颜色一致且非黄金的宝石')
       return
     }
     if (selectedGems.value.length >= 1) {
-      console.log('额外token已选择1枚，不能再选择')
       return
     }
   }
   
   if (props.actionType === 'takeGems' && selectedGems.value.length >= 3) {
-    console.log('已达到最大选择数量')
     return
   }
   if (props.actionType === 'spendPrivilege' && selectedGems.value.length >= privilegeCount.value) {
-    console.log('已达到特权数量限制')
     return
   }
   // 额外token数量上限
   if (props.actionType === 'takeExtraToken' && selectedGems.value.length >= 1) {
-    console.log('额外token已选择1枚，不能再选择')
     return
   }
   
   // 检查是否已经选择过这个位置
   if (isGemSelected(x, y)) {
-    console.log('该位置已被选择')
     return
   }
   
   // 检查是否已经在同一直线上
   if (props.actionType === 'takeGems' && selectedGems.value.length > 0) {
     if (!isInLine(x, y)) {
-      console.log('宝石不在同一直线上')
       return
     }
   }
   
   selectedGems.value.push({ x, y, type: gemType })
-  console.log('宝石选择成功，当前选择:', selectedGems.value)
 }
 // 窃取消费：对手宝石计数
 const opponentGemCount = (gemType) => {
@@ -973,7 +955,6 @@ const canConfirm = computed(() => {
       return selectedGems.value.length >= 1 && selectedGems.value.length <= 3
     case 'buyCard':
       if (!selectedCard.value) {
-        console.log('canConfirm buyCard: 没有选择卡牌')
         return false
       }
       
@@ -996,7 +977,6 @@ const canConfirm = computed(() => {
       
       // 额外token效果下，需满足：未包含该效果或（已选1个或选择跳过）
       const canConfirm = totalPaid >= totalRequired
-      console.log('canConfirm buyCard:', { totalPaid, totalRequired, canConfirm })
       return canConfirm
     case 'takeExtraToken':
       // 允许0或1个；确认即提交，取消即跳过
@@ -1017,11 +997,6 @@ const canConfirm = computed(() => {
     case 'discardGems':
       // 只有当宝石总数达到目标数量时才能确认
       const canConfirmDiscard = getCurrentTotalAfterDiscard.value === (props.gemDiscardTarget || 10)
-      console.log('宝石丢弃确认检查:', {
-        currentTotal: getCurrentTotalAfterDiscard.value,
-        target: props.gemDiscardTarget || 10,
-        canConfirm: canConfirmDiscard
-      })
       return canConfirmDiscard
     default:
       return true
@@ -1048,22 +1023,10 @@ const selectExtraGem = (x, y, gemType) => {
 
 // 处理确认
 const handleConfirm = () => {
-  console.log('ActionDialog: 确认操作，当前状态:', {
-    actionType: props.actionType,
-    selectedGems: selectedGems.value,
-    selectedCard: selectedCard.value,
-    selectedGold: selectedGold.value,
-    privilegeCount: privilegeCount.value,
-    paymentPlan: paymentPlan.value
-  })
-  
   // 对于宝石丢弃操作，发送批量丢弃操作到后端
   if (props.actionType === 'discardGems') {
-    console.log('确认宝石丢弃，发送批量丢弃操作:', discardedGems.value)
-    
     // 检查是否达到目标数量
     if (getCurrentTotalAfterDiscard.value > (props.gemDiscardTarget || 10)) {
-      console.log('宝石总数仍然超过目标，无法确认')
       return
     }
     
@@ -1085,7 +1048,6 @@ const handleConfirm = () => {
     stealGemType: selectedStealGemType.value
   }
   
-  console.log('ActionDialog: 发送确认事件:', data)
   emit('confirm', data)
 }
 
@@ -1101,11 +1063,9 @@ const handleCancel = () => {
 
 // 处理重置（仅用于宝石丢弃）
 const handleReset = () => {
-  console.log('重置宝石丢弃选择')
   // 清空本地丢弃状态
   discardedGems.value = {}
   originalGemCounts.value = {}
-  console.log('已重置丢弃状态')
 }
 
 // 处理遮罩点击
@@ -1134,7 +1094,6 @@ const getUnflippedCount = (level) => {
 // 选择牌堆卡牌
 const selectDeckCard = (level) => {
   if (getUnflippedCount(level) === 0) {
-    console.log('该等级牌堆已无未翻开的卡牌');
     return;
   }
   selectedCard.value = { type: 'deck', level: level };
@@ -1146,11 +1105,8 @@ const selectDeckCard = (level) => {
 const discardGem = (gemType) => {
   const currentCount = getCurrentGemCount(gemType)
   if (currentCount <= 0) {
-    console.log('没有该类型的宝石可以丢弃:', gemType)
     return
   }
-  
-  console.log('选择丢弃宝石:', gemType)
   
   // 更新本地丢弃状态
   if (!discardedGems.value[gemType]) {
@@ -1163,7 +1119,6 @@ const discardGem = (gemType) => {
     originalGemCounts.value = { ...props.playerData.gems }
   }
   
-  console.log('当前丢弃状态:', discardedGems.value)
 }
 
 // 获取卡牌总费用（从后端卡牌数据中获取）
@@ -1190,7 +1145,6 @@ const getTotalPaid = () => {
 // 获取所需支付数量（从后端卡牌数据中获取）
 const getRequiredCost = (gemType) => {
   if (!selectedCard.value?.cost) {
-    console.log('getRequiredCost: 没有卡牌费用信息')
     return 0
   }
   // 从后端卡牌数据中获取该宝石类型的费用
@@ -1201,7 +1155,6 @@ const getRequiredCost = (gemType) => {
 // 获取可用宝石数量（从后端玩家数据中获取）
 const getAvailableTokens = (gemType) => {
   if (!props.playerData?.gems) {
-    console.log('getAvailableTokens: 没有玩家宝石数据')
     return 0
   }
   // 从后端玩家数据中获取该宝石类型的可用数量
@@ -1220,7 +1173,6 @@ const getMaxPayment = (gemType) => {
 // 获取黄金所需支付数量
 const getGoldRequired = () => {
   if (!selectedCard.value?.cost) {
-    console.log('getGoldRequired: 没有卡牌费用信息')
     return 0
   }
   
@@ -1235,21 +1187,13 @@ const getGoldRequired = () => {
     }
   }
   
-  console.log('getGoldRequired:', totalRequired)
   return totalRequired
 }
 
 // 获取应支付的token数量
 const getRequiredTokens = () => {
   try {
-    console.log('getRequiredTokens 被调用:', { 
-      selectedCard: selectedCard.value, 
-      hasCost: !!selectedCard.value?.cost,
-      cost: selectedCard.value?.cost 
-    })
-    
     if (!selectedCard.value?.cost || typeof selectedCard.value.cost !== 'object') {
-      console.log('getRequiredTokens: 没有卡牌费用信息或费用不是对象')
       return {}
     }
     
@@ -1267,7 +1211,6 @@ const getRequiredTokens = () => {
       }
     }
     
-    console.log('getRequiredTokens:', required)
     return required
   } catch (error) {
     console.error('getRequiredTokens 发生错误:', error)
@@ -1279,7 +1222,6 @@ const getRequiredTokens = () => {
 const getSuggestedPayment = () => {
   try {
     if (!selectedCard.value?.cost || !props.playerData) {
-      console.log('getSuggestedPayment: 缺少必要数据')
       return {}
     }
     
@@ -1299,7 +1241,6 @@ const getSuggestedPayment = () => {
       }
     }
     
-    console.log('getSuggestedPayment:', suggested)
     return suggested
   } catch (error) {
     console.error('getSuggestedPayment 发生错误:', error)
@@ -1321,19 +1262,9 @@ const updatePaymentPlan = () => {
 
 // 初始化支付计划
 const initializePaymentPlan = () => {
-  console.log('initializePaymentPlan 被调用:', { 
-    selectedCard: selectedCard.value, 
-    playerData: props.playerData,
-    hasCost: !!selectedCard.value?.cost,
-    hasPlayerData: !!props.playerData
-  })
-  
   if (!selectedCard.value?.cost || !props.playerData) {
-    console.log('初始化支付计划失败:', { selectedCard: selectedCard.value, playerData: props.playerData })
     return
   }
-  
-  console.log('开始初始化支付计划:', { selectedCard: selectedCard.value, playerData: props.playerData })
   
   paymentPlan.value = {}
   
@@ -1362,8 +1293,6 @@ const initializePaymentPlan = () => {
   }
   
   paymentPlan.value.gold = totalGoldNeeded
-  
-  console.log('支付计划初始化完成:', paymentPlan.value)
 }
 
 // 安全地获取应支付token的entries（防止undefined值）
@@ -1394,7 +1323,6 @@ const getRequiredTokensEntries = () => {
       typeof entry[1] === 'number'
     )
     
-    console.log('getRequiredTokensEntries:', { original: tokens, safe: safeEntries })
     return safeEntries
   } catch (error) {
     console.error('getRequiredTokensEntries 发生错误:', error)
@@ -1438,7 +1366,6 @@ const getSuggestedPaymentEntries = () => {
       typeof entry[1] === 'number'
     )
     
-    console.log('getSuggestedPaymentEntries:', { original: tokens, safe: safeEntries })
     return safeEntries
   } catch (edit) {
     console.error('getSuggestedPaymentEntries 发生错误:', edit)
@@ -1457,14 +1384,8 @@ const suggestedPaymentEntries = computed(() => {
 // 是否可以转换为黄金支付
 const canConvertToGold = (gemType) => {
   if (!props.playerData?.gems?.gold) {
-    console.log('canConvertToGold: 没有黄金')
     return false
   }
-  
-  const required = getRequiredCost(gemType)
-  const available = getAvailableTokens(gemType)
-  const bonus = props.playerData?.bonus?.[gemType] || 0
-  const actualRequired = Math.max(0, required - bonus)
   
   // 当前支付数量
   const currentPaid = paymentPlan.value[gemType] || 0
@@ -1475,19 +1396,12 @@ const canConvertToGold = (gemType) => {
   // 1. 当前支付数量 > 0（有宝石可以转换）
   // 2. 有足够的黄金来替代（每次转换1个）
   const canConvert = currentPaid > 0 && availableGold >= 1
-  
-  console.log(`canConvertToGold(${gemType}):`, { 
-    required, available, bonus, actualRequired, 
-    currentPaid, availableGold, canConvert 
-  })
-  
   return canConvert
 }
 
 // 将非黄金token转换为黄金支付
 const convertToGold = (gemType) => {
   if (!canConvertToGold(gemType)) {
-    console.log(`convertToGold(${gemType}): 无法转换`)
     return
   }
   
@@ -1497,14 +1411,6 @@ const convertToGold = (gemType) => {
   if (currentPaid > 0) {
     paymentPlan.value[gemType] = currentPaid - 1
     paymentPlan.value.gold = (paymentPlan.value.gold || 0) + 1
-    
-    console.log('转换支付:', { 
-      gemType, 
-      currentPaid, 
-      newPaid: paymentPlan.value[gemType],
-      newGold: paymentPlan.value.gold,
-      message: `已将1个${getGemDisplayName(gemType)}转换为1个黄金支付`
-    })
   }
 }
 
@@ -1513,12 +1419,6 @@ const getRemainingTokens = (gemType) => {
   const available = getAvailableTokens(gemType)
   const paid = paymentPlan.value[gemType] || 0
   const remaining = Math.max(0, available - paid)
-  
-  // 调试信息
-  if (gemType === 'white') {
-    console.log(`getRemainingTokens(${gemType}):`, { available, paid, remaining })
-  }
-  
   return remaining
 }
 
