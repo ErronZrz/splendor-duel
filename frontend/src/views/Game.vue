@@ -40,9 +40,6 @@
           >
             开始游戏
           </button>
-          <button @click="debugGameState" class="btn btn-secondary" style="margin-left: 10px;">
-            调试状态
-          </button>
         </div>
         
         <div v-else class="game-area">
@@ -170,7 +167,6 @@
                     class="noble-item"
                     role="img"
                     :aria-label="getNobleName(nobleId)"
-                    @click="handleNobleSelected(nobleId)"
                   >
                     <img 
                       :src="`/images/nobles/${nobleId}.jpg`" 
@@ -727,15 +723,6 @@ const connectionStatusText = computed(() => ({
 const bagHover = ref(false)
 const bagCounts = computed(() => countGemBagByDisplayOrder(gameState.value?.gemBag))
 
-// 添加调试信息
-console.log('Game.vue 初始化:', {
-  gameStore: gameStore,
-  currentRoom: currentRoom?.value,
-  currentPlayer: currentPlayer?.value,
-  gameState: gameState?.value,
-  isConnected: isConnected?.value
-})
-
 // 计算属性
 const canStartGame = computed(() => {
   return canLocalPlayerStartGame(gameState.value, currentPlayer.value?.id)
@@ -815,27 +802,16 @@ let hideTimer = null
 
 // 获取指定玩家的指定颜色bonus卡牌列表
 const getBonusCards = (playerId, color) => {
-  console.log('getBonusCards 被调用:', { playerId, color, gameState: gameState?.value })
-  
   if (!gameState?.value?.players || !gameState?.value?.cardDetails) {
-    console.log('getBonusCards: 缺少必要数据')
     return []
   }
   
   const player = findPlayerById(gameState.value.players, playerId)
   if (!player?.developmentCards) {
-    console.log('getBonusCards: 玩家没有发展卡')
     return []
   }
-  
-  console.log('getBonusCards: 玩家发展卡:', player.developmentCards)
-  console.log('getBonusCards: 卡牌详细信息:', gameState.value.cardDetails)
-  
-  // 过滤出指定颜色的发展卡
-  const bonusCards = getOwnedBonusCardIds(player, gameState.value.cardDetails, color)
-  
-  console.log('getBonusCards: 找到的bonus卡牌:', bonusCards)
-  return bonusCards
+
+  return getOwnedBonusCardIds(player, gameState.value.cardDetails, color)
 }
 
 // 获取牌堆剩余数量（从后端数据中获取）
@@ -861,19 +837,19 @@ const getNoblePoints = (nobleId) => {
 
 // 处理图片加载错误
 const handleImageError = (event) => {
-  console.warn('宝石图片加载失败:', event.target.src)
+  console.warn('宝石图片加载失败')
   replaceBrokenImageWithLabel(event.target, event.target.alt || '宝石', 'gem-text-fallback')
 }
 
 // 处理发展卡图片加载错误
 const handleCardImageError = (event) => {
-  console.warn('发展卡图片加载失败:', event.target.src)
+  console.warn('发展卡图片加载失败')
   replaceBrokenImageWithLabel(event.target, event.target.alt || '发展卡', 'card-text-fallback')
 }
 
 // 处理贵族卡图片加载错误
 const handleNobleImageError = (event) => {
-  console.warn('贵族卡图片加载失败:', event.target.src)
+  console.warn('贵族卡图片加载失败')
   replaceBrokenImageWithLabel(event.target, event.target.alt || '贵族', 'card-text-fallback')
 }
 
@@ -906,35 +882,6 @@ const startGame = () => {
 const leaveGame = () => {
   gameStore.disconnect()
   router.push('/')
-}
-
-// 调试游戏状态
-const debugGameState = () => {
-  console.log('=== 调试游戏状态 ===')
-  console.log('Store 状态:', {
-    currentRoom: currentRoom?.value,
-    currentPlayer: currentPlayer?.value,
-    gameState: gameState?.value,
-    isConnected: isConnected?.value
-  })
-  console.log('Props:', props)
-  console.log('等待玩家:', waitingPlayers.value)
-  console.log('==================')
-}
-
-// 处理宝石选择（简化版）
-const handleGemSelected = (gemData) => {
-  console.log('宝石选择:', gemData)
-}
-
-// 处理发展卡选择（简化版）
-const handleCardSelected = (cardId) => {
-  console.log('发展卡选择:', cardId)
-}
-
-// 处理贵族卡选择（简化版）
-const handleNobleSelected = (nobleId) => {
-  console.log('贵族卡选择:', nobleId)
 }
 
 // 处理拿取宝石操作
@@ -1058,8 +1005,6 @@ const handleRefillBoard = () => {
 
 // 处理操作对话框确认
 const handleActionConfirm = (data) => {
-  console.log('操作确认:', data)
-  
   switch (data.actionType) {
     case 'confirmTakeGemsGrantPrivilege':
       // 在上方 switch 已处理，此处兜底
@@ -1070,7 +1015,6 @@ const handleActionConfirm = (data) => {
       }
       break
     case 'takeGems':
-      console.log('向后端发送拿取宝石请求:', data.selectedGems)
       // 二次确认：3个同色或包含2个珍珠时提示对手获得P
       if (shouldGrantPrivilegeForTakeGems(data.selectedGems)) {
         actionDialog.value = {
@@ -1096,7 +1040,6 @@ const handleActionConfirm = (data) => {
       }
       break
     case 'buyCard':
-      console.log('准备购买发展卡（第一步：确认支付方案）:', data.selectedCard, data.paymentPlan)
       if (!data.selectedCard?.id) {
         if (notificationRef.value) {
           notificationRef.value.error('错误', '没有选择要购买的发展卡')
@@ -1263,7 +1206,6 @@ const handleActionConfirm = (data) => {
       // 保留旧分支作为兜底（不应走到这里）
       break
     case 'reserveCard':
-      console.log('向后端发送保留发展卡请求:', data.selectedCard, actionDialog.value.selectedGold)
       if (data.selectedCard?.type === 'deck') {
         // 从牌堆盲抽卡牌 - 向后端发送等级信息
         executeAction('reserveCard', {
@@ -1281,7 +1223,6 @@ const handleActionConfirm = (data) => {
       }
       break
     case 'spendPrivilege':
-      console.log('向后端发送花费特权请求:', data.privilegeCount, data.selectedGems)
       // 向后端发送花费特权请求，让后端处理所有特权逻辑
       executeAction('spendPrivilege', {
         privilegeCount: data.privilegeCount,
@@ -1289,12 +1230,10 @@ const handleActionConfirm = (data) => {
       })
       break
     case 'refillBoard':
-      console.log('向后端发送补充版图请求')
       executeAction('refillBoard', {})
       break
     case 'discardGems':
       if (data.completed) {
-        console.log('宝石丢弃完成，关闭对话框')
         // 宝石丢弃已完成，关闭对话框
         actionDialog.value.visible = false
         
@@ -1315,13 +1254,10 @@ const handleActionConfirm = (data) => {
 
 // 处理操作对话框取消
 const handleActionCancel = (data) => {
-  console.log('取消操作:', data)
-
   const canceledType = data?.actionType || actionDialog.value?.actionType
 
   // 如果是宝石丢弃对话框被关闭，记录状态但不重置游戏状态
   if (canceledType === 'discardGems' && data?.closed) {
-    console.log('宝石丢弃对话框被关闭，但游戏状态仍需要丢弃')
     // 对话框关闭，但游戏状态仍然需要丢弃宝石
     // 设置一个定时器，定期检查是否需要重新打开对话框
     startDiscardDialogCheck()
@@ -1331,7 +1267,6 @@ const handleActionCancel = (data) => {
 
   // noble1 场景：从贵族触发的窃取对话框，允许玩家取消并返回贵族选择
   if (canceledType === 'stealToken' && pendingEffects.value?.noble?.id === 'noble1' && pendingPurchase.value?.card?.id) {
-    console.log('取消 noble1 的窃取选择，返回贵族选择对话框')
     // 清除已暂存的 noble 选择，让玩家可重新选择
     const { noble, ...rest } = pendingEffects.value
     pendingEffects.value = { ...rest }
@@ -1357,8 +1292,6 @@ const handleActionCancel = (data) => {
 // 处理丢弃宝石
 const handleDiscardGem = (data) => {
   const { gemType } = data
-  console.log('处理丢弃宝石:', gemType)
-  
   // 向后端发送丢弃宝石请求
   executeAction('discardGem', {
     gemType: gemType
@@ -1368,8 +1301,6 @@ const handleDiscardGem = (data) => {
 // 处理批量丢弃宝石
 const handleDiscardGemsBatch = (data) => {
   const { gemDiscards } = data
-  console.log('处理批量丢弃宝石:', gemDiscards)
-  
   // 向后端发送批量丢弃宝石请求
   executeAction('discardGemsBatch', {
     gemDiscards: gemDiscards
@@ -1378,7 +1309,6 @@ const handleDiscardGemsBatch = (data) => {
 
 // 处理重置宝石丢弃
 const handleReset = () => {
-  console.log('重置宝石丢弃选择')
   // 关闭对话框，让玩家重新开始
   actionDialog.value.visible = false
 }
@@ -1392,17 +1322,12 @@ const executeAction = (actionType, data) => {
     return
   }
   
-  console.log('向后端发送操作:', actionType, data)
-  console.log('当前回合状态:', isMyTurn.value)
-  console.log('WebSocket连接状态:', gameStore.isConnected)
-  
   // 向后端发送操作请求，让后端处理所有游戏逻辑
   try {
     gameStore.sendGameAction(actionType, data)
-    console.log('操作请求已发送到后端')
     notificationRef.value?.info('请求已发送', '正在等待服务器确认')
   } catch (error) {
-    console.error('发送操作请求失败:', error)
+    console.error('发送操作请求失败')
     if (notificationRef.value) {
       notificationRef.value.error('错误', '发送操作请求失败')
     }
@@ -1419,28 +1344,17 @@ let discardCompleted = false
 
 // 开始宝石丢弃对话框检查
 const startDiscardDialogCheck = () => {
-  console.log('开始宝石丢弃对话框检查定时器')
-  
   // 清除之前的定时器
   if (discardDialogCheckTimer) {
     clearInterval(discardDialogCheckTimer)
-    console.log('清除之前的定时器')
   }
   
   // 设置定时器，每500ms检查一次是否需要重新打开对话框
   discardDialogCheckTimer = setInterval(() => {
     const gameState = gameStore.gameState
-    console.log('定时检查宝石丢弃状态:', {
-      needsGemDiscard: gameState?.needsGemDiscard,
-      gemDiscardPlayerID: gameState?.gemDiscardPlayerID,
-      currentPlayerID: currentPlayer.value?.id,
-      dialogVisible: actionDialog.value?.visible,
-      dialogType: actionDialog.value?.actionType
-    })
     
     // 如果游戏状态显示不需要丢弃宝石，立即停止定时器
     if (!gameState?.needsGemDiscard) {
-      console.log('游戏状态显示不需要丢弃宝石，停止定时器')
       clearInterval(discardDialogCheckTimer)
       discardDialogCheckTimer = null
       discardCompleted = false // 重置完成标志
@@ -1449,15 +1363,12 @@ const startDiscardDialogCheck = () => {
     
     // 如果宝石丢弃已完成，不重新打开对话框
     if (discardCompleted) {
-      console.log('宝石丢弃已完成，不重新打开对话框')
       return
     }
     
     if (gameState?.needsGemDiscard && 
         gameState?.gemDiscardPlayerID === currentPlayer.value?.id &&
         (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems')) {
-      
-      console.log('定时检查：需要重新打开宝石丢弃对话框')
       
       // 重新打开对话框
       actionDialog.value = {
@@ -1472,21 +1383,15 @@ const startDiscardDialogCheck = () => {
       // 清除定时器
       clearInterval(discardDialogCheckTimer)
       discardDialogCheckTimer = null
-      console.log('定时器已清除')
     }
   }, 500)
-  
-  console.log('定时器已设置，ID:', discardDialogCheckTimer)
 }
 
 // 停止宝石丢弃对话框检查
 const stopDiscardDialogCheck = () => {
   if (discardDialogCheckTimer) {
-    console.log('停止宝石丢弃对话框检查定时器，ID:', discardDialogCheckTimer)
     clearInterval(discardDialogCheckTimer)
     discardDialogCheckTimer = null
-  } else {
-    console.log('没有运行中的定时器需要停止')
   }
 }
 
@@ -1649,13 +1554,11 @@ const handleReservedCardClick = (data) => {
 // 检查玩家是否可以购买卡牌
 const checkCanAffordCard = (cardId) => {
   if (!gameState?.value?.cardDetails || !getCurrentPlayerData()) {
-    console.log('checkCanAffordCard: 缺少必要数据')
     return false
   }
   
   const cardDetail = gameState.value.cardDetails[cardId]
   if (!cardDetail) {
-    console.log(`checkCanAffordCard: 未找到卡牌 ${cardId} 的详细信息`)
     return false
   }
   
@@ -1682,15 +1585,6 @@ const checkCanAffordCard = (cardId) => {
   return false
 }
 
-// 处理操作面板事件（简化版）
-const handleActionSelected = (actionData) => {
-  console.log('操作选择:', actionData)
-}
-
-const handleActionConfirmed = (actionData) => {
-  console.log('操作确认:', actionData)
-}
-
 // 格式化时间
 const formatTime = (timestamp) => {
   if (!timestamp) return ''
@@ -1704,11 +1598,6 @@ const formatTime = (timestamp) => {
 // 初始化游戏的函数
 const initializeGame = () => {
   if (currentPlayer.value && currentRoom.value) {
-    console.log('玩家和房间信息验证通过:', {
-      currentPlayer: currentPlayer.value,
-      currentRoom: currentRoom.value
-    })
-    
     // 连接 WebSocket
     gameStore.connectWebSocket(props.roomId)
     
@@ -1721,24 +1610,16 @@ const initializeGame = () => {
 
 // 生命周期
 onMounted(async () => {
-  console.log('Game.vue onMounted 执行')
-  
   // 立即检查一次
   if (currentPlayer.value && currentRoom.value) {
     initializeGame()
   } else {
-    console.log('等待store状态更新...')
     // 等待最多2秒让store状态更新
     let attempts = 0
     const maxAttempts = 20
     
     const checkInterval = setInterval(() => {
       attempts++
-      console.log(`检查状态 (${attempts}/${maxAttempts}):`, {
-        currentPlayer: currentPlayer.value,
-        currentRoom: currentRoom.value
-      })
-      
       if (currentPlayer.value && currentRoom.value) {
         clearInterval(checkInterval)
         initializeGame()
@@ -1808,23 +1689,10 @@ watch(gameState, (newState, oldState) => {
     }
   }
   
-  // 检查是否需要丢弃宝石
-  console.log('检查宝石丢弃状态:', {
-    newNeedsDiscard: newState?.needsGemDiscard,
-    oldNeedsDiscard: oldState?.needsGemDiscard,
-    newGemDiscardTarget: newState?.gemDiscardTarget,
-    oldGemDiscardTarget: oldState?.gemDiscardTarget,
-    newGemDiscardPlayerID: newState?.gemDiscardPlayerID,
-    oldGemDiscardPlayerID: oldState?.gemDiscardPlayerID,
-    currentPlayerID: currentPlayer.value?.id
-  })
-  
   // 检查是否需要显示宝石丢弃对话框
   if (newState?.needsGemDiscard && newState.gemDiscardPlayerID === currentPlayer.value?.id) {
     // 如果对话框当前不可见，则显示它
     if (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems') {
-      console.log('当前玩家需要丢弃宝石，显示对话框')
-      
       // 重置完成标志
       discardCompleted = false
       

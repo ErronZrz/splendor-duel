@@ -179,20 +179,14 @@ export const useGameStore = defineStore('game', () => {
   // 创建房间
   const createRoom = async (roomName: string, playerName: string): Promise<StoreResult> => {
     try {
-      console.log('Store: 开始创建房间API调用')
       const response = await axios.post<unknown>('/api/rooms', {
         roomName,
         playerName
       })
       const result = parseRoomAPIResponse(response.data)
       
-      console.log('Store: API响应完整数据:', response.data)
-      
       if (!result) throw new Error('创建房间响应无效')
       if (result.success) {
-        console.log('Store: 设置currentRoom:', result.data.room)
-        console.log('Store: 设置currentPlayer:', { id: result.data.playerId, name: playerName })
-
         currentRoom.value = result.data.room
         currentPlayer.value = {
           id: result.data.playerId,
@@ -204,18 +198,16 @@ export const useGameStore = defineStore('game', () => {
           const roomId = result.data.room.id
           localStorage.setItem(`sd:room:${roomId}:playerId`, result.data.playerId)
           localStorage.setItem(`sd:room:${roomId}:playerName`, playerName)
-        } catch (e) {
-          console.warn('持久化玩家身份失败:', e)
+        } catch {
+          console.warn('持久化玩家身份失败')
         }
-        
-        console.log('Store: 设置后的状态:', { currentRoom: currentRoom.value, currentPlayer: currentPlayer.value })
         
         return { success: true, roomId: result.data.room.id }
       } else {
         return { success: false, message: result.message }
       }
-    } catch (error) {
-      console.error('创建房间失败:', error)
+    } catch {
+      console.error('创建房间失败')
       return { success: false, message: '创建房间失败' }
     }
   }
@@ -242,15 +234,15 @@ export const useGameStore = defineStore('game', () => {
           const roomId = result.data.room.id
           localStorage.setItem(`sd:room:${roomId}:playerId`, result.data.playerId)
           localStorage.setItem(`sd:room:${roomId}:playerName`, playerName)
-        } catch (e) {
-          console.warn('持久化玩家身份失败:', e)
+        } catch {
+          console.warn('持久化玩家身份失败')
         }
         return { success: true, roomId: result.data.room.id }
       } else {
         return { success: false, message: result.message }
       }
-    } catch (error) {
-      console.error('加入房间失败:', error)
+    } catch {
+      console.error('加入房间失败')
       return { success: false, message: '加入房间失败' }
     }
   }
@@ -278,7 +270,6 @@ export const useGameStore = defineStore('game', () => {
     const wsUrl = `${protocol}//${window.location.host}/ws/${roomId}`
     websocket.connect(wsUrl, {
       onOpen: () => {
-        console.log('WebSocket 连接已建立')
         isConnected.value = true
         connectionStatus.value = 'connected'
         reconnectAttempts = 0
@@ -293,18 +284,17 @@ export const useGameStore = defineStore('game', () => {
       onMessage: (data) => {
         handleWebSocketMessage(data)
       },
-      onMessageError: (error) => {
-        console.error('WebSocket 消息解析失败:', error)
+      onMessageError: () => {
+        console.error('WebSocket 消息解析失败')
       },
       onClose: () => {
-        console.log('WebSocket 连接已关闭')
         isConnected.value = false
         connectionStatus.value = 'disconnected'
         markPendingActionsUnknown()
         scheduleReconnect()
       },
-      onError: (error) => {
-        console.error('WebSocket 错误:', error)
+      onError: () => {
+        console.error('WebSocket 错误')
         isConnected.value = false
       }
     })
@@ -312,8 +302,6 @@ export const useGameStore = defineStore('game', () => {
 
   // 处理 WebSocket 消息
   const handleWebSocketMessage = (data: ServerMessage): void => {
-    console.log('收到WebSocket消息:', data)
-    
     switch (data.type) {
       case 'history_snapshot': {
         const snapshot = isRecord(data.data) ? data.data : {}
@@ -350,10 +338,8 @@ export const useGameStore = defineStore('game', () => {
         break
       }
       case 'game_state_update':
-        console.log('收到游戏状态更新:', data.gameState)
         if (isGameState(data.gameState)) {
           gameState.value = data.gameState
-          console.log('游戏状态已更新:', gameState.value)
         }
         break
       case 'chat_message':
@@ -395,7 +381,6 @@ export const useGameStore = defineStore('game', () => {
         break
       }
       case 'player_joined':
-        console.log('玩家加入:', data.data)
         // 更新游戏状态以反映新玩家
         if (isRecord(data.data) && typeof data.data.playerId === 'string') {
           const joinedPlayer = data.data
@@ -424,31 +409,25 @@ export const useGameStore = defineStore('game', () => {
             })
           }
           
-          console.log('更新后的游戏状态:', gameState.value)
         }
         break
       case 'player_left':
-        console.log('玩家离开:', data.data)
         // player_left 只表示当前 socket 断开，不代表玩家退出对局。
         // 房间成员始终以服务器的 game_state_update 为准。
         break
       case 'game_start':
-        console.log('收到游戏开始消息:', data)
         if (isGameState(data.gameState)) {
           gameState.value = data.gameState
         } else if (isRecord(data.data) && isGameState(data.data.gameState)) {
           gameState.value = data.data.gameState
         }
-        console.log('游戏开始后的状态:', gameState.value)
         break
       case 'game_end':
-        console.log('游戏结束')
         break
       case 'error':
-        console.error('服务器错误:', data.message)
+        console.error('服务器错误')
         break
       default:
-        console.log('未知消息类型:', data.type)
     }
   }
 
@@ -471,9 +450,6 @@ export const useGameStore = defineStore('game', () => {
 
   // 发送游戏操作
   const sendGameAction = (actionType: string, data: Record<string, unknown>): string => {
-    console.log('Store: 准备发送游戏操作:', { actionType, data })
-    console.log('Store: WebSocket状态:', { websocket: websocket.hasSocket(), isConnected: isConnected.value })
-    
     if (isConnected.value && isSocketOpen() && currentPlayer.value) {
       const requestId = createRequestId()
       const message = {
@@ -490,17 +466,14 @@ export const useGameStore = defineStore('game', () => {
         [requestId]: { requestId, actionType, data, status: 'pending', sentAt: Date.now() }
       }
       
-      console.log('Store: 发送WebSocket消息:', message)
-      
       try {
         websocket.send(message)
-        console.log('Store: 游戏操作发送成功')
         return requestId
       } catch (error) {
         const remaining = { ...pendingActions.value }
         delete remaining[requestId]
         pendingActions.value = remaining
-        console.error('Store: 发送游戏操作失败:', error)
+        console.error('Store: 发送游戏操作失败')
         throw error
       }
     } else {
@@ -544,8 +517,8 @@ export const useGameStore = defineStore('game', () => {
         }
         return true
       }
-    } catch (e) {
-      console.warn('恢复本地会话失败:', e)
+    } catch {
+      console.warn('恢复本地会话失败')
     }
     return false
   }

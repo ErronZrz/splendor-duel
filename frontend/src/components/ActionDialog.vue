@@ -1212,8 +1212,8 @@ const getRequiredTokens = () => {
     }
     
     return required
-  } catch (error) {
-    console.error('getRequiredTokens 发生错误:', error)
+  } catch {
+    console.error('getRequiredTokens 发生错误')
     return {}
   }
 }
@@ -1242,8 +1242,8 @@ const getSuggestedPayment = () => {
     }
     
     return suggested
-  } catch (error) {
-    console.error('getSuggestedPayment 发生错误:', error)
+  } catch {
+    console.error('getSuggestedPayment 发生错误')
     return {}
   }
 }
@@ -1300,13 +1300,13 @@ const getRequiredTokensEntries = () => {
   try {
     const tokens = getRequiredTokens()
     if (!tokens || typeof tokens !== 'object') {
-      console.warn('getRequiredTokensEntries: tokens不是有效对象', tokens)
+      console.warn('getRequiredTokensEntries: tokens不是有效对象')
       return []
     }
     
     const entries = Object.entries(tokens)
     if (!Array.isArray(entries)) {
-      console.warn('getRequiredTokensEntries: Object.entries返回的不是数组', entries)
+      console.warn('getRequiredTokensEntries: Object.entries返回的不是数组')
       return []
     }
     
@@ -1324,8 +1324,8 @@ const getRequiredTokensEntries = () => {
     )
     
     return safeEntries
-  } catch (error) {
-    console.error('getRequiredTokensEntries 发生错误:', error)
+  } catch {
+    console.error('getRequiredTokensEntries 发生错误')
     return []
   }
 }
@@ -1343,13 +1343,13 @@ const getSuggestedPaymentEntries = () => {
   try {
     const tokens = getSuggestedPayment()
     if (!tokens || typeof tokens !== 'object') {
-      console.warn('getSuggestedPaymentEntries: tokens不是有效对象', tokens)
+      console.warn('getSuggestedPaymentEntries: tokens不是有效对象')
       return []
     }
     
     const entries = Object.entries(tokens)
     if (!Array.isArray(entries)) {
-      console.warn('getSuggestedPaymentEntries: Object.entries返回的不是数组', entries)
+      console.warn('getSuggestedPaymentEntries: Object.entries返回的不是数组')
       return []
     }
     
@@ -1367,8 +1367,8 @@ const getSuggestedPaymentEntries = () => {
     )
     
     return safeEntries
-  } catch (edit) {
-    console.error('getSuggestedPaymentEntries 发生错误:', edit)
+  } catch {
+    console.error('getSuggestedPaymentEntries 发生错误')
     return []
   }
 }
