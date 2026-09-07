@@ -6,10 +6,10 @@ import { useGameStore } from './stores/game'
 import { createGameVisualFixture } from './visual-fixtures/game-fixture'
 import './style.css'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard'
+type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard' | 'victory'
 
 const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
-const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'discard'
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'discard' || requestedScenario === 'victory'
   ? requestedScenario
   : 'default'
 
@@ -49,6 +49,13 @@ if (scenario === 'take-gems') {
     ...store.gameState,
     needsGemDiscard: true,
     gemDiscardPlayerID: fixture.currentPlayer.id
+  }
+} else if (scenario === 'victory' && store.gameState) {
+  store.gameState = {
+    ...store.gameState,
+    status: 'finished',
+    winner: fixture.currentPlayer.id,
+    victoryReasons: ['达到20分']
   }
 }
 

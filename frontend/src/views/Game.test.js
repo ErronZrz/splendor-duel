@@ -119,4 +119,25 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.find('.history-preview-tooltip').attributes('role')).toBe('dialog')
   await wrapper.find('.history-preview-close').trigger('click')
   expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
+  expect(wrapper.find('header.game-header').exists()).toBe(true)
+  expect(wrapper.find('main.game-main').exists()).toBe(true)
+  expect(wrapper.find('.room-info h2').attributes('aria-level')).toBe('1')
+
+  const chatInput = wrapper.find('.chat-input input')
+  chatInput.element.focus()
+  store.gameState = {
+    ...store.gameState,
+    status: 'finished',
+    winner: 'p2',
+    victoryReasons: ['达到20分']
+  }
+  await flushPromises()
+  const victory = wrapper.find('.victory-dialog')
+  expect(victory.attributes('role')).toBe('dialog')
+  expect(victory.attributes('aria-modal')).toBe('true')
+  expect(wrapper.find('main.game-main').attributes('inert')).toBe('true')
+  await victory.trigger('keydown', { key: 'Tab' })
+  await wrapper.find('.victory-footer button').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('.victory-dialog').exists()).toBe(false)
 })

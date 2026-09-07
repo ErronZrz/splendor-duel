@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard'
+type Scenario = 'default' | 'take-gems' | 'purchase' | 'reserve' | 'discard' | 'victory'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -105,6 +105,20 @@ test('uses a labelled neutral fallback for a broken business image', async ({ pa
   await expect(fallback).toHaveAttribute('role', 'img')
   await expect(fallback).toHaveAttribute('aria-label', label || '发展卡')
   await expect(fallback).not.toHaveText('加载失败')
+})
+
+test('keeps victory focus inside the named modal and makes the game inert', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-primary')
+  await openFixture(page, 'victory')
+  const dialog = page.getByRole('dialog', { name: '游戏结束' })
+  const close = dialog.getByRole('button', { name: '知道了' })
+  await expect(dialog).toBeVisible()
+  await expect(close).toBeFocused()
+  await expect(page.locator('main.game-main')).toHaveAttribute('inert', '')
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await close.click()
+  await expect(dialog).toHaveCount(0)
 })
 
 test.describe('mobile dialog baselines', () => {

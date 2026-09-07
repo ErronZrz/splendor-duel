@@ -1,9 +1,9 @@
 <template>
   <div class="game-container">
     <!-- 游戏头部信息 -->
-    <div class="game-header">
+    <header class="game-header" :inert="victoryDialog.visible || undefined">
       <div class="room-info">
-        <h2>{{ currentRoom?.name || '游戏房间' }}</h2>
+        <h2 role="heading" aria-level="1">{{ currentRoom?.name || '游戏房间' }}</h2>
         <p>房间ID: {{ roomId }}</p>
       </div>
       <div class="player-info">
@@ -13,10 +13,10 @@
         </span>
       </div>
       <button @click="leaveGame" class="btn btn-secondary">离开游戏</button>
-    </div>
+    </header>
 
     <!-- 游戏主体 -->
-    <div class="game-main">
+    <main class="game-main" :inert="victoryDialog.visible || undefined">
       <!-- 游戏版图区域 -->
       <div class="game-board-area">
         <div v-if="showWaitingArea" class="waiting-area">
@@ -48,9 +48,9 @@
         <div v-else class="game-area">
           <div class="game-layout">
             <!-- 左侧：游戏版图 -->
-            <div id="game-board-section" class="game-board">
+            <section id="game-board-section" class="game-board" aria-labelledby="game-board-heading">
               <div class="board-header">
-                <h3>游戏版图</h3>
+                <h3 id="game-board-heading" role="heading" aria-level="2">游戏版图</h3>
                 <div class="game-status">
                   <span>状态: {{ gameState?.status || '进行中' }}</span>
                   <span v-if="gameState?.currentPlayerIndex !== undefined">
@@ -182,13 +182,13 @@
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
             
             <!-- 右侧：玩家状态和操作 -->
             <div class="game-sidebar">
               <!-- 玩家状态 -->
-              <div id="game-player-section" class="player-status">
-                <h3>玩家状态</h3>
+              <section id="game-player-section" class="player-status" aria-labelledby="player-status-heading">
+                <h3 id="player-status-heading" role="heading" aria-level="2">玩家状态</h3>
                 <div class="players-list">
                   <div
                     v-for="player in orderedPlayers"
@@ -222,12 +222,13 @@
                     />
                   </div>
                 </div>
-              </div>
+              </section>
               
               <!-- 操作面板 -->
-              <div class="action-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('actions') }">
-                <h3>
+              <section class="action-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('actions') }" aria-labelledby="game-actions-heading">
+                <h3 role="heading" aria-level="2">
                   <button
+                    id="game-actions-heading"
                     class="mobile-panel-summary"
                     type="button"
                     aria-controls="game-actions-content"
@@ -256,18 +257,19 @@
                     <p>等待其他玩家操作...</p>
                   </div>
                 </div>
-              </div>
+              </section>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 底部面板区域 -->
-      <div class="bottom-panels">
+      <div class="bottom-panels" aria-label="交流与操作记录">
         <!-- 聊天面板 -->
-        <div id="game-chat-section" class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }">
-          <h3>
+        <section id="game-chat-section" class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }" aria-labelledby="game-chat-heading">
+          <h3 role="heading" aria-level="2">
             <button
+              id="game-chat-heading"
               class="mobile-panel-summary"
               type="button"
               aria-controls="game-chat-content"
@@ -303,12 +305,13 @@
               <button @click="sendMessage" class="btn btn-primary">发送</button>
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- 历史记录面板 -->
-        <div id="game-history-section" class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }">
-          <h3>
+        <section id="game-history-section" class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }" aria-labelledby="game-history-heading">
+          <h3 role="heading" aria-level="2">
             <button
+              id="game-history-heading"
               class="mobile-panel-summary"
               type="button"
               aria-controls="game-history-content"
@@ -338,11 +341,11 @@
               </div>
             </div>
           </div>
-        </div>
+        </section>
       </div>
-    </div>
+    </main>
 
-    <nav v-if="!showWaitingArea && !actionDialog.visible" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航">
+    <nav v-if="!showWaitingArea && !actionDialog.visible" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
       <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
       <button type="button" @click="scrollToMobileSection('game-board-section')">棋盘</button>
       <button type="button" @click="scrollToMobileSection('game-player-section')">玩家</button>
@@ -378,15 +381,15 @@
 
     <!-- 胜利对话框（全局） -->
     <div v-if="victoryDialog.visible" class="victory-overlay">
-      <div class="victory-dialog">
+      <div ref="victoryDialogRef" class="victory-dialog" role="dialog" aria-modal="true" aria-labelledby="victory-dialog-title" aria-describedby="victory-dialog-message" @keydown="handleVictoryDialogKeydown">
         <div class="victory-header">
-          <h3>游戏结束</h3>
+          <h3 id="victory-dialog-title">游戏结束</h3>
         </div>
         <div class="victory-body">
-          <p>{{ victoryDialog.message }}</p>
+          <p id="victory-dialog-message">{{ victoryDialog.message }}</p>
         </div>
         <div class="victory-footer">
-          <button class="btn btn-primary" @click="victoryDialog.visible = false">知道了</button>
+          <button ref="victoryCloseButtonRef" class="btn btn-primary" @click="closeVictoryDialog">知道了</button>
         </div>
       </div>
     </div>
@@ -554,6 +557,29 @@ const notificationRef = ref(null)
 
 // 胜利对话框
 const victoryDialog = ref({ visible: false, message: '' })
+const victoryDialogRef = ref(null)
+const victoryCloseButtonRef = ref(null)
+let victoryPreviousFocus = null
+
+const closeVictoryDialog = () => {
+  victoryDialog.value.visible = false
+}
+
+const handleVictoryDialogKeydown = (event) => {
+  if (event.key !== 'Tab') return
+  event.preventDefault()
+  victoryCloseButtonRef.value?.focus()
+}
+
+watch(() => victoryDialog.value.visible, (visible) => {
+  if (visible) {
+    victoryPreviousFocus = document.activeElement
+    nextTick(() => victoryCloseButtonRef.value?.focus())
+  } else if (victoryPreviousFocus instanceof HTMLElement) {
+    nextTick(() => victoryPreviousFocus?.focus())
+    victoryPreviousFocus = null
+  }
+})
 
 // 操作对话框状态
 const actionDialog = ref({
