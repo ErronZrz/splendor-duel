@@ -326,13 +326,11 @@
       :action-type="actionDialog.actionType"
       :title="actionDialog.title"
       :message="actionDialog.message"
-      :gem-board="gameState?.gemBoard || []"
       :player-data="actionDialog.actionType === 'buyCard' ? getCurrentPlayerData() : actionDialog.playerData || null"
       :selected-card="actionDialog.selectedCard || null"
       :gem-discard-target="gameState?.gemDiscardTarget || 10"
       @confirm="handleActionConfirm"
       @cancel="handleActionCancel"
-              @discard-gem="handleDiscardGem"
         @discard-gems-batch="handleDiscardGemsBatch"
       @reset="handleReset"
     />
@@ -1043,15 +1041,6 @@ const handleActionCancel = (data) => {
     startDiscardDialogCheck()
   }
   applyInteractionEvent({ type: 'CANCEL_ACTION' })
-}
-
-// 处理丢弃宝石
-const handleDiscardGem = (data) => {
-  const { gemType } = data
-  // 向后端发送丢弃宝石请求
-  executeAction('discardGem', {
-    gemType: gemType
-  })
 }
 
 // 处理批量丢弃宝石
