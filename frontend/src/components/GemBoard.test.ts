@@ -48,4 +48,19 @@ describe('GemBoard', () => {
     expect(wrapper.get('[data-board-position="0-0"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-board-position="0-1"]').attributes('disabled')).toBeDefined()
   })
+
+  it('marks the real gold as selected in reserve mode and emits cancel for the same control', async () => {
+    const wrapper = mountBoard({
+      mode: 'reserve-card',
+      selectedGems: [{ x: 0, y: 2, type: 'gold' }],
+      selectablePositions: [],
+      illegalPositions: []
+    })
+    const gold = wrapper.get('[data-board-position="0-2"]')
+    expect(gold.classes()).toContain('selected')
+    expect(gold.attributes('aria-pressed')).toBe('true')
+    expect(gold.attributes('aria-label')).toContain('取消第1枚黄金')
+    await gold.trigger('click')
+    expect(wrapper.emitted('cancel')).toEqual([[{ x: 0, y: 2 }]])
+  })
 })

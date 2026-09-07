@@ -60,7 +60,19 @@
                     @focusin="bagHover = true"
                     @focusout="bagHover = false"
                   >
-                    <span class="bag-pill" role="button" tabindex="0" aria-label="补充版图：查看并使用袋中宝石" @click.stop="handleRefillBoard" @keydown.enter.stop.prevent="handleRefillBoard" @keydown.space.stop.prevent="handleRefillBoard" title="点击补充版图">袋中宝石</span>
+                    <span
+                      class="bag-pill"
+                      :class="{ selected: interactionState.action.kind === 'refill-confirm' }"
+                      role="button"
+                      :tabindex="isBoardActionPending ? -1 : 0"
+                      aria-label="补充版图：查看并使用袋中宝石"
+                      :aria-pressed="interactionState.action.kind === 'refill-confirm'"
+                      :aria-disabled="isBoardActionPending || interactionState.action.kind !== 'idle'"
+                      @click.stop="handleRefillBoard"
+                      @keydown.enter.stop.prevent="handleRefillBoard"
+                      @keydown.space.stop.prevent="handleRefillBoard"
+                      title="点击补充版图"
+                    >袋中宝石</span>
                     <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
                       <div class="bag-row">
                         <div v-for="item in bagCounts" :key="`bag-${item.type}`" class="bag-item">
@@ -89,6 +101,8 @@
                 v-if="contextActionBar && !actionDialog.visible && !victoryDialog.visible"
                 :mode="contextActionBar.mode"
                 :selected-gems="contextActionBar.selectedGems"
+                :selected-gold="contextActionBar.selectedGold"
+                :reserve-target="contextActionBar.reserveTarget"
                 :message="contextActionBar.message"
                 :warning="contextActionBar.warning"
                 :target-count="contextActionBar.targetCount"
@@ -109,18 +123,30 @@
                     <h5>等级 {{ level }}</h5>
                     <div class="cards-row">
                       <!-- 牌堆显示 -->
-                      <div 
+                      <div
                         class="deck-item"
-                        :class="{ 'deck-empty': getDeckRemainingCount(level) === 0 }"
+                        :class="{
+                          'deck-empty': getDeckRemainingCount(level) === 0,
+                          selected: isReserveDeckSelected(level)
+                        }"
+                        role="button"
+                        :tabindex="isReserveMode && getDeckRemainingCount(level) > 0 && !isBoardActionPending ? 0 : -1"
+                        :aria-label="`保留等级${level}牌堆顶牌`"
+                        :aria-pressed="isReserveMode ? isReserveDeckSelected(level) : undefined"
+                        :aria-disabled="!isReserveMode || getDeckRemainingCount(level) === 0 || isBoardActionPending"
+                        :data-deck-level="level"
+                        @click="handleDeckClick(level)"
+                        @keydown.enter.prevent="handleDeckClick(level)"
+                        @keydown.space.prevent="handleDeckClick(level)"
                       >
-                        <img 
+                        <img
                           v-if="getDeckRemainingCount(level) > 0"
-                          :src="`/images/cards/back${level}.jpg`" 
+                          :src="`/images/cards/back${level}.jpg`"
                           :alt="`等级${level}牌堆`"
                           class="deck-image"
                           @error="handleDeckImageError"
                         />
-                        <div 
+                        <div
                           v-if="getDeckRemainingCount(level) > 0"
                           class="deck-count"
                         >
@@ -128,19 +154,23 @@
                         </div>
                       </div>
                       <!-- 已翻开的发展卡 -->
-                      <div 
-                        v-for="card in getCardsByLevel(level)" 
+                      <div
+                        v-for="card in getCardsByLevel(level)"
                         :key="card.id"
                         class="card-item"
+                        :class="{ selected: isReserveCardSelected(card.id) }"
                         role="button"
-                        tabindex="0"
-                        :aria-label="`购买发展卡：${card.name}`"
+                        :tabindex="isBoardActionPending ? -1 : 0"
+                        :aria-label="isReserveMode ? `保留发展卡：${card.name}` : `购买发展卡：${card.name}`"
+                        :aria-pressed="isReserveMode ? isReserveCardSelected(card.id) : undefined"
+                        :aria-disabled="isBoardActionPending || (interactionState.action.kind !== 'idle' && !isReserveMode)"
+                        :data-market-card-id="card.id"
                         @click="handleCardClick(card)"
                         @keydown.enter.prevent="handleCardClick(card)"
                         @keydown.space.prevent="handleCardClick(card)"
                       >
-                        <img 
-                          :src="`/images/cards/${card.id}.jpg`" 
+                        <img
+                          :src="`/images/cards/${card.id}.jpg`"
                           :alt="card.name"
                           class="card-image"
                           @error="handleCardImageError"
@@ -353,12 +383,8 @@
       :title="actionDialog.title"
       :message="actionDialog.message"
       :gem-board="gameState?.gemBoard || []"
-      :flipped-cards="gameState?.flippedCards || {}"
-      :unflipped-cards="gameState?.unflippedCards || {}"
-      :selected-gold-position="actionDialog.selectedGold || null"
       :player-data="actionDialog.actionType === 'buyCard' ? getCurrentPlayerData() : actionDialog.playerData || null"
       :selected-card="actionDialog.selectedCard || null"
-      :card-details="gameState?.cardDetails || {}"
       :gem-discard-target="gameState?.gemDiscardTarget || 10"
       @confirm="handleActionConfirm"
       @cancel="handleActionCancel"
@@ -716,12 +742,25 @@ const isBoardActionPending = computed(() => {
 })
 const selectedBoardGems = computed(() => {
   const action = interactionState.value.action
-  return action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.selectedGems : []
+  if (action.kind === 'take-gems' || action.kind === 'spend-privilege') return action.selectedGems
+  if (action.kind === 'reserve-card') return [{ ...action.selectedGold, type: 'gold' }]
+  return []
 })
 const gemBoardMode = computed(() => {
   const action = interactionState.value.action
-  return action.kind === 'take-gems' || action.kind === 'spend-privilege' ? action.kind : 'idle'
+  return action.kind === 'take-gems' || action.kind === 'spend-privilege' || action.kind === 'reserve-card'
+    ? action.kind
+    : 'idle'
 })
+const isReserveMode = computed(() => interactionState.value.action.kind === 'reserve-card')
+const isReserveCardSelected = (cardId) => {
+  const action = interactionState.value.action
+  return action.kind === 'reserve-card' && action.target?.type === 'market-card' && action.target.cardId === cardId
+}
+const isReserveDeckSelected = (level) => {
+  const action = interactionState.value.action
+  return action.kind === 'reserve-card' && action.target?.type === 'deck' && action.target.level === level
+}
 const occupiedBoardPositions = computed(() => (gameState.value?.gemBoard || []).flatMap((row, x) =>
   row.flatMap((type, y) => type ? [{ x, y }] : [])
 ))
@@ -895,17 +934,17 @@ const handleBuyCard = () => {
   applyInteractionEvent({ type: 'OPEN_PURCHASE_PAYMENT', title: '购买发展卡', card: null })
 }
 
-// 处理保留发展卡操作（向后端发送保留请求）
+// 真实黄金进入内联保留模式；具体规则仍由后端权威校验
 const handleReserveCard = (goldX, goldY) => {
   if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
+    notificationRef.value?.error('错误', '不是你的回合')
     return
   }
-  
-  // 打开保留发展卡对话框
-  // 前端只负责收集用户选择，具体保留逻辑由后端处理
+  if (isBoardActionPending.value || interactionState.value.action.kind !== 'idle') {
+    notificationRef.value?.info('请稍候', '当前操作尚未结束')
+    return
+  }
+
   applyInteractionEvent({
     type: 'OPEN_RESERVE_CARD',
     selectedGold: { x: goldX, y: goldY }
@@ -942,21 +981,21 @@ const handleSpendPrivilege = () => {
   })
 }
 
-// 处理补充版图操作（先确认对话框）
+// 袋子入口进入内联补盘确认态
 const handleRefillBoard = () => {
   if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
+    notificationRef.value?.error('错误', '不是你的回合')
     return
   }
+  if (isBoardActionPending.value) {
+    notificationRef.value?.info('请稍候', '正在等待上一项棋盘操作的服务器结果')
+    return
+  }
+  if (interactionState.value.action.kind !== 'idle') return
 
-  // 若有状态可读，先判断袋子是否为空
   const bagCount = Array.isArray(gameState.value?.gemBag) ? gameState.value.gemBag.length : null
   if (bagCount !== null && bagCount <= 0) {
-    if (notificationRef.value) {
-      notificationRef.value.info('无法补充', '袋子为空，无法补充版图')
-    }
+    notificationRef.value?.info('无法补充', '袋子为空，无法补充版图')
     return
   }
 
@@ -1022,28 +1061,6 @@ const handleActionConfirm = (data) => {
       return
     case 'chooseWildcardColor':
       applyInteractionEvent({ type: 'CONFIRM_WILDCARD', wildcardColor: data.wildcardColor })
-      return
-    case 'reserveCard': {
-      const selectedGold = actionDialog.value.selectedGold
-      if (data.selectedCard?.type === 'deck') {
-        executeAction('reserveCard', {
-          cardId: `deck_level_${data.selectedCard.level}`,
-          goldX: selectedGold?.x,
-          goldY: selectedGold?.y
-        })
-      } else {
-        executeAction('reserveCard', {
-          cardId: data.selectedCard?.id,
-          goldX: selectedGold?.x,
-          goldY: selectedGold?.y
-        })
-      }
-      applyInteractionEvent({ type: 'CANCEL_ACTION' })
-      return
-    }
-    case 'refillBoard':
-      executeAction('refillBoard', {})
-      applyInteractionEvent({ type: 'CANCEL_ACTION' })
       return
     case 'discardGems':
       if (data.completed) {
@@ -1194,11 +1211,18 @@ const handleBoardGemSelect = (position) => {
 }
 
 const handleBoardGemCancel = (position) => {
+  const action = interactionState.value.action
+  if (action.kind === 'reserve-card' && action.selectedGold.x === position.x && action.selectedGold.y === position.y) {
+    applyInteractionEvent({ type: 'CANCEL_ACTION' })
+    return
+  }
   applyInteractionEvent({ type: 'DESELECT_BOARD_GEM', position })
 }
 
 const handleBoardSelectionClear = () => {
-  applyInteractionEvent({ type: 'CLEAR_BOARD_GEMS' })
+  applyInteractionEvent({
+    type: interactionState.value.action.kind === 'reserve-card' ? 'CLEAR_RESERVE_TARGET' : 'CLEAR_BOARD_GEMS'
+  })
 }
 
 const handleBoardSelectionCancel = () => {
@@ -1210,11 +1234,56 @@ const handlePrivilegeCountChange = (count) => {
 }
 
 const handleBoardSelectionConfirm = () => {
+  if (!isMyTurn.value) {
+    notificationRef.value?.error('错误', '不是你的回合')
+    return
+  }
+  if (isBoardActionPending.value) {
+    notificationRef.value?.info('请稍候', '正在等待上一项棋盘操作的服务器结果')
+    return
+  }
+
   const action = interactionState.value.action
   if (action.kind === 'take-gems') {
     applyInteractionEvent({ type: 'CONFIRM_TAKE_GEMS' })
-  } else if (action.kind === 'spend-privilege') {
+    return
+  }
+  if (action.kind === 'spend-privilege') {
     applyInteractionEvent({ type: 'CONFIRM_SPEND_PRIVILEGE' })
+    return
+  }
+  if (action.kind === 'reserve-card') {
+    if (gameState.value?.gemBoard?.[action.selectedGold.x]?.[action.selectedGold.y] !== 'gold') {
+      notificationRef.value?.error('无法保留', '所选黄金已不在版图上')
+      return
+    }
+    if ((getCurrentPlayerData()?.reservedCards?.length || 0) >= 3) {
+      notificationRef.value?.error('无法保留', '已经保留 3 张发展卡')
+      return
+    }
+    if (action.target?.type === 'market-card') {
+      const stillAvailable = getCardsByLevel(action.target.level).some(card => card.id === action.target.cardId)
+      if (!stillAvailable) {
+        notificationRef.value?.error('无法保留', '所选发展卡已不在市场中')
+        return
+      }
+    } else if (action.target?.type === 'deck') {
+      if (getDeckRemainingCount(action.target.level) <= 0) {
+        notificationRef.value?.error('无法保留', '所选牌堆已为空')
+        return
+      }
+    } else {
+      return
+    }
+    applyInteractionEvent({ type: 'CONFIRM_RESERVE_CARD' })
+    return
+  }
+  if (action.kind === 'refill-confirm') {
+    if (!Array.isArray(gameState.value?.gemBag) || gameState.value.gemBag.length === 0) {
+      notificationRef.value?.info('无法补充', '袋子为空，无法补充版图')
+      return
+    }
+    applyInteractionEvent({ type: 'CONFIRM_REFILL_BOARD' })
   }
 }
 
@@ -1224,6 +1293,10 @@ const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
     if (notificationRef.value) {
       notificationRef.value.error('错误', '不是你的回合')
     }
+    return
+  }
+  if (isBoardActionPending.value || interactionState.value.action.kind !== 'idle') {
+    notificationRef.value?.info('请稍候', '当前操作尚未结束')
     return
   }
 
@@ -1267,9 +1340,29 @@ const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
   })
 }
 
-// 处理发展卡点击（向后端发送购买请求）
+// 真实市场卡在保留模式选择目标，其他时候保持既有购买入口
 const handleCardClick = (card) => {
+  const action = interactionState.value.action
+  if (action.kind === 'reserve-card') {
+    if (isBoardActionPending.value) return
+    applyInteractionEvent({
+      type: 'TOGGLE_RESERVE_TARGET',
+      target: {
+        type: 'market-card',
+        cardId: card.id,
+        level: card.level,
+        name: card.name || `卡牌${card.id}`
+      }
+    })
+    return
+  }
+  if (action.kind !== 'idle' || isBoardActionPending.value) return
   handleBuyCardClick(card, false)
+}
+
+const handleDeckClick = (level) => {
+  if (!isReserveMode.value || isBoardActionPending.value || getDeckRemainingCount(level) <= 0) return
+  applyInteractionEvent({ type: 'TOGGLE_RESERVE_TARGET', target: { type: 'deck', level } })
 }
 
 // 处理保留卡点击
@@ -1581,16 +1674,31 @@ watch(gameState, (newState, oldState) => {
 
 /* 袋中宝石浮层与触发器 */
 .bag-container { position: relative; }
-.bag-pill { 
-  background: #ffffff; 
-  color: #495057; 
-  border: 1px solid #dee2e6; 
-  border-radius: 999px; 
-  padding: 2px 8px; 
-  font-size: 12px; 
-  font-weight: 600; 
+.bag-pill {
+  position: relative;
+  background: #ffffff;
+  color: #495057;
+  border: 1px solid #dee2e6;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
+.bag-pill::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+.bag-pill.selected {
+  border-color: var(--color-action);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .24);
+}
+.bag-pill[aria-disabled="true"] { cursor: default; }
 .metric-badge.clickable { cursor: pointer; box-shadow: 0 0 0 0 rgba(13,110,253,0); transition: box-shadow .2s ease; }
 .metric-badge.clickable:hover { box-shadow: 0 0 0 3px rgba(13,110,253,0.25); }
 .hint-text { font-size: 12px; color: #6c757d; }
@@ -1653,6 +1761,22 @@ watch(gameState, (newState, oldState) => {
 .card-item:hover {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.card-item.selected,
+.deck-item.selected {
+  box-shadow: 0 0 0 3px var(--color-action);
+}
+
+.card-item[aria-disabled="true"],
+.deck-item[aria-disabled="true"] {
+  cursor: default;
+}
+
+.card-item[aria-disabled="true"]:hover,
+.deck-item[aria-disabled="true"]:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .card-image {

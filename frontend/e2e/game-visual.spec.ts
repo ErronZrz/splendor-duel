@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'discard' | 'victory'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -248,12 +248,77 @@ test.describe('mobile dialog baselines', () => {
     }
   })
 
-  test('@mobile-dialog scrolls long reserve content without moving its actions', async ({ page }, testInfo) => {
+  test('keeps direct reserve interaction accessible without overflow', async ({ page }, testInfo) => {
     await openFixture(page, 'reserve')
-    await expect(page.locator('.dialog-header h3')).toHaveText('保留发展卡')
-    await expectResponsiveDialog(page, true)
-    if (testInfo.project.name === 'mobile-primary') {
-      await expect(page).toHaveScreenshot('reserve-dialog.png', { fullPage: true })
+    await expect(page.locator('.dialog-content')).toBeHidden()
+    const actionBar = page.getByRole('region', { name: '保留发展卡' })
+    await expect(actionBar).toBeVisible()
+    await expect(actionBar.locator('.selected-gold')).toHaveText('黄金坐标 (2, 2)')
+    await expect(page.locator('.mobile-game-nav')).toBeHidden()
+
+    const marketCard = page.getByRole('button', { name: /保留发展卡：/ }).first()
+    await marketCard.focus()
+    await page.keyboard.press('Enter')
+    await expect(marketCard).toHaveAttribute('aria-pressed', 'true')
+    await marketCard.click()
+    await expect(marketCard).toHaveAttribute('aria-pressed', 'false')
+    if (testInfo.project.name.startsWith('mobile-')) {
+      await marketCard.tap()
+    } else {
+      await marketCard.click()
     }
+    await actionBar.getByRole('button', { name: '清除' }).click()
+    await expect(marketCard).toHaveAttribute('aria-pressed', 'false')
+
+    const deck = page.getByRole('button', { name: '保留等级3牌堆顶牌' })
+    await deck.click()
+    await expect(deck).toHaveAttribute('aria-pressed', 'true')
+    await deck.click()
+    await expect(deck).toHaveAttribute('aria-pressed', 'false')
+    await marketCard.click()
+    await expect(actionBar.locator('.selected-target')).toContainText('场上卡')
+    await expect(actionBar.getByRole('button', { name: '确认保留' })).toBeEnabled()
+
+    const targetsMeetMinimum = await page.locator('.gem-cell.selected, .card-item[aria-pressed="true"], .context-actions button').evaluateAll(elements =>
+      elements.every(element => {
+        const bounds = element.getBoundingClientRect()
+        return bounds.width >= 44 && bounds.height >= 44
+      }))
+    expect(targetsMeetMinimum).toBe(true)
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+    await page.screenshot({ path: testInfo.outputPath('reserve-direct-actual.png'), fullPage: true, animations: 'disabled' })
+  })
+
+  test('keeps refill confirmation inline with its privilege warning', async ({ page }, testInfo) => {
+    await openFixture(page, 'refill')
+    await expect(page.locator('.dialog-content')).toBeHidden()
+    const actionBar = page.getByRole('region', { name: '确认补充版图' })
+    await expect(actionBar).toBeVisible()
+    await expect(actionBar.getByRole('alert')).toHaveText('补充版图后，对手获得特权')
+    await expect(actionBar.getByRole('button', { name: '确认补盘' })).toBeEnabled()
+    await expect(page.locator('.mobile-game-nav')).toBeHidden()
+
+    const bagTarget = await page.locator('.bag-pill').evaluate(element => {
+      const hitArea = getComputedStyle(element, '::before')
+      return { width: Number.parseFloat(hitArea.width), height: Number.parseFloat(hitArea.height) }
+    })
+    expect(bagTarget.width).toBeGreaterThanOrEqual(44)
+    expect(bagTarget.height).toBeGreaterThanOrEqual(44)
+    const actionTargetsMeetMinimum = await actionBar.locator('button').evaluateAll(buttons =>
+      buttons.every(button => {
+        const bounds = button.getBoundingClientRect()
+        return bounds.width >= 44 && bounds.height >= 44
+      }))
+    expect(actionTargetsMeetMinimum).toBe(true)
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+    await page.screenshot({ path: testInfo.outputPath('refill-inline-actual.png'), fullPage: true, animations: 'disabled' })
   })
 })

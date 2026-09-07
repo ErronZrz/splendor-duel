@@ -183,6 +183,78 @@ describe('game interaction action transitions', () => {
     expect(apply(unknown, { type: 'CONFIRM_TAKE_GEMS' }).commands).toEqual([])
   })
 
+  it('selects and clears a market reserve target while keeping the exact gold coordinate', () => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_RESERVE_CARD', selectedGold: { x: 1, y: 3 }
+    }).state
+    expect(toActionDialogView(state.action).visible).toBe(false)
+    expect(toContextActionBarView(state.action)).toMatchObject({
+      mode: 'reserve-card',
+      selectedGold: { x: 1, y: 3 },
+      reserveTarget: null,
+      confirmDisabled: true
+    })
+
+    const target = { type: 'market-card', cardId: 'level-2-card', level: 2, name: '卡牌level-2-card' } as const
+    state = apply(state, { type: 'TOGGLE_RESERVE_TARGET', target }).state
+    expect(toContextActionBarView(state.action)).toMatchObject({ reserveTarget: target, confirmDisabled: false })
+    state = apply(state, { type: 'TOGGLE_RESERVE_TARGET', target }).state
+    expect(toContextActionBarView(state.action)?.reserveTarget).toBeNull()
+    state = apply(state, { type: 'TOGGLE_RESERVE_TARGET', target }).state
+    state = apply(state, { type: 'CLEAR_RESERVE_TARGET' }).state
+    expect(toContextActionBarView(state.action)).toMatchObject({ selectedGold: { x: 1, y: 3 }, reserveTarget: null })
+  })
+
+  it.each([
+    [{ type: 'market-card', cardId: 'level-3-card', level: 3, name: '卡牌level-3-card' } as const, 'level-3-card'],
+    [{ type: 'deck', level: 2 } as const, 'deck_level_2']
+  ])('submits the exact reserveCard payload for %s without swapping x/y', (target, cardId) => {
+    let state = apply(createGameInteractionState(), {
+      type: 'OPEN_RESERVE_CARD', selectedGold: { x: 1, y: 3 }
+    }).state
+    state = apply(state, { type: 'TOGGLE_RESERVE_TARGET', target }).state
+    const result = apply(state, { type: 'CONFIRM_RESERVE_CARD' })
+    expect(result.commands).toEqual([{
+      actionType: 'reserveCard',
+      data: { cardId, goldX: 1, goldY: 3 }
+    }])
+    expect(result.state.action.kind).toBe('idle')
+  })
+
+  it('keeps refill inline with a persistent privilege warning and empty payload', () => {
+    const opened = apply(createGameInteractionState(), { type: 'OPEN_REFILL_CONFIRM' }).state
+    expect(toActionDialogView(opened.action).visible).toBe(false)
+    expect(toContextActionBarView(opened.action)).toMatchObject({
+      mode: 'refill-confirm',
+      warning: '补充版图后，对手获得特权',
+      confirmDisabled: false
+    })
+    expect(apply(opened, { type: 'CONFIRM_REFILL_BOARD' }).commands).toEqual([
+      { actionType: 'refillBoard', data: {} }
+    ])
+  })
+
+  it.each(['pending', 'unknown'] as const)('blocks reserve and refill submissions while feedback is %s', feedbackKind => {
+    let reserve = apply(createGameInteractionState(), {
+      type: 'OPEN_RESERVE_CARD', selectedGold: { x: 4, y: 2 }
+    }).state
+    reserve = apply(reserve, {
+      type: 'TOGGLE_RESERVE_TARGET',
+      target: { type: 'deck', level: 1 }
+    }).state
+    reserve = apply(reserve, feedbackKind === 'pending'
+      ? { type: 'REQUEST_SENT', requestId: 'reserve-request', actionType: 'reserveCard' }
+      : { type: 'REQUEST_UNKNOWN', requestId: 'reserve-request', actionType: 'reserveCard' }).state
+    expect(apply(reserve, { type: 'CONFIRM_RESERVE_CARD' }).commands).toEqual([])
+    expect(apply(reserve, { type: 'TOGGLE_RESERVE_TARGET', target: { type: 'deck', level: 2 } }).state).toBe(reserve)
+
+    let refill = apply(createGameInteractionState(), { type: 'OPEN_REFILL_CONFIRM' }).state
+    refill = apply(refill, feedbackKind === 'pending'
+      ? { type: 'REQUEST_SENT', requestId: 'refill-request', actionType: 'refillBoard' }
+      : { type: 'REQUEST_UNKNOWN', requestId: 'refill-request', actionType: 'refillBoard' }).state
+    expect(apply(refill, { type: 'CONFIRM_REFILL_BOARD' }).commands).toEqual([])
+  })
+
   it.each([
     [['extra_token', 'steal', 'wildcard'], 'extra-token'],
     [['steal'], 'steal-token'],

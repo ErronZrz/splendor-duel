@@ -241,6 +241,18 @@ describe('existing game action orchestration', () => {
     expect(actionDialog().props('actionType')).toBe('buyCard')
   }
 
+  const reserveBoard = [
+    ['white', 'blue', 'green'],
+    ['red', 'pearl', 'gold']
+  ]
+
+  const openReserve = async () => {
+    await wrapper.get('[data-board-position="1-2"]').trigger('click')
+    await flushPromises()
+    expect(actionDialog().props('visible')).toBe(false)
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('reserve-card')
+  }
+
   it('keeps the extra-token selection shape and sends one final buyCard payload', async () => {
     const { card, sendAction } = await createGameFlowHarness({
       card: makeCard({ effects: ['extra_token'] }),
@@ -413,6 +425,217 @@ describe('existing game action orchestration', () => {
       privilegeCount: 2,
       gemPositions: [{ x: 0, y: 0 }, { x: 1, y: 1 }]
     })
+  })
+
+  it.each([1, 2, 3])('reserves a level %s market card with exact card and gold coordinates', async level => {
+    const card = makeCard({ id: `level-${level}-card`, code: `level-${level}-card`, level })
+    const flippedCards = { 1: [], 2: [], 3: [], [level]: [card.id] }
+    const { sendAction } = await createGameFlowHarness({
+      card,
+      stateOverrides: {
+        gemBoard: reserveBoard,
+        flippedCards,
+        cardDetails: { [card.id]: card },
+        cardMap: { [card.id]: card }
+      }
+    })
+    await openReserve()
+
+    const marketCard = wrapper.get(`[data-market-card-id="${card.id}"]`)
+    await marketCard.trigger('click')
+    expect(marketCard.attributes('aria-pressed')).toBe('true')
+    let bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.text()).toContain(`场上卡 ${card.id} (0分)（等级 ${level}）`)
+
+    await marketCard.trigger('click')
+    bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.props('reserveTarget')).toBeNull()
+    await marketCard.trigger('keydown', { key: 'Enter' })
+    await bar.get('.context-actions .btn-secondary:nth-child(2)').trigger('click')
+    expect(wrapper.findComponent(ContextActionBar).props('reserveTarget')).toBeNull()
+
+    await marketCard.trigger('click')
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledWith('reserveCard', {
+      cardId: card.id,
+      goldX: 1,
+      goldY: 2
+    })
+  })
+
+  it.each([1, 2, 3])('reserves from the level %s deck and cancels the same deck target', async level => {
+    const card = makeCard()
+    const levelDecks = {
+      level1Deck: level === 1 ? ['hidden-1'] : [],
+      level2Deck: level === 2 ? ['hidden-2'] : [],
+      level3Deck: level === 3 ? ['hidden-3'] : []
+    }
+    const { sendAction } = await createGameFlowHarness({
+      card,
+      stateOverrides: {
+        gemBoard: reserveBoard,
+        unflippedCards: { 1: level === 1 ? 1 : 0, 2: level === 2 ? 1 : 0, 3: level === 3 ? 1 : 0 },
+        ...levelDecks
+      }
+    })
+    await openReserve()
+
+    const deck = wrapper.get(`[data-deck-level="${level}"]`)
+    await deck.trigger('click')
+    expect(deck.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findComponent(ContextActionBar).text()).toContain(`等级 ${level} 牌堆`)
+    await deck.trigger('click')
+    expect(wrapper.findComponent(ContextActionBar).props('reserveTarget')).toBeNull()
+    await deck.trigger('keydown', { key: ' ' })
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+
+    expect(sendAction).toHaveBeenCalledWith('reserveCard', {
+      cardId: `deck_level_${level}`,
+      goldX: 1,
+      goldY: 2
+    })
+  })
+
+  it('cancels reserve from the selected gold and rejects missing gold or a full reserve', async () => {
+    await createGameFlowHarness({ stateOverrides: { gemBoard: reserveBoard } })
+    await openReserve()
+    const gold = wrapper.get('[data-board-position="1-2"]')
+    expect(gold.attributes('aria-pressed')).toBe('true')
+    await gold.trigger('click')
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+
+    wrapper.unmount()
+    wrapper = undefined
+    await createGameFlowHarness({ stateOverrides: { gemBoard: [['white', 'blue']] } })
+    expect(wrapper.find('[aria-label^="选择黄金"]').exists()).toBe(false)
+
+    wrapper.unmount()
+    wrapper = undefined
+    await createGameFlowHarness({
+      playerOverrides: { reservedCards: ['a', 'b', 'c'] },
+      stateOverrides: { gemBoard: reserveBoard }
+    })
+    await wrapper.get('[data-board-position="1-2"]').trigger('click')
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+    expect(document.body.textContent).toContain('已经保留 3 张发展卡')
+  })
+
+  it('confirms refill inline with its warning and exact empty payload, then blocks a repeat', async () => {
+    const { sendAction } = await createGameFlowHarness()
+    const bag = wrapper.get('.bag-pill')
+    await bag.trigger('click')
+    let bar = wrapper.findComponent(ContextActionBar)
+    expect(actionDialog().props('visible')).toBe(false)
+    expect(bar.props('mode')).toBe('refill-confirm')
+    expect(bar.text()).toContain('对手获得特权')
+    await bar.get('.context-actions .btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledTimes(1)
+    expect(sendAction).toHaveBeenCalledWith('refillBoard', {})
+
+    await bag.trigger('click')
+    expect(sendAction).toHaveBeenCalledTimes(1)
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+  })
+
+  it('does not open refill confirmation for an empty bag', async () => {
+    await createGameFlowHarness({ stateOverrides: { gemBag: [] } })
+    await wrapper.get('.bag-pill').trigger('click')
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+    expect(document.body.textContent).toContain('袋子为空')
+  })
+
+  it('revalidates the selected gold and market card against the latest authority state', async () => {
+    const card = makeCard()
+    const { sendAction, store } = await createGameFlowHarness({ stateOverrides: { gemBoard: reserveBoard } })
+    await openReserve()
+    await wrapper.get(`[data-market-card-id="${card.id}"]`).trigger('click')
+
+    store.gameState = {
+      ...store.gameState,
+      gemBoard: [['white', 'blue', 'green'], ['red', 'pearl', '']]
+    }
+    await flushPromises()
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+    expect(sendAction).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('所选黄金已不在版图上')
+  })
+
+  it('revalidates market, deck and bag availability immediately before confirmation', async () => {
+    const card = makeCard()
+    const market = await createGameFlowHarness({ stateOverrides: { gemBoard: reserveBoard } })
+    await openReserve()
+    await wrapper.get(`[data-market-card-id="${card.id}"]`).trigger('click')
+    market.store.gameState = {
+      ...market.store.gameState,
+      flippedCards: { 1: [], 2: [], 3: [] }
+    }
+    await flushPromises()
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+    expect(market.sendAction).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('所选发展卡已不在市场中')
+
+    wrapper.unmount()
+    wrapper = undefined
+    const deck = await createGameFlowHarness({
+      stateOverrides: {
+        gemBoard: reserveBoard,
+        unflippedCards: { 1: 1, 2: 0, 3: 0 },
+        level1Deck: ['hidden-1']
+      }
+    })
+    await openReserve()
+    await wrapper.get('[data-deck-level="1"]').trigger('click')
+    deck.store.gameState = {
+      ...deck.store.gameState,
+      unflippedCards: { 1: 0, 2: 0, 3: 0 },
+      level1Deck: []
+    }
+    await flushPromises()
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+    expect(deck.sendAction).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('所选牌堆已为空')
+
+    wrapper.unmount()
+    wrapper = undefined
+    const refill = await createGameFlowHarness()
+    await wrapper.get('.bag-pill').trigger('click')
+    refill.store.gameState = { ...refill.store.gameState, gemBag: [] }
+    await flushPromises()
+    await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
+    expect(refill.sendAction).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('袋子为空')
+  })
+
+  it.each(['pending', 'unknown'])('blocks all reserve, refill and reserved-card purchase entries while %s', async status => {
+    const { sendAction, store } = await createGameFlowHarness({
+      playerOverrides: { reservedCards: ['flow-card'] },
+      stateOverrides: {
+        gemBoard: reserveBoard,
+        unflippedCards: { 1: 1, 2: 0, 3: 0 },
+        level1Deck: ['hidden-1']
+      }
+    })
+    store.pendingActions = {
+      locked: { requestId: 'locked', actionType: 'reserveCard', data: {}, status, sentAt: Date.now() }
+    }
+    await flushPromises()
+
+    expect(actionDialog().props('visible')).toBe(false)
+    await wrapper.get('[data-board-position="1-2"]').trigger('click')
+    expect(actionDialog().props('visible')).toBe(false)
+    await wrapper.get('[data-market-card-id="flow-card"]').trigger('click')
+    expect(actionDialog().props('visible')).toBe(false)
+    await wrapper.get('[data-deck-level="1"]').trigger('click')
+    expect(actionDialog().props('visible')).toBe(false)
+    await wrapper.get('.bag-pill').trigger('click')
+    expect(actionDialog().props('visible')).toBe(false)
+    await wrapper.findComponent(PlayerStatusCard).get('.reserved-card-item:not(.empty)').trigger('click')
+    await flushPromises()
+
+    expect(sendAction).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+    expect(actionDialog().props('actionType')).toBe('')
+    expect(actionDialog().props('visible')).toBe(false)
   })
 
   it('keeps direct board controls locked for pending and unknown actions', async () => {

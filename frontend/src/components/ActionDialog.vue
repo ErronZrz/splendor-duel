@@ -3,7 +3,6 @@
     <div
       ref="dialogRef"
       class="dialog-content"
-      :class="{ 'wide-reserve': actionType === 'reserveCard' }"
       role="dialog"
       aria-modal="true"
       aria-labelledby="action-dialog-title"
@@ -365,100 +364,6 @@
           </div>
         </div>
         
-        <!-- 保留发展卡操作 -->
-        <div v-if="actionType === 'reserveCard'" class="reserve-selection">
-          <h4>选择要保留的发展卡</h4>
-          
-          <!-- 按等级显示卡牌和牌堆 -->
-          <div class="cards-by-level">
-            <div 
-              v-for="level in [3, 2, 1]" 
-              :key="level" 
-              class="level-section"
-            >
-              <h5>等级 {{ level }}</h5>
-              <div class="level-content">
-                <!-- 牌堆（左侧） -->
-                <div class="deck-section">
-                  <div class="deck-cards-grid">
-                    <div 
-                      v-if="getUnflippedCount(level) > 0"
-                      class="deck-card-item"
-                      :class="{ 'selected': selectedCard && selectedCard.type === 'deck' && selectedCard.level === level }"
-                      role="button"
-                      tabindex="0"
-                      :aria-label="`保留等级${level}牌堆顶牌`"
-                      :aria-pressed="selectedCard && selectedCard.type === 'deck' && selectedCard.level === level"
-                      @click="selectDeckCard(level)"
-                      @keydown.enter.prevent="selectDeckCard(level)"
-                      @keydown.space.prevent="selectDeckCard(level)"
-                    >
-                      <img 
-                        :src="`/images/cards/back${level}.jpg`" 
-                        :alt="`等级${level}牌背`"
-                        class="card-image"
-                        @error="handleCardImageError"
-                      />
-                      <div class="deck-card-label">牌堆</div>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- 已翻开的卡牌（右侧） -->
-                <div class="field-cards-section">
-                  <div class="cards-grid">
-                    <div 
-                      v-for="card in getCardsByLevel(level)" 
-                      :key="card.id"
-                      class="card-item"
-                      :class="{ 'selected': selectedCard && selectedCard.id === card.id }"
-                      role="button"
-                      tabindex="0"
-                      :aria-label="`保留发展卡：${card.name}`"
-                      :aria-pressed="selectedCard && selectedCard.id === card.id"
-                      @click="selectCard(card)"
-                      @keydown.enter.prevent="selectCard(card)"
-                      @keydown.space.prevent="selectCard(card)"
-                    >
-                      <img 
-                        :src="`/images/cards/${card.id}.jpg`" 
-                        :alt="card.name"
-                        class="card-image"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="selected-card" v-if="selectedCard">
-            <img 
-              v-if="selectedCard.type === 'deck'"
-              :src="`/images/cards/back${selectedCard.level}.jpg`" 
-              :alt="`等级${selectedCard.level}牌背`"
-              class="card-preview"
-            />
-            <img 
-              v-else
-              :src="`/images/cards/${selectedCard.id}.jpg`" 
-              :alt="selectedCard.name" 
-              class="card-preview" 
-            />
-            <div class="card-info">
-              <div class="card-name">
-                {{ selectedCard.type === 'deck' ? `等级${selectedCard.level}牌堆` : selectedCard.name }}
-              </div>
-              <div v-if="selectedCard.type !== 'deck'" class="card-cost">
-                费用: {{ formatCardCost(selectedCard.cost) }}
-              </div>
-              <div v-if="selectedCard.type === 'deck'" class="card-note">
-                从牌堆随机抽取一张等级{{ selectedCard.level }}的卡牌
-              </div>
-            </div>
-          </div>
-        </div>
-        
         <!-- 花费特权操作 -->
         <div v-if="actionType === 'spendPrivilege'" class="privilege-selection">
           <h4>选择要花费的特权指示物数量</h4>
@@ -578,13 +483,9 @@ const props = defineProps({
   message: String,
   gemBoard: Array,
   availablePrivileges: Number,
-  flippedCards: Object,
-  unflippedCards: Object,
-  selectedGoldPosition: Object,
   initialGemPosition: Object,
   playerData: Object,
   selectedCard: Object,
-  cardDetails: Object, // 新增：用于传递卡牌详细信息
   gemDiscardTarget: Number // 新增：宝石丢弃目标数量
 })
 
@@ -622,7 +523,6 @@ const handleDialogKeydown = (event) => {
 
 const selectedGems = ref([])
 const selectedCard = ref(null)
-const selectedGold = ref(null)
 const privilegeCount = ref(0)
 const paymentPlan = ref({})
 // 额外token相关本地状态
@@ -651,11 +551,6 @@ watch(() => props.visible, (newVal) => {
     // 重置宝石丢弃状态
     discardedGems.value = {}
     originalGemCounts.value = {}
-    
-    // 对于保留发展卡操作，不清空selectedGold，因为它是从父组件传递的
-    if (props.actionType !== 'reserveCard') {
-      selectedGold.value = null
-    }
     
     // 对于购买发展卡操作，设置selectedCard并初始化支付计划
     if (props.actionType === 'buyCard') {
@@ -694,13 +589,6 @@ watch(() => props.visible, (newVal) => {
     previouslyFocusedElement = null
   }
 })
-
-// 监听黄金位置变化
-watch(() => props.selectedGoldPosition, (newVal) => {
-  if (newVal && props.actionType === 'reserveCard') {
-    selectedGold.value = { ...newVal }
-  }
-}, { immediate: true })
 
 // Recompute from the latest resources, including delayed privilege results.
 // Compare values rather than object identity so identical server snapshots do
@@ -751,38 +639,6 @@ const getCurrentGemCount = (gemType) => {
   const originalCount = props.playerData.gems[gemType] || 0
   const discardedCount = discardedGems.value[gemType] || 0
   return Math.max(0, originalCount - discardedCount)
-}
-
-// 格式化卡牌费用
-const formatCardCost = (cost) => {
-  if (!cost || Object.keys(cost).length === 0) return '无'
-  return Object.entries(cost).map(([gem, count]) => `${gem}:${count}`).join(', ')
-}
-
-// 根据等级获取发展卡
-const getCardsByLevel = (level) => {
-  if (!props.flippedCards) return []
-  const cardIds = props.flippedCards[level] || []
-  
-  // 从父组件传递的卡牌详细信息中获取数据
-  // 注意：这里需要从父组件传递cardDetails prop
-  const cardDetails = props.cardDetails || {}
-  
-  return cardIds.map(id => {
-    const cardDetail = cardDetails[id]
-    if (!cardDetail) {
-      console.warn(`未找到卡牌 ${id} 的详细信息`)
-      return null
-    }
-    
-    return {
-      id: cardDetail.id,
-      name: `卡牌${cardDetail.id}`,
-      level: cardDetail.level,
-      cost: cardDetail.cost,
-      bonus: cardDetail.bonus
-    }
-  }).filter(card => card !== null)
 }
 
 // 选择宝石
@@ -875,16 +731,6 @@ const removeGem = (index) => {
 // 清除已选择的宝石
 const clearSelectedGems = () => {
   selectedGems.value = []
-}
-
-// 选择黄金
-const selectGold = (x, y) => {
-  selectedGold.value = { x, y }
-}
-
-// 选择卡牌
-const selectCard = (card) => {
-  selectedCard.value = card
 }
 
 // 选择特权数量
@@ -989,9 +835,6 @@ const canConfirm = computed(() => {
       return !!selectedWildcardColor.value
     case 'chooseNoble':
       return !!selectedNobleId.value
-    case 'reserveCard':
-      // 对于保留发展卡，只需要选择卡牌即可，黄金位置已经通过点击确定
-      return selectedCard.value !== null
     case 'spendPrivilege':
       return privilegeCount.value > 0 && selectedGems.value.length === privilegeCount.value
     case 'discardGems':
@@ -1042,7 +885,6 @@ const handleConfirm = () => {
     actionType: props.actionType,
     selectedGems: selectedGems.value,
     selectedCard: selectedCard.value,
-    selectedGold: selectedGold.value,
     privilegeCount: privilegeCount.value,
     paymentPlan: paymentPlan.value,
     stealGemType: selectedStealGemType.value
@@ -1083,23 +925,6 @@ const handleCardImageError = (event) => {
 const handleGemImageError = (event) => {
   replaceBrokenImageWithLabel(event.target, event.target.alt || '宝石', 'gem-image-fallback')
 };
-
-// 获取未翻开的卡牌数量（从后端数据中获取）
-const getUnflippedCount = (level) => {
-  if (!props.unflippedCards) return 0;
-  // 直接从后端获取该等级未翻开的卡牌数量
-  return props.unflippedCards[level] || 0;
-};
-
-// 选择牌堆卡牌
-const selectDeckCard = (level) => {
-  if (getUnflippedCount(level) === 0) {
-    return;
-  }
-  selectedCard.value = { type: 'deck', level: level };
-};
-
-
 
 // 丢弃宝石（本地状态管理）
 const discardGem = (gemType) => {
@@ -1452,11 +1277,6 @@ const getRemainingTokens = (gemType) => {
   outline: none;
 }
 
-.dialog-content.wide-reserve {
-  width: min(540px, 100%);
-  max-width: 540px;
-}
-
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -1507,11 +1327,11 @@ const getRemainingTokens = (gemType) => {
   color: #495057;
 }
 
-.gem-selection, .card-selection, .reserve-selection, .privilege-selection {
+.gem-selection, .card-selection, .privilege-selection {
   margin-top: 20px;
 }
 
-.gem-selection h4, .card-selection h4, .reserve-selection h4, .privilege-selection h4 {
+.gem-selection h4, .card-selection h4, .privilege-selection h4 {
   margin: 0 0 12px 0;
   color: #495057;
   font-size: 16px;
@@ -1599,44 +1419,12 @@ const getRemainingTokens = (gemType) => {
   font-size: 10px;
 }
 
-.selected-card {
-  display: flex;
-  align-items: center;
-  background: #f8f9fa;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-}
-
-.card-preview {
-  width: 60px;
-  height: 90px;
-  object-fit: cover;
-  border-radius: 6px;
-  margin-right: 12px;
-}
-
 .card-preview-large {
   width: 120px;
   height: 180px;
   object-fit: cover;
   border-radius: 8px;
   margin-right: 12px;
-}
-
-.card-info {
-  flex: 1;
-}
-
-.card-name {
-  font-weight: 600;
-  color: #495057;
-  margin-bottom: 4px;
-}
-
-.card-cost {
-  font-size: 12px;
-  color: #6c757d;
 }
 
 .privilege-count {
@@ -1714,151 +1502,6 @@ const getRemainingTokens = (gemType) => {
 
 .btn-secondary:hover {
   background: #5a6268;
-}
-
-.available-cards {
-  margin-bottom: 20px;
-}
-
-.card-level {
-  margin-bottom: 16px;
-}
-
-.card-level h5 {
-  margin: 0 0 8px 0;
-  color: #495057;
-  font-size: 14px;
-}
-
-.cards-grid {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.card-item {
-  width: 60px;
-  height: 90px;
-  border: 2px solid #dee2e6;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  overflow: hidden;
-}
-
-.card-item:hover {
-  border-color: #2196f3;
-  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
-}
-
-.card-item.selected {
-  border-color: #28a745;
-  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
-}
-
-.card-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.deck-cards-grid {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-
-.deck-card-item {
-  width: 60px;
-  height: 90px;
-  border: 2px solid #dee2e6;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-  overflow: hidden;
-  position: relative;
-}
-
-.deck-card-item:hover {
-  border-color: #2196f3;
-  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
-}
-
-.deck-card-item.selected {
-  border-color: #2196f3;
-  box-shadow: 0 2px 8px rgba(33, 150, 243, 0.3);
-}
-
-.deck-card-item .card-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.deck-card-label {
-  position: absolute;
-  bottom: 4px;
-  left: 4px;
-  right: 4px;
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 10px;
-  font-weight: bold;
-  text-align: center;
-  z-index: 1;
-}
-
-.card-note {
-  font-size: 10px;
-  color: #6c757d;
-  margin-top: 4px;
-}
-
-.cards-by-level {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.level-section {
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 16px;
-  background: #f8f9fa;
-}
-
-.level-section h5 {
-  margin: 0 0 16px 0;
-  color: #495057;
-  font-size: 16px;
-  text-align: center;
-  padding-bottom: 8px;
-  border-bottom: 1px solid #dee2e6;
-}
-
-.level-content {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.deck-section {
-  flex: 0 0 auto;
-  text-align: center;
-}
-
-.field-cards-section {
-  flex: 1;
-}
-
-.level-section h6 {
-  margin: 0 0 12px 0;
-  color: #495057;
-  font-size: 14px;
-  text-align: center;
 }
 
 .gem-selection-controls {
@@ -2324,8 +1967,7 @@ const getRemainingTokens = (gemType) => {
     padding-left: max(var(--space-3), env(safe-area-inset-left));
   }
 
-  .dialog-content,
-  .dialog-content.wide-reserve {
+  .dialog-content {
     width: 100%;
     max-width: none;
     max-height: calc(100vh - max(var(--space-3), env(safe-area-inset-top)));
@@ -2352,7 +1994,6 @@ const getRemainingTokens = (gemType) => {
 
   .gem-selection,
   .card-selection,
-  .reserve-selection,
   .privilege-selection {
     margin-top: var(--space-3);
   }
@@ -2426,14 +2067,6 @@ const getRemainingTokens = (gemType) => {
   .gem-cell {
     width: min(40px, calc((100vw - 72px) / 5));
     height: min(40px, calc((100vw - 72px) / 5));
-  }
-
-  .level-section {
-    padding: var(--space-3);
-  }
-
-  .level-content {
-    gap: var(--space-2);
   }
 
   .gem-display .gem-row {

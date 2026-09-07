@@ -46,6 +46,36 @@ describe('ContextActionBar', () => {
     expect(wrapper.find('.context-actions .btn-primary').attributes('disabled')).toBeDefined()
   })
 
+  it('always shows the reserve gold coordinate, target source and explicit actions', async () => {
+    const wrapper = mountBar({
+      mode: 'reserve-card',
+      selectedGems: [],
+      selectedGold: { x: 1, y: 3 },
+      reserveTarget: { type: 'market-card', cardId: 'c2', level: 2, name: '卡牌c2' },
+      targetCount: 1
+    })
+    expect(wrapper.get('.selected-gold').text()).toBe('黄金坐标 (2, 4)')
+    expect(wrapper.get('.selected-target').text()).toContain('场上卡 卡牌c2（等级 2）')
+    expect(wrapper.get('.btn-primary').text()).toBe('确认保留')
+    await wrapper.get('.context-actions .btn-secondary:nth-child(2)').trigger('click')
+    expect(wrapper.emitted('clear')).toHaveLength(1)
+  })
+
+  it('shows the refill privilege warning and explicit empty-payload confirmation intent', async () => {
+    const wrapper = mountBar({
+      mode: 'refill-confirm',
+      selectedGems: [],
+      warning: '补充版图后，对手获得特权',
+      targetCount: 0,
+      maxTargetCount: 0
+    })
+    expect(wrapper.get('.context-warning').text()).toBe('补充版图后，对手获得特权')
+    expect(wrapper.findAll('.context-actions button')).toHaveLength(2)
+    expect(wrapper.get('.btn-primary').text()).toBe('确认补盘')
+    await wrapper.get('.btn-primary').trigger('click')
+    expect(wrapper.emitted('confirm')).toHaveLength(1)
+  })
+
   it('locks all mutating controls while pending', () => {
     const wrapper = mountBar({ pending: true })
     expect(wrapper.get('.context-pending').text()).toContain('不能重复提交')

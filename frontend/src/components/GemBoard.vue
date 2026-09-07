@@ -45,7 +45,7 @@ import { replaceBrokenImageWithLabel } from '../image-fallback'
 import { getGemDisplayName } from '../game-view-selectors'
 import type { GemPosition, SelectedGem } from '../game-interaction-state'
 
-export type GemBoardMode = 'idle' | 'take-gems' | 'spend-privilege'
+export type GemBoardMode = 'idle' | 'take-gems' | 'spend-privilege' | 'reserve-card'
 
 const props = defineProps<{
   board: readonly (readonly string[])[]
@@ -90,7 +90,7 @@ const cellLabel = (x: number, y: number, gem: string): string => {
   const order = selectionOrder(x, y)
   if (order > 0) return `取消第${order}枚${name}，第${x + 1}行第${y + 1}列`
   if (props.pending) return `${name}，等待服务器确认`
-  if (isIllegal(x, y)) return `${name}，当前不可选，第${x + 1}行第${y + 1}列`
+  if (isIllegal(x, y) || !canActivate(x, y, gem)) return `${name}，当前不可选，第${x + 1}行第${y + 1}列`
   return `选择${name}，第${x + 1}行第${y + 1}列`
 }
 

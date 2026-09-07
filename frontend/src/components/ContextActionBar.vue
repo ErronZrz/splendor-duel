@@ -5,7 +5,7 @@
         <h4>{{ title }}</h4>
         <p class="context-message">{{ message }}</p>
       </div>
-      <span class="selection-count">已选 {{ selectedGems.length }}/{{ requiredCount }}</span>
+      <span v-if="showsGemSelection" class="selection-count">已选 {{ selectedGems.length }}/{{ requiredCount }}</span>
     </div>
 
     <div v-if="mode === 'spend-privilege'" class="privilege-count" aria-label="花费特权数量">
@@ -23,7 +23,7 @@
       </button>
     </div>
 
-    <div class="selected-list" aria-live="polite">
+    <div v-if="showsGemSelection" class="selected-list" aria-live="polite">
       <span v-if="selectedGems.length === 0" class="empty-selection">尚未选择宝石</span>
       <span
         v-for="(gem, index) in selectedGems"
@@ -34,13 +34,19 @@
       </span>
     </div>
 
+    <div v-else-if="mode === 'reserve-card'" class="selected-list reserve-selection-summary" aria-live="polite">
+      <span class="selected-gem selected-gold">{{ selectedGoldLabel }}</span>
+      <span v-if="reserveTarget" class="selected-gem selected-target">目标：{{ reserveTargetLabel }}</span>
+      <span v-else class="empty-selection">尚未选择市场卡或牌堆</span>
+    </div>
+
     <p v-if="warning" class="context-warning" role="alert">{{ warning }}</p>
     <p v-if="pending" class="context-pending" role="status">等待服务器确认，不能重复提交</p>
 
     <div class="context-actions">
       <button type="button" class="btn btn-secondary" :disabled="pending" @click="emit('cancel')">取消</button>
-      <button type="button" class="btn btn-secondary" :disabled="pending || selectedGems.length === 0" @click="emit('clear')">清除</button>
-      <button type="button" class="btn btn-primary" :disabled="pending || confirmDisabled" @click="emit('confirm')">确认</button>
+      <button v-if="mode !== 'refill-confirm'" type="button" class="btn btn-secondary" :disabled="pending || clearDisabled" @click="emit('clear')">清除</button>
+      <button type="button" class="btn btn-primary" :disabled="pending || confirmDisabled" @click="emit('confirm')">{{ confirmLabel }}</button>
     </div>
   </section>
 </template>
@@ -48,11 +54,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { getGemDisplayName } from '../game-view-selectors'
-import type { SelectedGem } from '../game-interaction-state'
+import type { GemPosition, ReserveTarget, SelectedGem } from '../game-interaction-state'
 
 const props = defineProps<{
-  mode: 'take-gems' | 'spend-privilege'
+  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm'
   selectedGems: readonly SelectedGem[]
+  selectedGold?: GemPosition | null
+  reserveTarget?: ReserveTarget | null
   message: string
   warning: string | null
   targetCount: number
@@ -68,8 +76,29 @@ const emit = defineEmits<{
   confirm: []
 }>()
 
-const title = computed(() => props.mode === 'take-gems' ? '拿取宝石' : '花费特权')
+const title = computed(() => ({
+  'take-gems': '拿取宝石',
+  'spend-privilege': '花费特权',
+  'reserve-card': '保留发展卡',
+  'refill-confirm': '确认补充版图'
+})[props.mode])
+const showsGemSelection = computed(() => props.mode === 'take-gems' || props.mode === 'spend-privilege')
 const requiredCount = computed(() => props.mode === 'take-gems' ? 3 : props.targetCount)
+const selectedGoldLabel = computed(() => props.selectedGold
+  ? `黄金坐标 (${props.selectedGold.x + 1}, ${props.selectedGold.y + 1})`
+  : '黄金坐标不可用')
+const reserveTargetLabel = computed(() => {
+  if (!props.reserveTarget) return ''
+  return props.reserveTarget.type === 'deck'
+    ? `等级 ${props.reserveTarget.level} 牌堆`
+    : `场上卡 ${props.reserveTarget.name}（等级 ${props.reserveTarget.level}）`
+})
+const clearDisabled = computed(() => props.mode === 'reserve-card'
+  ? !props.reserveTarget
+  : props.selectedGems.length === 0)
+const confirmLabel = computed(() => props.mode === 'reserve-card'
+  ? '确认保留'
+  : props.mode === 'refill-confirm' ? '确认补盘' : '确认')
 </script>
 
 <style scoped>

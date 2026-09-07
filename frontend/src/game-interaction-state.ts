@@ -14,6 +14,10 @@ export interface InteractionCard {
   effects?: readonly string[]
 }
 
+export type ReserveTarget =
+  | { type: 'market-card'; cardId: string; level: number; name: string }
+  | { type: 'deck'; level: number }
+
 export type PaymentPlan = Record<string, number>
 
 export interface PurchaseEffects {
@@ -39,7 +43,7 @@ export type ActionInteractionState =
   | { kind: 'idle' }
   | { kind: 'take-gems'; message: string; selectedGems: SelectedGem[]; warning: string | null }
   | { kind: 'spend-privilege'; message: string; targetCount: number; maxPrivilegeCount: number; selectedGems: SelectedGem[] }
-  | { kind: 'reserve-card'; selectedGold: GemPosition }
+  | { kind: 'reserve-card'; selectedGold: GemPosition; target: ReserveTarget | null }
   | { kind: 'refill-confirm' }
   | { kind: 'purchase-payment'; title: string; card: InteractionCard | null; playerData?: unknown }
   | { kind: 'extra-token'; purchase: PendingPurchase; effects: PurchaseEffects; message: string; playerData?: unknown }
@@ -84,10 +88,14 @@ export type GameInteractionEvent =
   | { type: 'CLEAR_BOARD_GEMS' }
   | { type: 'SET_PRIVILEGE_COUNT'; count: number }
   | { type: 'OPEN_RESERVE_CARD'; selectedGold: GemPosition }
+  | { type: 'TOGGLE_RESERVE_TARGET'; target: ReserveTarget }
+  | { type: 'CLEAR_RESERVE_TARGET' }
   | { type: 'OPEN_REFILL_CONFIRM' }
   | { type: 'OPEN_PURCHASE_PAYMENT'; title: string; card: InteractionCard | null; playerData?: unknown }
   | { type: 'CONFIRM_TAKE_GEMS' }
   | { type: 'CONFIRM_SPEND_PRIVILEGE' }
+  | { type: 'CONFIRM_RESERVE_CARD' }
+  | { type: 'CONFIRM_REFILL_BOARD' }
   | { type: 'CONFIRM_PURCHASE_PAYMENT'; card: InteractionCard; paymentPlan: PaymentPlan; effects: readonly string[]; extraTokenMessage: string; extraTokenPlayerData?: unknown; stealPlayerData?: unknown; wildcardPlayerData?: unknown; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_EXTRA_TOKEN'; selectedGems: SelectedGem[]; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
   | { type: 'CONFIRM_STEAL_TOKEN'; stealGemType: string | null; purchaseValid?: boolean; nobleContext?: NobleChoiceContext }
@@ -124,9 +132,11 @@ export interface RequestFeedbackView {
 }
 
 export interface ContextActionBarView {
-  mode: 'take-gems' | 'spend-privilege'
+  mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm'
   message: string
   selectedGems: SelectedGem[]
+  selectedGold: GemPosition | null
+  reserveTarget: ReserveTarget | null
   warning: string | null
   targetCount: number
   maxPrivilegeCount: number
@@ -173,6 +183,15 @@ const completePurchaseStep = (
 
 const samePosition = (left: GemPosition, right: GemPosition): boolean =>
   left.x === right.x && left.y === right.y
+
+const sameReserveTarget = (left: ReserveTarget, right: ReserveTarget): boolean =>
+  left.type === right.type && (left.type === 'deck'
+    ? right.type === 'deck' && left.level === right.level
+    : right.type === 'market-card' && left.cardId === right.cardId)
+
+const isValidReserveTarget = (target: ReserveTarget): boolean =>
+  Number.isInteger(target.level) && target.level >= 1 && target.level <= 3 &&
+  (target.type === 'deck' || target.cardId.length > 0)
 
 const isSelectableGem = (gem: SelectedGem): boolean => gem.type.length > 0 && gem.type !== 'gold'
 
@@ -328,8 +347,21 @@ export const transitionGameInteraction = (
       }
       return withAction(state, { ...state.action, targetCount: event.count, selectedGems: [] })
     case 'OPEN_RESERVE_CARD':
-      return withAction(state, { kind: 'reserve-card', selectedGold: event.selectedGold })
+      if (boardInteractionLocked(state) || state.action.kind !== 'idle') return noCommands(state)
+      return withAction(state, { kind: 'reserve-card', selectedGold: event.selectedGold, target: null })
+    case 'TOGGLE_RESERVE_TARGET':
+      if (boardInteractionLocked(state) || state.action.kind !== 'reserve-card' || !isValidReserveTarget(event.target)) {
+        return noCommands(state)
+      }
+      return withAction(state, {
+        ...state.action,
+        target: state.action.target && sameReserveTarget(state.action.target, event.target) ? null : event.target
+      })
+    case 'CLEAR_RESERVE_TARGET':
+      if (boardInteractionLocked(state) || state.action.kind !== 'reserve-card' || !state.action.target) return noCommands(state)
+      return withAction(state, { ...state.action, target: null })
     case 'OPEN_REFILL_CONFIRM':
+      if (boardInteractionLocked(state) || state.action.kind !== 'idle') return noCommands(state)
       return withAction(state, { kind: 'refill-confirm' })
     case 'OPEN_PURCHASE_PAYMENT':
       return withAction(state, {
@@ -363,6 +395,23 @@ export const transitionGameInteraction = (
           gemPositions: state.action.selectedGems.map(({ x, y }) => ({ x, y }))
         }
       }])
+    case 'CONFIRM_RESERVE_CARD':
+      if (boardInteractionLocked(state) || state.action.kind !== 'reserve-card' || !state.action.target) {
+        return noCommands(state)
+      }
+      return withAction(state, { kind: 'idle' }, [{
+        actionType: 'reserveCard',
+        data: {
+          cardId: state.action.target.type === 'deck'
+            ? `deck_level_${state.action.target.level}`
+            : state.action.target.cardId,
+          goldX: state.action.selectedGold.x,
+          goldY: state.action.selectedGold.y
+        }
+      }])
+    case 'CONFIRM_REFILL_BOARD':
+      if (boardInteractionLocked(state) || state.action.kind !== 'refill-confirm') return noCommands(state)
+      return withAction(state, { kind: 'idle' }, [{ actionType: 'refillBoard', data: {} }])
     case 'CONFIRM_PURCHASE_PAYMENT': {
       if (state.action.kind !== 'purchase-payment') return noCommands(state)
       const purchase = { card: event.card, paymentPlan: event.paymentPlan }
@@ -524,11 +573,9 @@ export const toActionDialogView = (action: ActionInteractionState): ActionDialog
       return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'take-gems':
     case 'spend-privilege':
-      return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'reserve-card':
-      return { visible: true, actionType: 'reserveCard', title: '保留发展卡', message: '请选择要保留的发展卡。', selectedCard: null, selectedGold: action.selectedGold }
     case 'refill-confirm':
-      return { visible: true, actionType: 'refillBoard', title: '确认补充版图', message: '补充版图将允许对手获得一个特权指示物，是否继续？', selectedCard: null }
+      return { visible: false, actionType: '', title: '', message: '', selectedCard: null }
     case 'purchase-payment':
       return { visible: true, actionType: 'buyCard', title: action.title, message: action.card ? '请确认要支付的token数量' : '请选择要购买的发展卡。', selectedCard: action.card, playerData: action.playerData }
     case 'extra-token':
@@ -565,6 +612,8 @@ export const toContextActionBarView = (action: ActionInteractionState): ContextA
       mode: action.kind,
       message: action.message,
       selectedGems: action.selectedGems,
+      selectedGold: null,
+      reserveTarget: null,
       warning: action.warning,
       targetCount: 3,
       maxPrivilegeCount: 3,
@@ -576,10 +625,38 @@ export const toContextActionBarView = (action: ActionInteractionState): ContextA
       mode: action.kind,
       message: action.message,
       selectedGems: action.selectedGems,
+      selectedGold: null,
+      reserveTarget: null,
       warning: null,
       targetCount: action.targetCount,
       maxPrivilegeCount: action.maxPrivilegeCount,
       confirmDisabled: !isValidSpendPrivilegeSelection(action.selectedGems, action.targetCount)
+    }
+  }
+  if (action.kind === 'reserve-card') {
+    return {
+      mode: action.kind,
+      message: '请在市场中选择一张翻开的发展卡，或选择一个非空牌堆。',
+      selectedGems: [],
+      selectedGold: action.selectedGold,
+      reserveTarget: action.target,
+      warning: null,
+      targetCount: 1,
+      maxPrivilegeCount: 1,
+      confirmDisabled: action.target === null
+    }
+  }
+  if (action.kind === 'refill-confirm') {
+    return {
+      mode: action.kind,
+      message: '确认从袋中补充宝石版图。',
+      selectedGems: [],
+      selectedGold: null,
+      reserveTarget: null,
+      warning: '补充版图后，对手获得特权',
+      targetCount: 0,
+      maxPrivilegeCount: 0,
+      confirmDisabled: false
     }
   }
   return null
