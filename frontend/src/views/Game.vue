@@ -519,6 +519,12 @@ import ActionDialog from '../components/ActionDialog.vue'
 import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import { replaceBrokenImageWithLabel } from '../image-fallback'
 import {
+  createGameInteractionState,
+  toActionDialogView,
+  toRequestFeedbackView,
+  transitionGameInteraction
+} from '../game-interaction-state'
+import {
   calculateCardPaymentShortfall,
   canLocalPlayerStartGame,
   countGemBagByDisplayOrder,
@@ -552,14 +558,18 @@ const newMessage = ref('')
 const chatMessagesRef = ref(null)
 const notificationRef = ref(null)
 
-// 胜利对话框
-const victoryDialog = ref({ visible: false, message: '' })
+// 页面临时交互由一个显式模型承载，网络与权威状态仍由 store 管理
+const interactionState = ref(createGameInteractionState())
+const actionDialog = computed(() => toActionDialogView(interactionState.value.action))
+const victoryDialog = computed(() => interactionState.value.victory.kind === 'victory'
+  ? { visible: true, message: interactionState.value.victory.message }
+  : { visible: false, message: '' })
 const victoryDialogRef = ref(null)
 const victoryCloseButtonRef = ref(null)
 let victoryPreviousFocus = null
 
 const closeVictoryDialog = () => {
-  victoryDialog.value.visible = false
+  applyInteractionEvent({ type: 'CLOSE_VICTORY' })
 }
 
 const handleVictoryDialogKeydown = (event) => {
@@ -578,48 +588,22 @@ watch(() => victoryDialog.value.visible, (visible) => {
   }
 })
 
-// 操作对话框状态
-const actionDialog = ref({
-  visible: false,
-  actionType: '',
-  title: '',
-  message: '',
-  selectedCard: null
-})
+const applyInteractionEvent = (event) => {
+  const result = transitionGameInteraction(interactionState.value, event)
+  interactionState.value = result.state
+  result.commands.forEach(command => executeAction(command.actionType, command.data))
 
-// 暂存需要在确认后执行的拿取宝石位置
-const pendingTakeGems = ref([])
-// 暂存一次购买的支付方案与卡，用于额外token二次确认后统一提交
-const pendingPurchase = ref(null)
-const pendingEffects = ref({})
-const openedFollowupDialog = ref(false)
-
-// 在特效确认后再检查是否需要弹出贵族选择
-const maybeOpenNobleDialogAfterEffects = () => {
-  const me = getCurrentPlayerData()
-  const detail = gameState.value?.cardDetails?.[pendingPurchase.value?.card?.id]
-  if (!me || !detail) {
-    pendingPurchase.value = null
-    return
-  }
-  const crownsBefore = me.crowns || 0
-  const crownsAfter = crownsBefore + (detail.crowns || 0)
-  const owned = me.nobles?.length || 0
-  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
-  if (canChooseNoble) {
-    actionDialog.value = {
-      visible: true,
-      actionType: 'chooseNoble',
-      title: '选择贵族',
-      message: '请选择一个可获得的贵族',
-      playerData: { 
-        ownedNobles: me.nobles || [],
-        availableNobles: gameState.value?.availableNobles || []
-      },
-      selectedCard: pendingPurchase.value.card
-    }
-  } else {
-    pendingPurchase.value = null
+  if (result.schedulePurchaseFollowup) {
+    setTimeout(() => {
+      const action = interactionState.value.action
+      if (action.kind !== 'wildcard' || action.phase !== 'awaiting-followup') return
+      const followup = getPurchaseFollowup(action.purchase.card)
+      applyInteractionEvent({
+        type: 'RUN_PURCHASE_FOLLOWUP',
+        purchaseValid: followup.valid,
+        ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {})
+      })
+    }, 0)
   }
 }
 
@@ -631,42 +615,27 @@ const buildStealDialogPlayerData = () => {
   return { opponent: { gems: opponent.gems || {} } }
 }
 
-// 在特效链条结束时决定是否弹贵族或直接购买
-const maybeOpenNobleOrBuyNow = () => {
+const getPurchaseFollowup = (card) => {
   const me = getCurrentPlayerData()
-  const detail = gameState.value?.cardDetails?.[pendingPurchase.value?.card?.id]
-  if (!me || !detail) {
-    pendingPurchase.value = null
-    pendingEffects.value = {}
-    openedFollowupDialog.value = false
-    return
-  }
+  const detail = gameState.value?.cardDetails?.[card?.id]
+  if (!me || !detail) return { valid: false }
+
   const crownsBefore = me.crowns || 0
   const crownsAfter = crownsBefore + (detail.crowns || 0)
   const owned = me.nobles?.length || 0
-  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
-  if (canChooseNoble) {
-    actionDialog.value = {
-      visible: true,
-      actionType: 'chooseNoble',
-      title: '选择贵族',
-      message: '请选择一个可获得的贵族',
-      playerData: { 
-        ownedNobles: me.nobles || [],
-        availableNobles: gameState.value?.availableNobles || []
-      },
-      selectedCard: pendingPurchase.value.card
-    }
-    openedFollowupDialog.value = true
-  } else {
-    executeAction('buyCard', {
-      cardId: pendingPurchase.value.card.id,
-      paymentPlan: pendingPurchase.value.paymentPlan || {},
-      effects: pendingEffects.value
-    })
-    pendingPurchase.value = null
-    pendingEffects.value = {}
-    openedFollowupDialog.value = false
+  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) ||
+    (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
+
+  return {
+    valid: true,
+    ...(canChooseNoble ? {
+      nobleContext: {
+        playerData: {
+          ownedNobles: me.nobles || [],
+          availableNobles: gameState.value?.availableNobles || []
+        }
+      }
+    } : {})
   }
 }
 
@@ -683,7 +652,7 @@ const tooltipStyle = ref({
 })
 
 // 使用 storeToRefs 确保响应式
-const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, lastActionResult } = storeToRefs(gameStore)
+const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, pendingActions, lastActionResult } = storeToRefs(gameStore)
 const isChatInputFocused = ref(false)
 const expandedMobilePanels = ref(new Set(['chat']))
 const isMobilePanelExpanded = (panelId) => expandedMobilePanels.value.has(panelId)
@@ -893,13 +862,10 @@ const handleTakeGems = () => {
     return
   }
   
-  actionDialog.value = {
-    visible: true,
-    actionType: 'takeGems',
-    title: '拿取宝石',
-    message: '请选择1-3个宝石，必须在一条直线上且连续。',
-    selectedCard: null
-  }
+  applyInteractionEvent({
+    type: 'OPEN_TAKE_GEMS',
+    message: '请选择1-3个宝石，必须在一条直线上且连续。'
+  })
 }
 
 // 处理购买发展卡操作
@@ -911,13 +877,7 @@ const handleBuyCard = () => {
     return
   }
   
-  actionDialog.value = {
-    visible: true,
-    actionType: 'buyCard',
-    title: '购买发展卡',
-    message: '请选择要购买的发展卡。',
-    selectedCard: null
-  }
+  applyInteractionEvent({ type: 'OPEN_PURCHASE_PAYMENT', title: '购买发展卡', card: null })
 }
 
 // 处理保留发展卡操作（向后端发送保留请求）
@@ -931,14 +891,10 @@ const handleReserveCard = (goldX, goldY) => {
   
   // 打开保留发展卡对话框
   // 前端只负责收集用户选择，具体保留逻辑由后端处理
-  actionDialog.value = {
-    visible: true,
-    actionType: 'reserveCard',
-    title: '保留发展卡',
-    message: '请选择要保留的发展卡。',
-    selectedCard: null,
+  applyInteractionEvent({
+    type: 'OPEN_RESERVE_CARD',
     selectedGold: { x: goldX, y: goldY }
-  }
+  })
 }
 
 // 处理花费特权操作（向后端发送特权请求）
@@ -967,13 +923,7 @@ const handleSpendPrivilege = () => {
   
   // 打开花费特权对话框
   // 前端只负责收集用户输入，具体特权逻辑由后端处理
-  actionDialog.value = {
-    visible: true,
-    actionType: 'spendPrivilege',
-    title: '花费特权指示物',
-    message: '请选择要花费的特权指示物数量和要拿取的宝石。',
-    selectedCard: null
-  }
+  applyInteractionEvent({ type: 'OPEN_SPEND_PRIVILEGE' })
 }
 
 // 处理补充版图操作（先确认对话框）
@@ -994,299 +944,124 @@ const handleRefillBoard = () => {
     return
   }
 
-  actionDialog.value = {
-    visible: true,
-    actionType: 'refillBoard',
-    title: '确认补充版图',
-    message: '补充版图将允许对手获得一个特权指示物，是否继续？',
-    selectedCard: null
-  }
+  applyInteractionEvent({ type: 'OPEN_REFILL_CONFIRM' })
 }
 
 // 处理操作对话框确认
 const handleActionConfirm = (data) => {
   switch (data.actionType) {
-    case 'confirmTakeGemsGrantPrivilege':
-      // 在上方 switch 已处理，此处兜底
-      if (pendingTakeGems.value && pendingTakeGems.value.length) {
-        executeAction('grantOpponentPrivilege', {})
-        executeAction('takeGems', { gemPositions: pendingTakeGems.value })
-        pendingTakeGems.value = []
-      }
-      break
     case 'takeGems':
-      // 二次确认：3个同色或包含2个珍珠时提示对手获得P
-      if (shouldGrantPrivilegeForTakeGems(data.selectedGems)) {
-        actionDialog.value = {
-          visible: true,
-          actionType: 'confirmTakeGemsGrantPrivilege',
-          title: '确认操作',
-          message: getGrantPrivilegeMessage(data.selectedGems),
-          selectedCard: null
-        }
-        // 暂存本次选择，待确认后再执行
-        pendingTakeGems.value = data.selectedGems.map(g => ({ x: g.x, y: g.y }))
-        return
-      }
-      // 正常直接执行
-      executeAction('takeGems', { gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y })) })
-      break
+      applyInteractionEvent({
+        type: 'CONFIRM_TAKE_GEMS',
+        selectedGems: data.selectedGems,
+        grantsPrivilege: shouldGrantPrivilegeForTakeGems(data.selectedGems),
+        privilegeMessage: getGrantPrivilegeMessage(data.selectedGems)
+      })
+      return
     case 'confirmTakeGemsGrantPrivilege':
-      // 先让对手拿取P，再执行拿取宝石
-      if (pendingTakeGems.value && pendingTakeGems.value.length) {
-        executeAction('grantOpponentPrivilege', {})
-        executeAction('takeGems', { gemPositions: pendingTakeGems.value })
-        pendingTakeGems.value = []
-      }
-      break
-    case 'buyCard':
+      applyInteractionEvent({ type: 'CONFIRM_TAKE_GEMS_GRANT_PRIVILEGE' })
+      return
+    case 'buyCard': {
       if (!data.selectedCard?.id) {
-        if (notificationRef.value) {
-          notificationRef.value.error('错误', '没有选择要购买的发展卡')
-        }
+        notificationRef.value?.error('错误', '没有选择要购买的发展卡')
         return
       }
-      // 暂存购买参数
-      const selectedCard = data.selectedCard
-      const paymentPlan = data.paymentPlan || {}
-      const effects = data.effects || undefined
-
-      // 判断是否需要额外token对话框（优先从 cardDetails 读取完整 effects）
-      const detail = gameState.value?.cardDetails?.[selectedCard.id]
-      const effectsArr = (detail?.effects) || (selectedCard.effects) || []
-      const hasExtra = Array.isArray(effectsArr) && effectsArr.includes('extra_token')
-      const hasSteal = Array.isArray(effectsArr) && effectsArr.includes('steal')
-      const hasWildcard = Array.isArray(effectsArr) && effectsArr.includes('wildcard')
-      if (hasExtra) {
-        // 缓存购买信息，二次确认后再一次性请求
-        pendingPurchase.value = { card: selectedCard, paymentPlan }
-        pendingEffects.value = {}
-
-        // 弹出额外token对话框（第二步）：重用 takeGems 视图，但限制选择1个且色彩匹配
-        actionDialog.value = {
-          visible: true,
-          actionType: 'takeExtraToken',
-          title: '选择额外 token',
-          message: `请选择一个${getGemDisplayName(selectedCard.bonus || selectedCard.color)} token，若场上无${getGemDisplayName(selectedCard.bonus || selectedCard.color)} token 可点击跳过`,
-          playerData: getCurrentPlayerData(),
-          selectedCard: selectedCard
-        }
-        // 在统一确认回调中处理：见下方 'takeExtraToken'
-        return
-      } else if (hasSteal) {
-        // 窃取对话框：展示对手可被窃取的非黄金token
-        pendingPurchase.value = { card: selectedCard, paymentPlan }
-        pendingEffects.value = {}
-        actionDialog.value = {
-          visible: true,
-          actionType: 'stealToken',
-          title: '选择要窃取的宝石',
-          message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过',
-          playerData: buildStealDialogPlayerData(),
-          selectedCard: selectedCard
-        }
-        return
-      } else if (hasWildcard) {
-        // 百搭颜色对话框：依据玩家bonus可选颜色
-        pendingPurchase.value = { card: selectedCard, paymentPlan }
-        pendingEffects.value = {}
-        actionDialog.value = {
-          visible: true,
-          actionType: 'chooseWildcardColor',
-          title: '选择百搭颜色',
-          message: '请选择一个你已拥有优惠的颜色作为本卡的百搭颜色',
-          playerData: { bonus: getCurrentPlayerData()?.bonus || {} },
-          selectedCard: selectedCard
-        }
-        return
-      } else {
-        // 判断是否需要选择贵族（前端判定条件）
-        const me = getCurrentPlayerData()
-        const crownsBefore = me?.crowns || 0
-        const crownsAfter = crownsBefore + (detail?.crowns || 0)
-        const owned = me?.nobles?.length || 0
-        const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) || (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
-        if (canChooseNoble) {
-          pendingPurchase.value = { card: selectedCard, paymentPlan }
-          pendingEffects.value = {}
-          actionDialog.value = {
-            visible: true,
-            actionType: 'chooseNoble',
-            title: '选择贵族',
-            message: '请选择一个可获得的贵族',
-            playerData: { 
-            ownedNobles: me?.nobles || [],
-            availableNobles: gameState.value?.availableNobles || []
-          },
-            selectedCard: selectedCard
-          }
-          return
-        }
-        // 无需特效/贵族，直接一次性请求
-        executeAction('buyCard', {
-          cardId: selectedCard.id,
-          paymentPlan,
-          effects: {}
-        })
-      }
-      break
-    case 'takeExtraToken':
-      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
-      pendingEffects.value = {
-        ...pendingEffects.value,
-        extraToken: data.selectedGems?.[0] ? { selectedGem: { x: data.selectedGems[0].x, y: data.selectedGems[0].y } } : { skipped: true }
-      }
-      maybeOpenNobleOrBuyNow()
-      break
-    case 'stealToken':
-      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
-      pendingEffects.value = {
-        ...pendingEffects.value,
-        steal: data.stealGemType ? { gemType: data.stealGemType } : { skipped: true }
-      }
-      
-      // 检查是否已经选择了贵族（noble1），如果是则直接购买，不再检查贵族选择
-      if (pendingEffects.value.noble?.id === 'noble1') {
-        executeAction('buyCard', {
-          cardId: pendingPurchase.value.card.id,
-          paymentPlan: pendingPurchase.value.paymentPlan || {},
-          effects: pendingEffects.value
-        })
-        pendingPurchase.value = null
-        pendingEffects.value = {}
-        openedFollowupDialog.value = false
-      } else {
-        // 普通的窃取效果，继续检查贵族选择
-        maybeOpenNobleOrBuyNow()
-      }
-      break
+      const detail = gameState.value?.cardDetails?.[data.selectedCard.id]
+      const effects = detail?.effects || data.selectedCard.effects || []
+      const followup = getPurchaseFollowup(data.selectedCard)
+      applyInteractionEvent({
+        type: 'CONFIRM_PURCHASE_PAYMENT',
+        card: data.selectedCard,
+        paymentPlan: data.paymentPlan || {},
+        effects,
+        extraTokenMessage: `请选择一个${getGemDisplayName(data.selectedCard.bonus || data.selectedCard.color)} token，若场上无${getGemDisplayName(data.selectedCard.bonus || data.selectedCard.color)} token 可点击跳过`,
+        extraTokenPlayerData: getCurrentPlayerData(),
+        stealPlayerData: buildStealDialogPlayerData(),
+        wildcardPlayerData: { bonus: getCurrentPlayerData()?.bonus || {} },
+        ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {})
+      })
+      return
+    }
+    case 'takeExtraToken': {
+      const action = interactionState.value.action
+      const followup = action.kind === 'extra-token'
+        ? getPurchaseFollowup(action.purchase.card)
+        : { valid: false }
+      applyInteractionEvent({
+        type: 'CONFIRM_EXTRA_TOKEN',
+        selectedGems: data.selectedGems || [],
+        purchaseValid: followup.valid,
+        ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {})
+      })
+      return
+    }
+    case 'stealToken': {
+      const action = interactionState.value.action
+      const followup = action.kind === 'steal-token'
+        ? getPurchaseFollowup(action.purchase.card)
+        : { valid: false }
+      applyInteractionEvent({
+        type: 'CONFIRM_STEAL_TOKEN',
+        stealGemType: data.stealGemType || null,
+        purchaseValid: followup.valid,
+        ...(followup.nobleContext ? { nobleContext: followup.nobleContext } : {})
+      })
+      return
+    }
     case 'chooseNoble':
-      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
-      pendingEffects.value = {
-        ...pendingEffects.value,
-        noble: { id: data.nobleId }
-      }
-      
-      // 如果选择的是 noble1，需要先弹出窃取对话框（无论对手是否有宝石）
-      if (data.nobleId === 'noble1') {
-        actionDialog.value = {
-          visible: true,
-          actionType: 'stealToken',
-          title: '选择要窃取的宝石',
-          message: '请选择一种对手拥有的非黄金宝石；若没有可窃取的宝石可点击跳过',
-          playerData: buildStealDialogPlayerData(),
-          selectedCard: pendingPurchase.value.card
-        }
-        openedFollowupDialog.value = true
-        return
-      } else {
-        // 其他贵族直接购买
-        executeAction('buyCard', {
-          cardId: pendingPurchase.value.card.id,
-          paymentPlan: pendingPurchase.value.paymentPlan || {},
-          effects: pendingEffects.value
-        })
-        pendingPurchase.value = null
-        pendingEffects.value = {}
-        openedFollowupDialog.value = false
-      }
-      break
+      applyInteractionEvent({
+        type: 'CONFIRM_NOBLE',
+        nobleId: data.nobleId,
+        stealPlayerData: buildStealDialogPlayerData()
+      })
+      return
     case 'chooseWildcardColor':
-      if (!pendingPurchase.value?.card?.id) { actionDialog.value.visible = false; break }
-      pendingEffects.value = {
-        ...pendingEffects.value,
-        wildcard: { color: data.wildcardColor }
-      }
-      // 关闭当前对话框后，再异步检查（确保UI已更新），避免被对话框closing覆盖
-      setTimeout(() => {
-        maybeOpenNobleOrBuyNow()
-      }, 0)
-      break
-    case 'takeExtraToken':
-      // 保留旧分支作为兜底（不应走到这里）
-      break
-    case 'reserveCard':
+      applyInteractionEvent({ type: 'CONFIRM_WILDCARD', wildcardColor: data.wildcardColor })
+      return
+    case 'reserveCard': {
+      const selectedGold = actionDialog.value.selectedGold
       if (data.selectedCard?.type === 'deck') {
-        // 从牌堆盲抽卡牌 - 向后端发送等级信息
         executeAction('reserveCard', {
-          cardId: `deck_level_${data.selectedCard.level}`, // 传递等级信息
-          goldX: actionDialog.value.selectedGold?.x,
-          goldY: actionDialog.value.selectedGold?.y
+          cardId: `deck_level_${data.selectedCard.level}`,
+          goldX: selectedGold?.x,
+          goldY: selectedGold?.y
         })
       } else {
-        // 保留场上已翻开的卡牌
         executeAction('reserveCard', {
           cardId: data.selectedCard?.id,
-          goldX: actionDialog.value.selectedGold?.x,
-          goldY: actionDialog.value.selectedGold?.y
+          goldX: selectedGold?.x,
+          goldY: selectedGold?.y
         })
       }
-      break
+      applyInteractionEvent({ type: 'CANCEL_ACTION' })
+      return
+    }
     case 'spendPrivilege':
-      // 向后端发送花费特权请求，让后端处理所有特权逻辑
       executeAction('spendPrivilege', {
         privilegeCount: data.privilegeCount,
         gemPositions: data.selectedGems.map(gem => ({ x: gem.x, y: gem.y }))
       })
-      break
+      applyInteractionEvent({ type: 'CANCEL_ACTION' })
+      return
     case 'refillBoard':
       executeAction('refillBoard', {})
-      break
+      applyInteractionEvent({ type: 'CANCEL_ACTION' })
+      return
     case 'discardGems':
       if (data.completed) {
-        // 宝石丢弃已完成，关闭对话框
-        actionDialog.value.visible = false
-        
-        // 设置完成标志
-        discardCompleted = true
-        
-        // 立即停止宝石丢弃对话框检查定时器
         stopDiscardDialogCheck()
-        
-        // 调用后端的回合结束处理，这会检查宝石数量并切换回合
-        executeAction('endTurn', {})
+        applyInteractionEvent({ type: 'COMPLETE_MANDATORY_DISCARD' })
       }
-      break
+      return
   }
-  
-  actionDialog.value.visible = false
 }
 
-// 处理操作对话框取消
 const handleActionCancel = (data) => {
-  const canceledType = data?.actionType || actionDialog.value?.actionType
-
-  // 如果是宝石丢弃对话框被关闭，记录状态但不重置游戏状态
+  const canceledType = data?.actionType || actionDialog.value.actionType
   if (canceledType === 'discardGems' && data?.closed) {
-    // 对话框关闭，但游戏状态仍然需要丢弃宝石
-    // 设置一个定时器，定期检查是否需要重新打开对话框
     startDiscardDialogCheck()
-    actionDialog.value.visible = false
-    return
   }
-
-  // noble1 场景：从贵族触发的窃取对话框，允许玩家取消并返回贵族选择
-  if (canceledType === 'stealToken' && pendingEffects.value?.noble?.id === 'noble1' && pendingPurchase.value?.card?.id) {
-    // 清除已暂存的 noble 选择，让玩家可重新选择
-    const { noble, ...rest } = pendingEffects.value
-    pendingEffects.value = { ...rest }
-
-    const me = getCurrentPlayerData()
-    actionDialog.value = {
-      visible: true,
-      actionType: 'chooseNoble',
-      title: '选择贵族',
-      message: '请选择一个可获得的贵族',
-      playerData: {
-        ownedNobles: me?.nobles || [],
-        availableNobles: gameState.value?.availableNobles || []
-      },
-      selectedCard: pendingPurchase.value.card
-    }
-    return
-  }
-  
-  actionDialog.value.visible = false
+  applyInteractionEvent({ type: 'CANCEL_ACTION' })
 }
 
 // 处理丢弃宝石
@@ -1309,8 +1084,7 @@ const handleDiscardGemsBatch = (data) => {
 
 // 处理重置宝石丢弃
 const handleReset = () => {
-  // 关闭对话框，让玩家重新开始
-  actionDialog.value.visible = false
+  applyInteractionEvent({ type: 'RESET_MANDATORY_DISCARD' })
 }
 
 // 执行游戏操作（向后端发送请求）
@@ -1324,8 +1098,14 @@ const executeAction = (actionType, data) => {
   
   // 向后端发送操作请求，让后端处理所有游戏逻辑
   try {
-    gameStore.sendGameAction(actionType, data)
-    notificationRef.value?.info('请求已发送', '正在等待服务器确认')
+    const requestId = gameStore.sendGameAction(actionType, data)
+    applyInteractionEvent({
+      type: 'REQUEST_SENT',
+      requestId: typeof requestId === 'string' ? requestId : '',
+      actionType
+    })
+    const feedback = toRequestFeedbackView(interactionState.value.feedback)
+    if (feedback) notificationRef.value?.info(feedback.title, feedback.message)
   } catch (error) {
     console.error('发送操作请求失败')
     if (notificationRef.value) {
@@ -1339,48 +1119,31 @@ const executeAction = (actionType, data) => {
 // 宝石丢弃对话框检查定时器
 let discardDialogCheckTimer = null
 
-// 宝石丢弃完成标志
-let discardCompleted = false
-
-// 开始宝石丢弃对话框检查
+// 保持既有 500ms 权威状态重开语义
 const startDiscardDialogCheck = () => {
-  // 清除之前的定时器
   if (discardDialogCheckTimer) {
     clearInterval(discardDialogCheckTimer)
   }
-  
-  // 设置定时器，每500ms检查一次是否需要重新打开对话框
+
   discardDialogCheckTimer = setInterval(() => {
-    const gameState = gameStore.gameState
-    
-    // 如果游戏状态显示不需要丢弃宝石，立即停止定时器
-    if (!gameState?.needsGemDiscard) {
+    const authoritativeState = gameStore.gameState
+    if (!authoritativeState?.needsGemDiscard) {
       clearInterval(discardDialogCheckTimer)
       discardDialogCheckTimer = null
-      discardCompleted = false // 重置完成标志
       return
     }
-    
-    // 如果宝石丢弃已完成，不重新打开对话框
-    if (discardCompleted) {
+
+    const action = interactionState.value.action
+    if (action.kind === 'mandatory-discard' && action.completed) {
       return
     }
-    
-    if (gameState?.needsGemDiscard && 
-        gameState?.gemDiscardPlayerID === currentPlayer.value?.id &&
-        (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems')) {
-      
-      // 重新打开对话框
-      actionDialog.value = {
-        visible: true,
-        actionType: 'discardGems',
-        title: '丢弃宝石',
-        message: '您的宝石总数超过10个，请丢弃一些宝石',
-        selectedCard: null,
+
+    if (authoritativeState.gemDiscardPlayerID === currentPlayer.value?.id &&
+        (!actionDialog.value.visible || actionDialog.value.actionType !== 'discardGems')) {
+      applyInteractionEvent({
+        type: 'REOPEN_MANDATORY_DISCARD',
         playerData: getCurrentPlayerData()
-      }
-      
-      // 清除定时器
+      })
       clearInterval(discardDialogCheckTimer)
       discardDialogCheckTimer = null
     }
@@ -1418,14 +1181,11 @@ const handleGemClick = (rowIndex, colIndex, gemType) => {
   } else {
     // 如果点击的是其他宝石，直接打开拿取宝石对话框
     // 前端只负责收集用户输入，具体逻辑由后端处理
-    actionDialog.value = {
-      visible: true,
-      actionType: 'takeGems',
-      title: '拿取宝石',
+    applyInteractionEvent({
+      type: 'OPEN_TAKE_GEMS',
       message: '选择要拿取的宝石 (1-3个，必须在一条直线上且连续)',
-      selectedGold: null,
       initialGemPosition: { x: rowIndex, y: colIndex, type: gemType }
-    }
+    })
   }
 }
 
@@ -1511,14 +1271,12 @@ const handleBuyCardClick = (card, isReserved = false, playerId = null) => {
   }
 
   // 打开购买发展卡对话框
-  actionDialog.value = {
-    visible: true,
-    actionType: 'buyCard',
+  applyInteractionEvent({
+    type: 'OPEN_PURCHASE_PAYMENT',
     title: isReserved ? '购买保留的发展卡' : '购买发展卡',
-    message: '请确认要支付的token数量',
-    selectedCard: card,
+    card,
     playerData: getCurrentPlayerData()
-  }
+  })
 }
 
 // 处理发展卡点击（向后端发送购买请求）
@@ -1648,12 +1406,30 @@ watch(chatMessages, () => {
   scrollToBottom()
 }, { deep: true })
 
+watch(pendingActions, (actions) => {
+  const unknownAction = Object.values(actions).find(action => action.status === 'unknown')
+  if (!unknownAction) return
+  applyInteractionEvent({
+    type: 'REQUEST_UNKNOWN',
+    requestId: unknownAction.requestId,
+    actionType: unknownAction.actionType
+  })
+  const feedback = toRequestFeedbackView(interactionState.value.feedback)
+  if (feedback) notificationRef.value?.warning(feedback.title, feedback.message)
+}, { deep: true })
+
 watch(lastActionResult, (result) => {
-  if (!result || !notificationRef.value) return
+  if (!result) return
+  applyInteractionEvent(result.success
+    ? { type: 'ACK_SUCCESS', requestId: result.requestId, actionType: result.actionType, replayed: result.replayed }
+    : { type: 'ACK_FAILURE', requestId: result.requestId, actionType: result.actionType, message: result.message })
+  if (!notificationRef.value) return
+  const feedback = toRequestFeedbackView(interactionState.value.feedback)
+  if (!feedback) return
   if (result.success) {
-    notificationRef.value.success('操作成功', result.replayed ? '服务器已确认该操作此前完成' : '服务器已确认操作完成')
+    notificationRef.value.success(feedback.title, feedback.message)
   } else {
-    notificationRef.value.error('操作失败', result.message || '服务器拒绝了该操作')
+    notificationRef.value.error(feedback.title, feedback.message)
   }
 })
 
@@ -1683,31 +1459,20 @@ watch(gameState, (newState, oldState) => {
     const playerName = winner?.name || '未知玩家'
     const reasons = Array.isArray(newState?.victoryReasons) ? newState.victoryReasons : []
     const reasonsStr = reasons.length ? reasons.join('；') : '达成胜利条件'
-    victoryDialog.value = {
-      visible: true,
+    applyInteractionEvent({
+      type: 'SHOW_VICTORY',
       message: `${playerName} 因为 ${reasonsStr} 获得本局游戏胜利！`
-    }
+    })
   }
   
-  // 检查是否需要显示宝石丢弃对话框
+  // 权威状态要求当前玩家丢弃时，强制进入专用状态
   if (newState?.needsGemDiscard && newState.gemDiscardPlayerID === currentPlayer.value?.id) {
-    // 如果对话框当前不可见，则显示它
-    if (!actionDialog.value?.visible || actionDialog.value?.actionType !== 'discardGems') {
-      // 重置完成标志
-      discardCompleted = false
-      
-      // 停止定时器检查（如果正在运行）
+    if (!actionDialog.value.visible || actionDialog.value.actionType !== 'discardGems') {
       stopDiscardDialogCheck()
-      
-      // 显示宝石丢弃对话框
-      actionDialog.value = {
-        visible: true,
-        actionType: 'discardGems',
-        title: '丢弃宝石',
-        message: '您的宝石总数超过10个，请丢弃一些宝石',
-        selectedCard: null,
+      applyInteractionEvent({
+        type: 'AUTHORITY_REQUIRES_DISCARD',
         playerData: getCurrentPlayerData()
-      }
+      })
     }
   }
 }, { deep: true })

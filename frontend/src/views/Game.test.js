@@ -400,5 +400,7 @@ describe('existing game action orchestration', () => {
     store.pendingActions = { [requestId]: { requestId, actionType: 'takeGems', data: {}, status: 'unknown', sentAt: Date.now() } }
     await flushPromises()
     expect(store.pendingActions[requestId]).toMatchObject({ status: 'unknown', actionType: 'takeGems' })
+    expect(document.body.textContent).toContain('操作结果未知')
+    expect(document.body.textContent).toContain('不会自动重发操作')
   })
 })
