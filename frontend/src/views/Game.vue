@@ -521,6 +521,7 @@ import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
 import PlayerStatusCard from '../components/PlayerStatusCard.vue'
+import { replaceBrokenImageWithLabel } from '../image-fallback'
 import {
   calculateCardPaymentShortfall,
   canLocalPlayerStartGame,
@@ -874,19 +875,6 @@ const handleCardImageError = (event) => {
 const handleNobleImageError = (event) => {
   console.warn('贵族卡图片加载失败:', event.target.src)
   replaceBrokenImageWithLabel(event.target, event.target.alt || '贵族', 'card-text-fallback')
-}
-
-const replaceBrokenImageWithLabel = (image, label, className) => {
-  if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === 'true') return
-  image.dataset.fallbackApplied = 'true'
-  const fallback = document.createElement('span')
-  fallback.textContent = label
-  fallback.className = `${image.className} ${className}`
-  fallback.setAttribute('role', 'img')
-  fallback.setAttribute('aria-label', label)
-  Array.from(image.attributes).filter(attribute => attribute.name.startsWith('data-v-')).forEach(attribute => fallback.setAttribute(attribute.name, ''))
-  fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:4px;background:#f8f6f1;color:#687078;font-size:10px;text-align:center;'
-  image.replaceWith(fallback)
 }
 
 // 发送聊天消息

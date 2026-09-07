@@ -568,6 +568,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import { replaceBrokenImageWithLabel } from '../image-fallback'
 
 const props = defineProps({
   visible: Boolean,
@@ -1150,19 +1151,6 @@ const handleCardImageError = (event) => {
 const handleGemImageError = (event) => {
   replaceBrokenImageWithLabel(event.target, event.target.alt || '宝石', 'gem-image-fallback')
 };
-
-const replaceBrokenImageWithLabel = (image, label, className) => {
-  if (!(image instanceof HTMLImageElement) || image.dataset.fallbackApplied === 'true') return
-  image.dataset.fallbackApplied = 'true'
-  const fallback = document.createElement('span')
-  fallback.textContent = label
-  fallback.className = `${image.className} ${className}`
-  fallback.setAttribute('role', 'img')
-  fallback.setAttribute('aria-label', label)
-  Array.from(image.attributes).filter(attribute => attribute.name.startsWith('data-v-')).forEach(attribute => fallback.setAttribute(attribute.name, ''))
-  fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:4px;background:#f8f6f1;color:#687078;font-size:10px;text-align:center;'
-  image.replaceWith(fallback)
-}
 
 // 获取未翻开的卡牌数量（从后端数据中获取）
 const getUnflippedCount = (level) => {
