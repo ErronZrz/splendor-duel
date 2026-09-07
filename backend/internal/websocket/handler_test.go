@@ -37,6 +37,41 @@ func protocolTestRoom(t *testing.T) (*game.Manager, *Room, *Client, string) {
 	return manager, room, client, response.Data.PlayerID
 }
 
+func TestBuyCardPayloadPreservesEffectCompatibilityShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		data map[string]any
+		want map[string]any
+	}{
+		{
+			name: "effects_omitted_for_legacy_client",
+			data: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}},
+			want: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}},
+		},
+		{
+			name: "explicit_extra_token_skip_is_nested_under_effect",
+			data: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"extraToken": map[string]any{"skipped": true}}},
+			want: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"extraToken": map[string]any{"skipped": true}}},
+		},
+		{
+			name: "explicit_steal_skip_is_nested_under_effect",
+			data: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"steal": map[string]any{"skipped": true}}},
+			want: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"steal": map[string]any{"gemType": "", "skipped": true}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var payload buyCardPayload
+			if err := decodeActionPayload(tc.data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if got := legacyBuyCardData(payload); !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("legacyBuyCardData() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBroadcastRemovesBackpressuredClientWithoutDeadlock(t *testing.T) {
 	for _, broadcast := range []string{"client", "all"} {
 		t.Run(broadcast, func(t *testing.T) {

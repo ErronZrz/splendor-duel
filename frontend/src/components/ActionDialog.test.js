@@ -96,3 +96,40 @@ describe('default payment after spending a privilege', () => {
     expect(wrapper.emitted('cancel')).toBeUndefined()
   })
 })
+
+describe('purchase effect target matrix', () => {
+  it.each([
+    {
+      name: 'extra token target exists',
+      props: { actionType: 'takeExtraToken', selectedCard: card, gemBoard: [['blue']] },
+      canSkip: false,
+    },
+    {
+      name: 'extra token target is objectively absent',
+      props: { actionType: 'takeExtraToken', selectedCard: card, gemBoard: [['red', 'gold'], ['', 'white']] },
+      canSkip: true,
+    },
+    {
+      name: 'steal target exists',
+      props: { actionType: 'stealToken', playerData: { opponent: { gems: { pearl: 1 } } } },
+      canSkip: false,
+    },
+    {
+      name: 'steal target is objectively absent',
+      props: { actionType: 'stealToken', playerData: { opponent: { gems: { gold: 2 } } } },
+      canSkip: true,
+    },
+  ])('$name exposes explicit skip only when legal', ({ props, canSkip }) => {
+    wrapper = mount(ActionDialog, { props: { visible: true, title: '特效', ...props } })
+    expect(wrapper.find('.dialog-footer .btn-light').exists()).toBe(canSkip)
+  })
+
+  it.each([
+    ['chooseWildcardColor', { bonus: { white: 1 } }],
+    ['chooseNoble', { availableNobles: ['noble2'] }],
+  ])('%s requires an explicit selection and has no skip action', (actionType, playerData) => {
+    wrapper = mount(ActionDialog, { props: { visible: true, actionType, title: '特效', playerData } })
+    expect(wrapper.find('.dialog-footer .btn-light').exists()).toBe(false)
+    expect(wrapper.find('.dialog-footer .btn-primary').attributes('disabled')).toBeDefined()
+  })
+})

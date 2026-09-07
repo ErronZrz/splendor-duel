@@ -1413,6 +1413,8 @@ func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models
 			if gem == "" || gem == models.GemGold || gem != card.Color {
 				return errors.New("额外宝石不符合卡牌特效")
 			}
+		} else if gl.hasExtraTokenTarget(card.Color) {
+			return errors.New("存在可拿取的额外宝石时不能跳过")
 		}
 	}
 	if steal, exists := effects["steal"]; exists {
@@ -1431,6 +1433,12 @@ func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models
 			if !ok || !allowed[gem] {
 				return errors.New("窃取的宝石类型无效")
 			}
+			opponent := gl.getOpponent(player.ID)
+			if opponent == nil || opponent.Gems[models.GemType(gem)] <= 0 {
+				return errors.New("对手没有可窃取的该类宝石")
+			}
+		} else if gl.hasStealTarget(player.ID) {
+			return errors.New("存在可窃取的宝石时不能跳过")
 		}
 	}
 	if wildcard, exists := effects["wildcard"]; exists {
@@ -1465,6 +1473,41 @@ func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models
 		}
 	}
 	return nil
+}
+
+func (gl *GameLogic) hasExtraTokenTarget(cardColor models.GemType) bool {
+	if cardColor == "" || cardColor == models.GemGold {
+		return false
+	}
+	for _, row := range gl.gameState.GemBoard {
+		for _, gem := range row {
+			if gem == cardColor {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (gl *GameLogic) getOpponent(playerID string) *models.Player {
+	playerIndex := gl.getPlayerIndex(playerID)
+	if playerIndex < 0 || len(gl.gameState.Players) != 2 {
+		return nil
+	}
+	return &gl.gameState.Players[1-playerIndex]
+}
+
+func (gl *GameLogic) hasStealTarget(playerID string) bool {
+	opponent := gl.getOpponent(playerID)
+	if opponent == nil {
+		return false
+	}
+	for _, gem := range []models.GemType{models.GemWhite, models.GemBlue, models.GemGreen, models.GemRed, models.GemBlack, models.GemPearl} {
+		if opponent.Gems[gem] > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func cardHasEffect(card *models.DevelopmentCard, target models.CardEffect) bool {

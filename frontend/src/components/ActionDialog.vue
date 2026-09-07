@@ -439,7 +439,7 @@
 
         <!-- takeExtraToken 的跳过按钮：右下角 -->
         <button 
-          v-if="actionType === 'takeExtraToken'"
+          v-if="actionType === 'takeExtraToken' && canSkipExtraToken"
           class="btn btn-light"
           type="button"
           @click="$emit('confirm', { actionType: 'takeExtraToken', selectedGems: [], selectedCard, paymentPlan })"
@@ -449,7 +449,7 @@
 
         <!-- stealToken 的跳过按钮：无可窃取时允许跳过 -->
         <button 
-          v-if="actionType === 'stealToken'"
+          v-if="actionType === 'stealToken' && canSkipSteal"
           class="btn btn-light"
           type="button"
           @click="$emit('confirm', { actionType: 'stealToken', stealGemType: null, selectedCard, paymentPlan })"
@@ -697,6 +697,15 @@ const opponentGemCount = (gemType) => {
   const pool = opp.gems || alt
   return (pool && pool[gemType]) || 0
 }
+
+const canSkipExtraToken = computed(() => {
+  const cardColor = props.selectedCard?.bonus || props.selectedCard?.color
+  return !props.gemBoard?.some(row => row?.some(gem => gem && gem !== 'gold' && gem === cardColor))
+})
+
+const canSkipSteal = computed(() =>
+  ['white', 'blue', 'green', 'red', 'black', 'pearl'].every(gemType => opponentGemCount(gemType) <= 0)
+)
 
 const isSelectedGemType = (gemType) => selectedStealGemType.value === gemType
 const selectStealGemType = (gemType) => {

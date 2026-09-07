@@ -354,6 +354,150 @@ func TestPurchaseRejectsInvalidEffectsAtomically(t *testing.T) {
 	}
 }
 
+func TestPurchaseEffectRuleMatrix(t *testing.T) {
+	tests := []struct {
+		name    string
+		card    models.DevelopmentCard
+		prepare func(*models.GameState)
+		effects map[string]any
+		wantErr bool
+	}{
+		{
+			name:    "extra_token_selects_matching_board_target",
+			card:    models.DevelopmentCard{Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}},
+			prepare: func(state *models.GameState) { state.GemBoard[2][3] = models.GemBlue },
+			effects: map[string]any{"extraToken": map[string]any{"selectedGem": map[string]any{"x": float64(2), "y": float64(3)}}},
+		},
+		{
+			name:    "extra_token_skips_only_without_target",
+			card:    models.DevelopmentCard{Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}},
+			effects: map[string]any{"extraToken": map[string]any{"skipped": true}},
+		},
+		{
+			name:    "extra_token_cannot_skip_existing_target",
+			card:    models.DevelopmentCard{Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}},
+			prepare: func(state *models.GameState) { state.GemBoard[4][1] = models.GemBlue },
+			effects: map[string]any{"extraToken": map[string]any{"skipped": true}},
+			wantErr: true,
+		},
+		{
+			name:    "extra_token_rejects_wrong_color",
+			card:    models.DevelopmentCard{Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}},
+			prepare: func(state *models.GameState) { state.GemBoard[1][2] = models.GemRed },
+			effects: map[string]any{"extraToken": map[string]any{"selectedGem": map[string]any{"x": float64(1), "y": float64(2)}}},
+			wantErr: true,
+		},
+		{
+			name:    "steal_selects_token_owned_by_opponent",
+			card:    models.DevelopmentCard{Color: models.GemRed, Bonus: models.GemRed, Effects: []models.CardEffect{models.Steal}},
+			prepare: func(state *models.GameState) { state.Players[1].Gems[models.GemPearl] = 1 },
+			effects: map[string]any{"steal": map[string]any{"gemType": "pearl"}},
+		},
+		{
+			name:    "steal_skips_only_without_target",
+			card:    models.DevelopmentCard{Color: models.GemRed, Bonus: models.GemRed, Effects: []models.CardEffect{models.Steal}},
+			effects: map[string]any{"steal": map[string]any{"skipped": true}},
+		},
+		{
+			name:    "steal_cannot_skip_existing_target",
+			card:    models.DevelopmentCard{Color: models.GemRed, Bonus: models.GemRed, Effects: []models.CardEffect{models.Steal}},
+			prepare: func(state *models.GameState) { state.Players[1].Gems[models.GemGreen] = 1 },
+			effects: map[string]any{"steal": map[string]any{"skipped": true}},
+			wantErr: true,
+		},
+		{
+			name:    "steal_rejects_unowned_token",
+			card:    models.DevelopmentCard{Color: models.GemRed, Bonus: models.GemRed, Effects: []models.CardEffect{models.Steal}},
+			effects: map[string]any{"steal": map[string]any{"gemType": "green"}},
+			wantErr: true,
+		},
+		{
+			name:    "wildcard_accepts_normal_color",
+			card:    models.DevelopmentCard{Color: models.GemGray, Bonus: models.GemGray, Effects: []models.CardEffect{models.Wildcard}},
+			effects: map[string]any{"wildcard": map[string]any{"color": "white"}},
+		},
+		{
+			name:    "wildcard_rejects_illegal_color",
+			card:    models.DevelopmentCard{Color: models.GemGray, Bonus: models.GemGray, Effects: []models.CardEffect{models.Wildcard}},
+			effects: map[string]any{"wildcard": map[string]any{"color": "gold"}},
+			wantErr: true,
+		},
+		{
+			name:    "noble_accepts_available_threshold_choice",
+			card:    models.DevelopmentCard{Color: models.GemWhite, Bonus: models.GemWhite, Crowns: 1},
+			prepare: func(state *models.GameState) { state.Players[0].Crowns = 2; state.AvailableNobles = []string{"noble2"} },
+			effects: map[string]any{"noble": map[string]any{"id": "noble2"}},
+		},
+		{
+			name:    "noble_rejects_unavailable_choice",
+			card:    models.DevelopmentCard{Color: models.GemWhite, Bonus: models.GemWhite, Crowns: 1},
+			prepare: func(state *models.GameState) { state.Players[0].Crowns = 2; state.AvailableNobles = []string{"noble2"} },
+			effects: map[string]any{"noble": map[string]any{"id": "noble4"}},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			tc.card.ID, tc.card.Level, tc.card.Cost = "matrix-card", models.Level1, map[models.GemType]int{}
+			state.CardMap[tc.card.ID], state.CardDetails[tc.card.ID] = tc.card, tc.card
+			state.FlippedCards[models.Level1] = []string{tc.card.ID}
+			if tc.prepare != nil {
+				tc.prepare(state)
+			}
+			before, _ := json.Marshal(state)
+			err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{
+				"cardId": tc.card.ID, "paymentPlan": map[string]any{}, "effects": tc.effects,
+			})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("invalid effect choice was accepted")
+				}
+				after, _ := json.Marshal(state)
+				if !bytes.Equal(before, after) {
+					t.Fatal("rejected purchase changed state")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsString(state.Players[0].DevelopmentCards, tc.card.ID) {
+				t.Fatal("purchase was not completed")
+			}
+		})
+	}
+}
+
+func TestPurchaseEffectsOmissionRemainsLegacyCompatible(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		includeEffects bool
+	}{
+		{name: "entire_effects_field_omitted"},
+		{name: "effect_entry_omitted_from_empty_object", includeEffects: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gl, state := regressionGame()
+			card := models.DevelopmentCard{ID: "legacy-extra", Level: models.Level1, Color: models.GemBlue, Bonus: models.GemBlue, Effects: []models.CardEffect{models.ExtraToken}, Cost: map[models.GemType]int{}}
+			state.CardMap[card.ID], state.CardDetails[card.ID] = card, card
+			state.FlippedCards[models.Level1] = []string{card.ID}
+			state.GemBoard[0][0] = models.GemBlue
+			data := map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}
+			if tc.includeEffects {
+				data["effects"] = map[string]any{}
+			}
+			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", data); err != nil {
+				t.Fatal(err)
+			}
+			if state.GemBoard[0][0] != models.GemBlue {
+				t.Fatal("omission unexpectedly executed the effect")
+			}
+		})
+	}
+}
+
 func TestNobleSelectionRequiresAvailabilityAndCrowns(t *testing.T) {
 	gl, state := regressionGame()
 	state.AvailableNobles = []string{"noble1"}
