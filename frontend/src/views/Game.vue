@@ -118,105 +118,31 @@
                 @skip="handlePurchaseEffectSkip"
               />
 
-              <div v-if="interactionState.action.kind === 'wildcard'" class="inline-effect-choices" role="group" aria-label="百搭颜色选择">
-                <button v-for="color in wildcardSelectableColors" :key="color" type="button" :class="{ selected: interactionState.action.selectedColor === color }" :aria-pressed="interactionState.action.selectedColor === color" :disabled="isBoardActionPending" @click="selectWildcardColor(color)">
-                  <img :src="`/images/gems/${getGemImageName(color)}.jpg`" alt="" />{{ getGemDisplayName(color) }}
-                </button>
-              </div>
+              <InlineWildcardChoices
+                v-if="interactionState.action.kind === 'wildcard'"
+                :colors="wildcardSelectableColors"
+                :selected-color="interactionState.action.selectedColor"
+                :pending="isBoardActionPending"
+                @select="selectWildcardColor"
+              />
 
-              <!-- 发展卡区域 -->
-              <div class="development-cards">
-                <h4>发展卡</h4>
-                <div class="card-levels">
-                  <div v-for="level in [3, 2, 1]" :key="level" class="card-level">
-                    <h5>等级 {{ level }}</h5>
-                    <div class="cards-row">
-                      <!-- 牌堆显示 -->
-                      <div
-                        class="deck-item"
-                        :class="{
-                          'deck-empty': getDeckRemainingCount(level) === 0,
-                          selected: isReserveDeckSelected(level)
-                        }"
-                        role="button"
-                        :tabindex="isReserveMode && getDeckRemainingCount(level) > 0 && !isBoardActionPending ? 0 : -1"
-                        :aria-label="`保留等级${level}牌堆顶牌`"
-                        :aria-pressed="isReserveMode ? isReserveDeckSelected(level) : undefined"
-                        :aria-disabled="!isReserveMode || getDeckRemainingCount(level) === 0 || isBoardActionPending"
-                        :data-deck-level="level"
-                        @click="handleDeckClick(level)"
-                        @keydown.enter.prevent="handleDeckClick(level)"
-                        @keydown.space.prevent="handleDeckClick(level)"
-                      >
-                        <img
-                          v-if="getDeckRemainingCount(level) > 0"
-                          :src="`/images/cards/back${level}.jpg`"
-                          :alt="`等级${level}牌堆`"
-                          class="deck-image"
-                          @error="handleDeckImageError"
-                        />
-                        <div
-                          v-if="getDeckRemainingCount(level) > 0"
-                          class="deck-count"
-                        >
-                          {{ getDeckRemainingCount(level) }}
-                        </div>
-                      </div>
-                      <!-- 已翻开的发展卡 -->
-                      <div
-                        v-for="card in getCardsByLevel(level)"
-                        :key="card.id"
-                        class="card-item"
-                        :class="{ selected: isReserveCardSelected(card.id) }"
-                        role="button"
-                        :tabindex="isBoardActionPending ? -1 : 0"
-                        :aria-label="isReserveMode ? `保留发展卡：${card.name}` : `购买发展卡：${card.name}`"
-                        :aria-pressed="isReserveMode ? isReserveCardSelected(card.id) : undefined"
-                        :aria-disabled="isBoardActionPending || (interactionState.action.kind !== 'idle' && !isReserveMode)"
-                        :data-market-card-id="card.id"
-                        @click="handleCardClick(card)"
-                        @keydown.enter.prevent="handleCardClick(card)"
-                        @keydown.space.prevent="handleCardClick(card)"
-                      >
-                        <img
-                          :src="`/images/cards/${card.id}.jpg`"
-                          :alt="card.name"
-                          class="card-image"
-                          @error="handleCardImageError"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <!-- 贵族卡区域 -->
-              <div class="noble-cards">
-                <h4>贵族卡</h4>
-                <div class="nobles-row">
-                  <div 
-                    v-for="nobleId in gameState?.availableNobles || []" 
-                    :key="nobleId"
-                    class="noble-item"
-                    :class="{ selectable: isNobleSelectable(nobleId), selected: selectedNobleId === nobleId }"
-                    :role="isNobleSelectable(nobleId) ? 'button' : 'img'"
-                    :tabindex="isNobleSelectable(nobleId) ? 0 : undefined"
-                    :aria-label="isNobleSelectable(nobleId) ? `选择${getNobleName(nobleId)}` : getNobleName(nobleId)"
-                    :aria-pressed="isNobleSelectable(nobleId) ? selectedNobleId === nobleId : undefined"
-                    @click="selectNoble(nobleId)"
-                    @keydown.enter.prevent="selectNoble(nobleId)"
-                    @keydown.space.prevent="selectNoble(nobleId)"
-                  >
-                    <img 
-                      :src="`/images/nobles/${nobleId}.jpg`" 
-                      alt=""
-                      class="noble-image"
-                      @error="handleNobleImageError"
-                    />
+              <DevelopmentCardMarket
+                :levels="marketLevels"
+                :reserve-mode="isReserveMode"
+                :selected-card-id="selectedReserveCardId"
+                :selected-deck-level="selectedReserveDeckLevel"
+                :pending="isBoardActionPending"
+                :card-actions-blocked="interactionState.action.kind !== 'idle' && !isReserveMode"
+                @deck-click="handleDeckClick"
+                @card-click="handleCardClick"
+                @card-image-error="handleCardImageError"
+              />
 
-                  </div>
-                </div>
-              </div>
+              <NobleChoiceBoard
+                :nobles="nobleChoices"
+                @select="selectNoble"
+                @image-error="handleNobleImageError"
+              />
             </section>
             
             <!-- 右侧：玩家状态和操作 -->
@@ -555,6 +481,9 @@ import ActionDialog from '../components/ActionDialog.vue'
 import ContextActionBar from '../components/ContextActionBar.vue'
 import GemBoard from '../components/GemBoard.vue'
 import PlayerStatusCard from '../components/PlayerStatusCard.vue'
+import DevelopmentCardMarket from '../components/DevelopmentCardMarket.vue'
+import NobleChoiceBoard from '../components/NobleChoiceBoard.vue'
+import InlineWildcardChoices from '../components/InlineWildcardChoices.vue'
 import { replaceBrokenImageWithLabel } from '../image-fallback'
 import {
   createGameInteractionState,
@@ -577,6 +506,7 @@ import {
   getGemImageName as selectGemImageName,
   getOwnedBonusCardIds,
   getNobleDisplayName,
+  getPurchaseFollowup as selectPurchaseFollowup,
   getTurnPlayerName,
   getWaitingPlayers,
   isLocalPlayersTurn,
@@ -657,29 +587,11 @@ const buildStealDialogPlayerData = () => {
   return { opponent: { gems: opponent.gems || {} } }
 }
 
-const getPurchaseFollowup = (card) => {
-  const me = getCurrentPlayerData()
-  const detail = gameState.value?.cardDetails?.[card?.id]
-  if (!me || !detail) return { valid: false }
-
-  const crownsBefore = me.crowns || 0
-  const crownsAfter = crownsBefore + (detail.crowns || 0)
-  const owned = me.nobles?.length || 0
-  const canChooseNoble = (owned === 0 && crownsBefore < 3 && crownsAfter >= 3) ||
-    (owned === 1 && crownsBefore < 6 && crownsAfter >= 6)
-
-  return {
-    valid: true,
-    ...(canChooseNoble ? {
-      nobleContext: {
-        playerData: {
-          ownedNobles: me.nobles || [],
-          availableNobles: gameState.value?.availableNobles || []
-        }
-      }
-    } : {})
-  }
-}
+const getPurchaseFollowup = (card) => selectPurchaseFollowup(
+  gameState.value,
+  currentPlayer.value?.id,
+  card?.id
+)
 
 // Bonus工具提示状态
 const activeTooltip = ref({
@@ -772,14 +684,23 @@ const gemBoardMode = computed(() => {
     : 'idle'
 })
 const isReserveMode = computed(() => interactionState.value.action.kind === 'reserve-card')
-const isReserveCardSelected = (cardId) => {
+const marketLevels = computed(() => [3, 2, 1].map(level => ({
+  level,
+  deckCount: selectDeckRemainingCount(gameState.value, level),
+  cards: getCardDisplayItemsByLevel(gameState.value, level)
+})))
+const selectedReserveCardId = computed(() => {
   const action = interactionState.value.action
-  return action.kind === 'reserve-card' && action.target?.type === 'market-card' && action.target.cardId === cardId
-}
-const isReserveDeckSelected = (level) => {
+  return action.kind === 'reserve-card' && action.target?.type === 'market-card'
+    ? action.target.cardId
+    : undefined
+})
+const selectedReserveDeckLevel = computed(() => {
   const action = interactionState.value.action
-  return action.kind === 'reserve-card' && action.target?.type === 'deck' && action.target.level === level
-}
+  return action.kind === 'reserve-card' && action.target?.type === 'deck'
+    ? action.target.level
+    : undefined
+})
 const occupiedBoardPositions = computed(() => (gameState.value?.gemBoard || []).flatMap((row, x) =>
   row.flatMap((type, y) => type ? [{ x, y }] : [])
 ))
@@ -812,6 +733,12 @@ const wildcardSelectableColors = computed(() => {
 })
 const selectedNobleId = computed(() => interactionState.value.action.kind === 'noble' ? interactionState.value.action.selectedNobleId : undefined)
 const isNobleSelectable = (nobleId) => interactionState.value.action.kind === 'noble' && !isBoardActionPending.value && (gameState.value?.availableNobles || []).includes(nobleId)
+const nobleChoices = computed(() => (gameState.value?.availableNobles || []).map(id => ({
+  id,
+  name: getNobleDisplayName(id),
+  selectable: isNobleSelectable(id),
+  selected: selectedNobleId.value === id
+})))
 const purchaseEffectCanSkip = computed(() => {
   const action = interactionState.value.action
   if (action.kind === 'extra-token') return boardSelectablePositions.value.length === 0

@@ -178,6 +178,49 @@ export interface CardPaymentShortfall {
   availableGold: number
 }
 
+/**
+ * The page needs this presentation-only prediction both immediately after the
+ * payment sheet closes and again before a purchase effect is confirmed.  It is
+ * deliberately a selector: it never changes the authoritative game state and
+ * does not decide whether a server-side purchase is legal.
+ */
+export interface PurchaseFollowup {
+  valid: boolean
+  nobleContext?: {
+    playerData: {
+      ownedNobles: string[]
+      availableNobles: string[]
+    }
+  }
+}
+
+export const getPurchaseFollowup = (
+  gameState: GameState | null | undefined,
+  localPlayerId: string | null | undefined,
+  cardId: string | null | undefined
+): PurchaseFollowup => {
+  const player = findPlayerById(gameState?.players, localPlayerId)
+  const card = cardId ? gameState?.cardDetails?.[cardId] : undefined
+  if (!card) return { valid: false }
+
+  const crownsBefore = player?.crowns || 0
+  const crownsAfter = crownsBefore + (card.crowns || 0)
+  const ownedNobles = player?.nobles || []
+  const canChooseNoble = (ownedNobles.length === 0 && crownsBefore < 3 && crownsAfter >= 3) ||
+    (ownedNobles.length === 1 && crownsBefore < 6 && crownsAfter >= 6)
+
+  if (!canChooseNoble) return { valid: true }
+  return {
+    valid: true,
+    nobleContext: {
+      playerData: {
+        ownedNobles,
+        availableNobles: gameState?.availableNobles || []
+      }
+    }
+  }
+}
+
 interface PlayerPaymentState {
   gems?: Partial<Record<GemType, number>>
   bonus?: Partial<Record<GemType, number>>

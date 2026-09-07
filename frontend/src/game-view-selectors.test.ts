@@ -5,7 +5,7 @@ import {
   canLocalPlayerStartGame, findOpponent, findPlayerById, getCardDisplayItemsByLevel,
   getCardLevel, getDeckRemainingCount, getGemDisplayName, getGemImageName,
   getFlippedCardsByLevel, getMaxSameColorPoints, getOwnedBonusCardIds,
-  getNobleDisplayName, getPlayerNobleIds, getTurnPlayer, getTurnPlayerName,
+  getNobleDisplayName, getPlayerNobleIds, getPurchaseFollowup, getTurnPlayer, getTurnPlayerName,
   getWaitingPlayers, isLocalPlayersTurn, isPlayersTurn, orderPlayersLocalFirst,
   shouldShowReservedCardFace, shouldShowWaitingArea
 } from './game-view-selectors'
@@ -118,6 +118,41 @@ describe('card payment shortfall', () => {
     expect(calculateCardPaymentShortfall(card('free'), player('p1'))).toEqual({
       canAfford: true, missingGems: {}, totalMissing: 0, availableGold: 0
     })
+  })
+})
+
+describe('purchase follow-up selector', () => {
+  it('projects only the existing 3/6-crown noble thresholds without mutating state', () => {
+    const firstNoble = state({
+      players: [player('p1', { crowns: 2, nobles: [] }), player('p2')],
+      cardDetails: { first: card('first', { crowns: 1 }) },
+      availableNobles: ['noble2', 'noble3']
+    })
+    const result = getPurchaseFollowup(firstNoble, 'p1', 'first')
+    expect(result).toEqual({
+      valid: true,
+      nobleContext: { playerData: { ownedNobles: [], availableNobles: ['noble2', 'noble3'] } }
+    })
+    expect(firstNoble.players[0].crowns).toBe(2)
+    expect(firstNoble.players[0].nobles).toEqual([])
+  })
+
+  it('preserves the existing non-threshold and missing-authority projections', () => {
+    const secondNoble = state({
+      players: [player('p1', { crowns: 5, nobles: ['noble1'] }), player('p2')],
+      cardDetails: { second: card('second', { crowns: 1 }) },
+      availableNobles: ['noble4']
+    })
+    expect(getPurchaseFollowup(secondNoble, 'p1', 'second')).toEqual({
+      valid: true,
+      nobleContext: { playerData: { ownedNobles: ['noble1'], availableNobles: ['noble4'] } }
+    })
+    expect(getPurchaseFollowup(secondNoble, 'p1', 'missing')).toEqual({ valid: false })
+    expect(getPurchaseFollowup(secondNoble, 'missing', 'second')).toEqual({ valid: true })
+    expect(getPurchaseFollowup(state({
+      players: [player('p1', { crowns: 3, nobles: [] }), player('p2')],
+      cardDetails: { later: card('later', { crowns: 1 }) }
+    }), 'p1', 'later')).toEqual({ valid: true })
   })
 })
 
