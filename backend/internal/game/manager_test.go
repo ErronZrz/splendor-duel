@@ -42,6 +42,29 @@ func joinRoomStatus(manager *Manager, roomName, playerName string) int {
 	return recorder.Code
 }
 
+func TestCreateRoomResponseKeepsPresentEmptyCollectionsAsJSONArrays(t *testing.T) {
+	manager := NewManager()
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/rooms", bytes.NewBufferString(`{"roomName":"json-arrays","playerName":"host"}`))
+	context.Request.Header.Set("Content-Type", "application/json")
+	manager.CreateRoom(context)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create room status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	for _, expected := range [][]byte{
+		[]byte(`"gemBag":[]`),
+		[]byte(`"reservedCards":[]`),
+		[]byte(`"developmentCards":[]`),
+		[]byte(`"nobles":[]`),
+		[]byte(`"effects":[]`),
+	} {
+		if !bytes.Contains(recorder.Body.Bytes(), expected) {
+			t.Fatalf("response omitted present empty JSON array %s: %s", expected, recorder.Body.String())
+		}
+	}
+}
+
 func TestGetRoomReturnsDetachedDeepSnapshot(t *testing.T) {
 	manager := NewManager()
 	created := createRoomForManagerTest(t, manager, "snapshot")

@@ -41,9 +41,21 @@ func cloneMap[K comparable, V any](source map[K]V) map[K]V {
 	return result
 }
 
+// cloneSlice preserves the distinction between an absent slice and a present,
+// empty slice.  API snapshots use present empty slices so JSON clients receive
+// [] rather than null for collection fields.
+func cloneSlice[T any](source []T) []T {
+	if source == nil {
+		return nil
+	}
+	result := make([]T, len(source))
+	copy(result, source)
+	return result
+}
+
 func cloneDevelopmentCard(card models.DevelopmentCard) models.DevelopmentCard {
 	card.Cost = cloneMap(card.Cost)
-	card.Effects = append([]models.CardEffect(nil), card.Effects...)
+	card.Effects = cloneSlice(card.Effects)
 	return card
 }
 
@@ -60,35 +72,35 @@ func cloneDevelopmentCards(source map[string]models.DevelopmentCard) map[string]
 
 func cloneGameState(source models.GameState) models.GameState {
 	result := source
-	result.VictoryReasons = append([]string(nil), source.VictoryReasons...)
-	result.Players = append([]models.Player(nil), source.Players...)
+	result.VictoryReasons = cloneSlice(source.VictoryReasons)
+	result.Players = cloneSlice(source.Players)
 	for i := range result.Players {
 		result.Players[i].Gems = cloneMap(source.Players[i].Gems)
 		result.Players[i].Bonus = cloneMap(source.Players[i].Bonus)
-		result.Players[i].ReservedCards = append([]string(nil), source.Players[i].ReservedCards...)
-		result.Players[i].DevelopmentCards = append([]string(nil), source.Players[i].DevelopmentCards...)
-		result.Players[i].Nobles = append([]string(nil), source.Players[i].Nobles...)
+		result.Players[i].ReservedCards = cloneSlice(source.Players[i].ReservedCards)
+		result.Players[i].DevelopmentCards = cloneSlice(source.Players[i].DevelopmentCards)
+		result.Players[i].Nobles = cloneSlice(source.Players[i].Nobles)
 	}
 	if source.GemBoard != nil {
 		result.GemBoard = make([][]models.GemType, len(source.GemBoard))
 		for i := range source.GemBoard {
-			result.GemBoard[i] = append([]models.GemType(nil), source.GemBoard[i]...)
+			result.GemBoard[i] = cloneSlice(source.GemBoard[i])
 		}
 	}
-	result.GemBag = append([]models.GemType(nil), source.GemBag...)
+	result.GemBag = cloneSlice(source.GemBag)
 	result.UnflippedCards = cloneMap(source.UnflippedCards)
 	if source.FlippedCards != nil {
 		result.FlippedCards = make(map[models.CardLevel][]string, len(source.FlippedCards))
 		for level, cards := range source.FlippedCards {
-			result.FlippedCards[level] = append([]string(nil), cards...)
+			result.FlippedCards[level] = cloneSlice(cards)
 		}
 	}
-	result.Level1Deck = append([]string(nil), source.Level1Deck...)
-	result.Level2Deck = append([]string(nil), source.Level2Deck...)
-	result.Level3Deck = append([]string(nil), source.Level3Deck...)
+	result.Level1Deck = cloneSlice(source.Level1Deck)
+	result.Level2Deck = cloneSlice(source.Level2Deck)
+	result.Level3Deck = cloneSlice(source.Level3Deck)
 	result.CardDetails = cloneDevelopmentCards(source.CardDetails)
 	result.CardMap = cloneDevelopmentCards(source.CardMap)
-	result.AvailableNobles = append([]string(nil), source.AvailableNobles...)
+	result.AvailableNobles = cloneSlice(source.AvailableNobles)
 	result.ExtraTurns = cloneMap(source.ExtraTurns)
 	return result
 }
