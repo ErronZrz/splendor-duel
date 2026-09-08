@@ -4,7 +4,11 @@
     <div class="card-levels">
       <div v-for="marketLevel in levels" :key="marketLevel.level" class="card-level">
         <h5>等级 {{ marketLevel.level }}</h5>
-        <div class="cards-row">
+        <div
+          class="cards-row"
+          tabindex="0"
+          :aria-label="`等级${marketLevel.level}发展卡横向列表，可使用 Shift 加鼠标滚轮或触控滑动查看全部卡牌`"
+        >
           <div
             class="deck-item"
             :class="{

@@ -2429,7 +2429,7 @@ watch(gameState, (newState, oldState) => {
 }
 
 .action-time {
-  color: #6c757d;
+  color: #4f5964;
   font-size: 12px;
   margin-right: 8px;
 }

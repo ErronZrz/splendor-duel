@@ -21,10 +21,14 @@ export default defineConfig({
     }
   },
   projects: [
-    { name: 'mobile-narrow', use: { viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true } },
-    { name: 'mobile-primary', use: { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
-    { name: 'mobile-wide', use: { viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true } },
-    { name: 'desktop', grepInvert: /@mobile-dialog/, use: { viewport: { width: 1440, height: 900 } } }
+    { name: 'mobile-narrow', use: { browserName: 'chromium', viewport: { width: 360, height: 800 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-primary', use: { browserName: 'chromium', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: 'mobile-wide', use: { browserName: 'chromium', viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true } },
+    { name: 'desktop', grepInvert: /@mobile-dialog/, use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } } },
+    { name: 'mobile-primary-firefox', use: { browserName: 'firefox', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: 'firefox-desktop', grepInvert: /@mobile-dialog/, use: { browserName: 'firefox', viewport: { width: 1440, height: 900 } } },
+    { name: 'mobile-primary-webkit', use: { browserName: 'webkit', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true } },
+    { name: 'webkit-desktop', grepInvert: /@mobile-dialog/, use: { browserName: 'webkit', viewport: { width: 1440, height: 900 } } }
   ],
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173',

@@ -93,7 +93,9 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(3)
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
   }
-  await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
+  if (testInfo.project.use.browserName === 'chromium') {
+    await expect(page).toHaveScreenshot('game-default.png', { fullPage: true })
+  }
 })
 
 test('uses a labelled neutral fallback for a broken business image', async ({ page }, testInfo) => {
@@ -256,7 +258,7 @@ test.describe('mobile dialog baselines', () => {
       scrollWidth: element.scrollWidth
     }))
     expect(payment.scrollWidth).toBe(payment.clientWidth)
-    if (testInfo.project.name === 'mobile-primary') {
+    if (testInfo.project.name === 'mobile-primary' && testInfo.project.use.browserName === 'chromium') {
       await expect(page).toHaveScreenshot('purchase-dialog.png', { fullPage: true })
     }
   })
@@ -265,7 +267,7 @@ test.describe('mobile dialog baselines', () => {
     await openFixture(page, 'discard')
     await expect(page.locator('.dialog-header h3')).toHaveText('丢弃宝石')
     await expectResponsiveDialog(page)
-    if (testInfo.project.name === 'mobile-primary') {
+    if (testInfo.project.name === 'mobile-primary' && testInfo.project.use.browserName === 'chromium') {
       await expect(page).toHaveScreenshot('discard-dialog.png', { fullPage: true })
     }
   })
