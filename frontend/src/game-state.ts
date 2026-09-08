@@ -1,4 +1,8 @@
 export type GemType = 'white' | 'blue' | 'green' | 'red' | 'black' | 'pearl' | 'gold' | 'gray'
+// The backend represents a token removed from the board with an empty string.
+// It is a board-cell state, not a gem that can exist in a bag, cost, or player
+// inventory.
+export type BoardGem = GemType | ''
 export type CardEffect = 'extra_token' | 'new_turn' | 'wildcard' | 'get_privilege' | 'steal'
 export type GameStatus = 'waiting' | 'waiting_for_players' | 'playing' | 'finished'
 type Timestamp = string
@@ -44,7 +48,7 @@ export interface GameState {
   players: Player[]
   winner?: string
   victoryReasons?: string[]
-  gemBoard: GemType[][]
+  gemBoard: BoardGem[][]
   gemBag: GemType[]
   availablePrivilegeTokens: number
   unflippedCards: Record<string, number>
@@ -92,6 +96,10 @@ const gameStatuses: GameStatus[] = ['waiting', 'waiting_for_players', 'playing',
 
 const isGemType = (value: unknown): value is GemType => (
   typeof value === 'string' && gemTypes.some(gemType => gemType === value)
+)
+
+const isBoardGem = (value: unknown): value is BoardGem => (
+  value === '' || isGemType(value)
 )
 
 const isGameStatus = (value: unknown): value is GameStatus => (
@@ -155,7 +163,7 @@ export const isGameState = (value: unknown): value is GameState => (
   typeof value.currentPlayerIndex === 'number' &&
   typeof value.turnNumber === 'number' &&
   Array.isArray(value.players) && value.players.every(isPlayer) &&
-  Array.isArray(value.gemBoard) && value.gemBoard.every(row => Array.isArray(row) && row.every(isGemType)) &&
+  Array.isArray(value.gemBoard) && value.gemBoard.every(row => Array.isArray(row) && row.every(isBoardGem)) &&
   Array.isArray(value.gemBag) && value.gemBag.every(isGemType) &&
   typeof value.availablePrivilegeTokens === 'number' &&
   isNumberRecord(value.unflippedCards) &&

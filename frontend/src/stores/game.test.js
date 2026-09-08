@@ -139,6 +139,29 @@ describe('game store WebSocket lifecycle', () => {
     expect(store.gameState).toEqual(state)
   })
 
+  it('installs an authoritative state update after a gem is removed from the board', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const stateAfterTake = {
+      status: 'playing', currentPlayerIndex: 1, turnNumber: 2,
+      players: [{
+        id: 'p1', name: 'Player 1', gems: { blue: 1 }, bonus: {}, reservedCards: [],
+        developmentCards: [], privilegeTokens: 0, crowns: 0, nobles: [], points: 0,
+        isHost: true, lastActive: '2026-09-06T00:00:00Z'
+      }],
+      gemBoard: [['']], gemBag: [], availablePrivilegeTokens: 3,
+      unflippedCards: {}, flippedCards: {}, level1Deck: [], level2Deck: [], level3Deck: [],
+      cardDetails: {}, cardMap: {}, availableNobles: [], extraTurns: {},
+      cardToRefill: { level: 0, index: 0 }, refilledThisTurn: false,
+      needsGemDiscard: false, gemDiscardTarget: 10, gemDiscardPlayerID: '',
+      createdAt: '2026-09-06T00:00:00Z', startedAt: '2026-09-06T00:00:00Z'
+    }
+
+    socket.onmessage({ data: JSON.stringify({ type: 'game_state_update', gameState: stateAfterTake }) })
+
+    expect(store.gameState).toEqual(stateAfterTake)
+  })
+
   it('does not install a malformed successful room response', async () => {
     store = useGameStore(createPinia())
     vi.spyOn(axios, 'post').mockResolvedValue({

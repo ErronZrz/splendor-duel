@@ -101,4 +101,9 @@ describe('game state boundary', () => {
   it('rejects invalid enum values in game state', () => {
     expect(isGameState({ ...gameState, gemBag: ['future-gem'] })).toBe(false)
   })
+
+  it('accepts empty board cells after a token is taken, but not unknown board values', () => {
+    expect(isGameState({ ...gameState, gemBoard: [['blue', '']] })).toBe(true)
+    expect(isGameState({ ...gameState, gemBoard: [['future-gem']] })).toBe(false)
+  })
 })
