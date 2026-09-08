@@ -56,7 +56,7 @@ func TestBuyCardPayloadPreservesEffectCompatibilityShapes(t *testing.T) {
 		{
 			name: "explicit_steal_skip_is_nested_under_effect",
 			data: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"steal": map[string]any{"skipped": true}}},
-			want: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"steal": map[string]any{"gemType": "", "skipped": true}}},
+			want: map[string]any{"cardId": "c1", "paymentPlan": map[string]any{}, "effects": map[string]any{"steal": map[string]any{"skipped": true}}},
 		},
 	}
 	for _, tc := range tests {
@@ -65,8 +65,64 @@ func TestBuyCardPayloadPreservesEffectCompatibilityShapes(t *testing.T) {
 			if err := decodeActionPayload(tc.data, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if got := legacyBuyCardData(payload); !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("legacyBuyCardData() = %#v, want %#v", got, tc.want)
+			raw, err := json.Marshal(domainPurchase(payload))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("domainPurchase() JSON = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAllActionPayloadFixturesDecodeWithExtensions(t *testing.T) {
+	fixtures := []struct {
+		name   string
+		data   map[string]any
+		target func() any
+	}{
+		{"start_game", map[string]any{"future": true}, func() any { return &struct{}{} }},
+		{"takeGems", map[string]any{"gemPositions": []any{map[string]any{"x": 0, "y": 1, "future": true}}, "future": true}, func() any { return &takeGemsPayload{} }},
+		{"buyCard", map[string]any{"cardId": "a1", "paymentPlan": map[string]any{"white": 1}, "effects": map[string]any{"steal": map[string]any{"skipped": true, "future": true}}, "future": true}, func() any { return &buyCardPayload{} }},
+		{"reserveCard", map[string]any{"cardId": "a1", "goldX": 1, "goldY": 2, "future": true}, func() any { return &reserveCardPayload{} }},
+		{"spendPrivilege", map[string]any{"privilegeCount": 1, "gemPositions": []any{map[string]any{"x": 0, "y": 0}}, "future": true}, func() any { return &spendPrivilegePayload{} }},
+		{"refillBoard", map[string]any{"future": true}, func() any { return &struct{}{} }},
+		{"grantOpponentPrivilege", map[string]any{"future": true}, func() any { return &struct{}{} }},
+		{"discardGem", map[string]any{"gemType": "white", "future": true}, func() any { return &discardGemPayload{} }},
+		{"discardGemsBatch", map[string]any{"gemDiscards": map[string]any{"white": 1}, "future": true}, func() any { return &discardGemsBatchPayload{} }},
+		{"endTurn", map[string]any{"future": true}, func() any { return &struct{}{} }},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			if err := decodeActionPayload(fixture.data, fixture.target()); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestKnownActionFieldsRejectWrongJSONTypes(t *testing.T) {
+	fixtures := []struct {
+		name   string
+		data   map[string]any
+		target func() any
+	}{
+		{"take_position", map[string]any{"gemPositions": []any{map[string]any{"x": "0", "y": 1}}}, func() any { return &takeGemsPayload{} }},
+		{"buy_payment", map[string]any{"cardId": "a1", "paymentPlan": map[string]any{"white": "1"}}, func() any { return &buyCardPayload{} }},
+		{"reserve_gold", map[string]any{"cardId": "a1", "goldX": 1.5, "goldY": 2}, func() any { return &reserveCardPayload{} }},
+		{"privilege_count", map[string]any{"privilegeCount": "1", "gemPositions": []any{}}, func() any { return &spendPrivilegePayload{} }},
+		{"discard_type", map[string]any{"gemType": 1}, func() any { return &discardGemPayload{} }},
+		{"discard_count", map[string]any{"gemDiscards": map[string]any{"white": 1.5}}, func() any { return &discardGemsBatchPayload{} }},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			if err := decodeActionPayload(fixture.data, fixture.target()); err == nil {
+				t.Fatal("wrong known field type was accepted")
 			}
 		})
 	}

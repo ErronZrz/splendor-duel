@@ -147,6 +147,50 @@ type ActionResult struct {
 	Replayed   bool   `json:"replayed,omitempty"`
 }
 
+// BoardPosition is a validated board coordinate at the protocol/domain boundary.
+type BoardPosition struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type PaymentPlan map[GemType]int
+
+type PurchaseExtraToken struct {
+	SelectedGem *BoardPosition `json:"selectedGem,omitempty"`
+	Skipped     bool           `json:"skipped,omitempty"`
+}
+
+type PurchaseSteal struct {
+	GemType GemType `json:"gemType,omitempty"`
+	Skipped bool    `json:"skipped,omitempty"`
+}
+
+type PurchaseWildcard struct {
+	Color GemType `json:"color,omitempty"`
+}
+
+type PurchaseNoble struct {
+	ID string `json:"id,omitempty"`
+}
+
+type PurchaseEffects struct {
+	ExtraToken *PurchaseExtraToken `json:"extraToken,omitempty"`
+	Steal      *PurchaseSteal      `json:"steal,omitempty"`
+	Wildcard   *PurchaseWildcard   `json:"wildcard,omitempty"`
+	Noble      *PurchaseNoble      `json:"noble,omitempty"`
+}
+
+type PurchaseSelection struct {
+	CardID      string           `json:"cardId"`
+	PaymentPlan PaymentPlan      `json:"paymentPlan"`
+	Effects     *PurchaseEffects `json:"effects,omitempty"`
+}
+
+type ReserveSelection struct {
+	CardID       string        `json:"cardId"`
+	GoldPosition BoardPosition `json:"goldPosition"`
+}
+
 // 聊天消息
 type ChatMessage struct {
 	ID         string    `json:"id"`

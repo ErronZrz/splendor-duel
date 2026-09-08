@@ -3,6 +3,7 @@ import {
   isActionResult,
   parseWebSocketMessage,
   type ActionResult,
+  type GameActionPayloadMap,
   type GameActionMessage
 } from './protocol'
 
@@ -38,7 +39,7 @@ describe('WebSocket protocol boundary', () => {
   })
 
   it('keeps the existing game action envelope field names', () => {
-    const message: GameActionMessage<{ gemPositions: Array<{ x: number, y: number }> }> = {
+    const message: GameActionMessage<'takeGems'> = {
       type: 'game_action',
       playerId: 'p1',
       playerName: 'Player 1',
@@ -51,6 +52,28 @@ describe('WebSocket protocol boundary', () => {
     expect(Object.keys(message)).toEqual([
       'type', 'playerId', 'playerName', 'actionType', 'data', 'requestId'
     ])
+  })
+
+  it('maps every current action type to its exact payload while allowing extensions', () => {
+    const fixtures: { [K in keyof GameActionPayloadMap]: GameActionPayloadMap[K] } = {
+      start_game: { future: true },
+      takeGems: { gemPositions: [{ x: 0, y: 1, future: true }] },
+      buyCard: { cardId: 'a1', paymentPlan: { white: 1 }, effects: { steal: { skipped: true } } },
+      reserveCard: { cardId: 'a1', goldX: 1, goldY: 2 },
+      spendPrivilege: { privilegeCount: 1, gemPositions: [{ x: 0, y: 0 }] },
+      refillBoard: {},
+      grantOpponentPrivilege: {},
+      discardGem: { gemType: 'white' },
+      discardGemsBatch: { gemDiscards: { white: 1 } },
+      endTurn: {}
+    }
+    expect(Object.keys(fixtures)).toHaveLength(10)
+  })
+
+  it('rejects mismatched known payload fields at compile time', () => {
+    // @ts-expect-error takeGems requires gemPositions, not cardId.
+    const invalid: GameActionMessage<'takeGems'> = { type: 'game_action', playerId: 'p1', playerName: 'P1', actionType: 'takeGems', data: { cardId: 'a1' }, requestId: 'r1' }
+    expect(invalid.data).toEqual({ cardId: 'a1' })
   })
 
   it('models the backend action result JSON contract', () => {

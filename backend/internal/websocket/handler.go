@@ -88,46 +88,42 @@ func decodeActionPayload(data any, target any) error {
 	return nil
 }
 
-func legacyPosition(position boardPositionPayload) map[string]any {
-	result := make(map[string]any, 2)
-	if position.X != nil {
-		result["x"] = float64(*position.X)
+func domainPosition(position boardPositionPayload) (models.BoardPosition, bool) {
+	if position.X == nil || position.Y == nil {
+		return models.BoardPosition{}, false
 	}
-	if position.Y != nil {
-		result["y"] = float64(*position.Y)
-	}
-	return result
+	return models.BoardPosition{X: *position.X, Y: *position.Y}, true
 }
 
-func legacyBuyCardData(payload buyCardPayload) map[string]any {
-	data := map[string]any{"cardId": payload.CardID}
-	paymentPlan := make(map[string]any, len(payload.PaymentPlan))
+func domainPurchase(payload buyCardPayload) models.PurchaseSelection {
+	purchase := models.PurchaseSelection{CardID: payload.CardID, PaymentPlan: models.PaymentPlan{}}
 	for gemType, count := range payload.PaymentPlan {
-		paymentPlan[gemType] = float64(count)
+		purchase.PaymentPlan[models.GemType(gemType)] = count
 	}
-	data["paymentPlan"] = paymentPlan
 	if payload.Effects == nil {
-		return data
+		return purchase
 	}
-	effects := make(map[string]any)
-	if payload.Effects.ExtraToken != nil {
-		extra := map[string]any{"skipped": payload.Effects.ExtraToken.Skipped}
-		if payload.Effects.ExtraToken.SelectedGem != nil {
-			extra["selectedGem"] = legacyPosition(*payload.Effects.ExtraToken.SelectedGem)
+	effects := &models.PurchaseEffects{}
+	if extra := payload.Effects.ExtraToken; extra != nil {
+		domainExtra := &models.PurchaseExtraToken{Skipped: extra.Skipped}
+		if extra.SelectedGem != nil {
+			if position, ok := domainPosition(*extra.SelectedGem); ok {
+				domainExtra.SelectedGem = &position
+			}
 		}
-		effects["extraToken"] = extra
+		effects.ExtraToken = domainExtra
 	}
-	if payload.Effects.Steal != nil {
-		effects["steal"] = map[string]any{"gemType": payload.Effects.Steal.GemType, "skipped": payload.Effects.Steal.Skipped}
+	if steal := payload.Effects.Steal; steal != nil {
+		effects.Steal = &models.PurchaseSteal{GemType: models.GemType(steal.GemType), Skipped: steal.Skipped}
 	}
-	if payload.Effects.Wildcard != nil {
-		effects["wildcard"] = map[string]any{"color": payload.Effects.Wildcard.Color}
+	if wildcard := payload.Effects.Wildcard; wildcard != nil {
+		effects.Wildcard = &models.PurchaseWildcard{Color: models.GemType(wildcard.Color)}
 	}
-	if payload.Effects.Noble != nil {
-		effects["noble"] = map[string]any{"id": payload.Effects.Noble.ID}
+	if noble := payload.Effects.Noble; noble != nil {
+		effects.Noble = &models.PurchaseNoble{ID: noble.ID}
 	}
-	data["effects"] = effects
-	return data
+	purchase.Effects = effects
+	return purchase
 }
 
 var upgrader = websocket.Upgrader{
@@ -633,6 +629,18 @@ func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 	room.broadcastToAll(models.WSMessage{Type: "game_action", Action: &ga})
 }
 
+func sendActionResult(room *Room, client *Client, result models.ActionResult) {
+	room.broadcastToClient(client, models.WSMessage{Type: "action_result", Data: result})
+}
+
+func broadcastAuthoritativeState(room *Room, latestRoom *models.Room) {
+	latestGameState := latestRoom.GameState
+	room.broadcastToAll(models.WSMessage{Type: "game_state_update", GameState: &latestGameState})
+	if latestGameState.Status == models.GameStatusPlaying {
+		room.broadcastToAll(models.WSMessage{Type: "game_start", Data: latestRoom})
+	}
+}
+
 const maxActionReceiptsPerRoom = 4096
 
 func validRequestID(requestID string) bool {
@@ -748,9 +756,14 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				return
 			}
 			log.Printf("执行拿取宝石操作，位置: %+v", payload.GemPositions)
-			positions := make([]map[string]any, 0, len(payload.GemPositions))
+			positions := make([]models.BoardPosition, 0, len(payload.GemPositions))
 			for _, position := range payload.GemPositions {
-				positions = append(positions, legacyPosition(position))
+				domain, ok := domainPosition(position)
+				if !ok {
+					fail("无效的宝石位置")
+					return
+				}
+				positions = append(positions, domain)
 			}
 			// 预生成图片与类型（使用操作前的版图）
 			var pics []string
@@ -798,7 +811,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				fail("无效的购买卡牌数据")
 				return
 			}
-			data := legacyBuyCardData(payload)
+			purchase := domainPurchase(payload)
 			cardID := payload.CardID
 			log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
 			// 预处理：支付、特效与来源
@@ -841,7 +854,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				nobleId = payload.Effects.Noble.ID
 			}
 			// 执行购买
-			if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, data); err != nil {
+			if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, purchase); err != nil {
 				log.Printf("购买发展卡失败: %v", err)
 				fail(err.Error())
 			} else {
@@ -938,7 +951,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 					idx = 0
 				}
 				before := roomData.GameState.Players[idx].ReservedCards
-				if err := gl.ReserveCard(message.PlayerID, cardID, goldRow, goldCol); err != nil {
+				if err := gl.ReserveCard(message.PlayerID, models.ReserveSelection{CardID: cardID, GoldPosition: models.BoardPosition{X: goldRow, Y: goldCol}}); err != nil {
 					log.Printf("保留发展卡失败: %v", err)
 					fail(err.Error())
 				} else {
@@ -986,16 +999,20 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			privilegeCount := *payload.PrivilegeCount
 			log.Printf("执行花费特权操作，特权数量: %d", privilegeCount)
-			positions := make([]map[string]any, 0, len(payload.GemPositions))
+			positions := make([]models.BoardPosition, 0, len(payload.GemPositions))
 			inner := make([]string, 0, len(payload.GemPositions))
 			for _, position := range payload.GemPositions {
-				posMap := legacyPosition(position)
+				pos, validPosition := domainPosition(position)
+				if !validPosition {
+					fail("无效的宝石位置")
+					return
+				}
 				x, y, ok := parseTypedBoardPosition(position, roomData.GameState.GemBoard)
 				if !ok {
 					fail("无效的宝石位置")
 					return
 				}
-				positions = append(positions, posMap)
+				positions = append(positions, pos)
 				inner = append(inner, histGemImg(string(roomData.GameState.GemBoard[x][y])))
 			}
 			if err := gl.SpendPrivilege(message.PlayerID, privilegeCount, positions); err != nil {
@@ -1102,27 +1119,15 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		log.Printf("游戏状态已更新")
 	})
 	if duplicate {
-		room.broadcastToClient(c, models.WSMessage{Type: "action_result", Data: result})
+		sendActionResult(room, c, result)
 		return
 	}
 
 	// 获取最新的游戏状态并广播
 	latestRoom := room.Manager.GetRoom(c.RoomID)
-	latestGameState := latestRoom.GameState
-	room.broadcastToAll(models.WSMessage{
-		Type:      "game_state_update",
-		GameState: &latestGameState,
-	})
-
-	// 如果游戏已开始，广播游戏开始消息
-	if latestGameState.Status == models.GameStatusPlaying {
-		room.broadcastToAll(models.WSMessage{
-			Type: "game_start",
-			Data: latestRoom,
-		})
-	}
+	broadcastAuthoritativeState(room, latestRoom)
 	if message.RequestID != "" {
-		room.broadcastToClient(c, models.WSMessage{Type: "action_result", Data: result})
+		sendActionResult(room, c, result)
 	}
 }
 

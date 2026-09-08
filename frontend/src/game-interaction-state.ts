@@ -1,7 +1,6 @@
-export interface GemPosition {
-  x: number
-  y: number
-}
+import type { BoardPosition, GameActionPayloadMap, GameActionType, PaymentPlan, PurchaseEffects } from './protocol'
+
+export type GemPosition = BoardPosition
 
 export interface SelectedGem extends GemPosition {
   type: string
@@ -17,15 +16,6 @@ export interface InteractionCard {
 export type ReserveTarget =
   | { type: 'market-card'; cardId: string; level: number; name: string }
   | { type: 'deck'; level: number }
-
-export type PaymentPlan = Record<string, number>
-
-export interface PurchaseEffects {
-  extraToken?: { selectedGem: GemPosition } | { skipped: true }
-  steal?: { gemType: string } | { skipped: true }
-  wildcard?: { color: string }
-  noble?: { id: string }
-}
 
 export interface PendingPurchase {
   card: InteractionCard
@@ -69,10 +59,9 @@ export interface GameInteractionState {
   victory: VictoryInteractionState
 }
 
-export interface InteractionCommand {
-  actionType: string
-  data: Record<string, unknown>
-}
+export type InteractionCommand = {
+  [K in GameActionType]: { actionType: K; data: GameActionPayloadMap[K] }
+}[GameActionType]
 
 export interface InteractionTransition {
   state: GameInteractionState
@@ -386,7 +375,7 @@ export const transitionGameInteraction = (
         return noCommands(state)
       }
       const gemPositions = state.action.selectedGems.map(({ x, y }) => ({ x, y }))
-      const commands = state.action.warning
+      const commands: InteractionCommand[] = state.action.warning
         ? [
             { actionType: 'grantOpponentPrivilege', data: {} },
             { actionType: 'takeGems', data: { gemPositions } }

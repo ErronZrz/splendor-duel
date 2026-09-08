@@ -502,6 +502,7 @@ const closeHistoryPreview = () => {
 }
 import { useRouter } from 'vue-router'
 import { useGameStore } from '../stores/game'
+import { sendTypedGameAction } from '../game-action-sender'
 import { storeToRefs } from 'pinia'
 import GameNotification from '../components/GameNotification.vue'
 import ActionDialog from '../components/ActionDialog.vue'
@@ -1107,7 +1108,7 @@ const executeAction = (actionType, data) => {
   
   // 向后端发送操作请求，让后端处理所有游戏逻辑
   try {
-    const requestId = gameStore.sendGameAction(actionType, data)
+    const requestId = sendTypedGameAction(gameStore, actionType, data)
     applyInteractionEvent({
       type: 'REQUEST_SENT',
       requestId: typeof requestId === 'string' ? requestId : '',

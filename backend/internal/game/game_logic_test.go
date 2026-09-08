@@ -31,13 +31,25 @@ func regressionGame() (*GameLogic, *models.GameState) {
 	return NewGameLogic(s, NewManager()), s
 }
 
-func gemPositions(points ...[2]int) []map[string]any {
-	positions := make([]map[string]any, 0, len(points))
+func gemPositions(points ...[2]int) []models.BoardPosition {
+	positions := make([]models.BoardPosition, 0, len(points))
 	for _, p := range points {
-		// JSON numbers arrive as float64 in the existing protocol.
-		positions = append(positions, map[string]any{"x": float64(p[0]), "y": float64(p[1])})
+		positions = append(positions, models.BoardPosition{X: p[0], Y: p[1]})
 	}
 	return positions
+}
+
+func purchaseSelection(cardID string, effects map[string]any) models.PurchaseSelection {
+	purchase := models.PurchaseSelection{CardID: cardID, PaymentPlan: models.PaymentPlan{}}
+	if effects == nil {
+		return purchase
+	}
+	raw, _ := json.Marshal(effects)
+	purchase.Effects = &models.PurchaseEffects{}
+	if err := json.Unmarshal(raw, purchase.Effects); err != nil {
+		panic(err)
+	}
+	return purchase
 }
 
 func TestRegressionTakeGems(t *testing.T) {
@@ -196,19 +208,16 @@ func TestRuleBoundaryTakeGems(t *testing.T) {
 func TestRuleBoundaryInvalidCoordinates(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		position map[string]any
+		position models.BoardPosition
 	}{
-		{"missing_coordinate", map[string]any{"x": float64(0)}},
-		{"string_coordinate", map[string]any{"x": "0", "y": float64(0)}},
-		{"negative_coordinate", map[string]any{"x": float64(-1), "y": float64(0)}},
-		{"out_of_bounds", map[string]any{"x": float64(5), "y": float64(0)}},
-		{"fractional_coordinate", map[string]any{"x": 0.5, "y": float64(0)}},
+		{"negative_coordinate", models.BoardPosition{X: -1, Y: 0}},
+		{"out_of_bounds", models.BoardPosition{X: 5, Y: 0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gl, s := regressionGame()
 			s.GemBoard[0][0] = models.GemBlue
 			before, _ := json.Marshal(s)
-			if err := gl.TakeGems("p1", []map[string]any{tc.position}); err == nil {
+			if err := gl.TakeGems("p1", []models.BoardPosition{tc.position}); err == nil {
 				t.Fatal("invalid coordinate was accepted")
 			}
 			after, _ := json.Marshal(s)
@@ -244,13 +253,11 @@ func TestRuleBoundarySpendPrivilegeIsAtomic(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		count     int
-		positions []map[string]any
+		positions []models.BoardPosition
 	}{
 		{"zero_count", 0, nil},
 		{"too_many", 4, gemPositions([2]int{0, 0}, [2]int{0, 1}, [2]int{0, 2}, [2]int{0, 3})},
 		{"count_mismatch", 2, gemPositions([2]int{0, 0})},
-		{"missing_coordinate", 1, []map[string]any{{"x": float64(0)}}},
-		{"fractional_coordinate", 1, []map[string]any{{"x": 0.5, "y": float64(0)}}},
 		{"out_of_bounds", 1, gemPositions([2]int{5, 0})},
 		{"duplicate_position", 2, gemPositions([2]int{0, 0}, [2]int{0, 0})},
 		{"empty_position_after_valid", 2, gemPositions([2]int{0, 0}, [2]int{0, 1})},
@@ -285,7 +292,7 @@ func TestReserveCardValidatesBeforeTakingGold(t *testing.T) {
 			gl, state := regressionGame()
 			state.GemBoard[0][0] = models.GemGold
 			before, _ := json.Marshal(state)
-			if err := gl.ReserveCard("p1", tc.cardID, 0, 0); err == nil {
+			if err := gl.ReserveCard("p1", models.ReserveSelection{CardID: tc.cardID, GoldPosition: models.BoardPosition{X: 0, Y: 0}}); err == nil {
 				t.Fatal("invalid reservation was accepted")
 			}
 			after, _ := json.Marshal(state)
@@ -300,7 +307,7 @@ func TestRegressionReserveFaceUpCard(t *testing.T) {
 	gl, state := regressionGame()
 	state.GemBoard[0][0] = models.GemGold
 	state.FlippedCards[models.Level1] = []string{"card-1"}
-	if err := gl.ReserveCard("p1", "card-1", 0, 0); err != nil {
+	if err := gl.ReserveCard("p1", models.ReserveSelection{CardID: "card-1", GoldPosition: models.BoardPosition{X: 0, Y: 0}}); err != nil {
 		t.Fatal(err)
 	}
 	if state.Players[0].Gems[models.GemGold] != 1 || !reflect.DeepEqual(state.Players[0].ReservedCards, []string{"card-1"}) {
@@ -315,16 +322,15 @@ func TestPaymentPlanRequiresExactColorsAndIntegers(t *testing.T) {
 	required := map[models.GemType]int{models.GemBlue: 2}
 	for _, tc := range []struct {
 		name string
-		plan map[string]any
+		plan models.PaymentPlan
 		want bool
 	}{
-		{"matching_color", map[string]any{"blue": float64(2), "gold": float64(0)}, true},
-		{"gold_substitution", map[string]any{"blue": float64(1), "gold": float64(1)}, true},
-		{"wrong_color", map[string]any{"red": float64(2)}, false},
-		{"fractional", map[string]any{"blue": 1.5, "gold": float64(1)}, false},
-		{"negative", map[string]any{"blue": float64(-1), "gold": float64(3)}, false},
-		{"unknown_type", map[string]any{"blue": float64(2), "ruby": float64(0)}, false},
-		{"too_much_color", map[string]any{"blue": float64(2), "gold": float64(1)}, false},
+		{"matching_color", models.PaymentPlan{models.GemBlue: 2, models.GemGold: 0}, true},
+		{"gold_substitution", models.PaymentPlan{models.GemBlue: 1, models.GemGold: 1}, true},
+		{"wrong_color", models.PaymentPlan{models.GemRed: 2}, false},
+		{"negative", models.PaymentPlan{models.GemBlue: -1, models.GemGold: 3}, false},
+		{"unknown_type", models.PaymentPlan{models.GemType("ruby"): 0, models.GemBlue: 2}, false},
+		{"too_much_color", models.PaymentPlan{models.GemBlue: 2, models.GemGold: 1}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := gl.validatePaymentPlan(player, tc.plan, required); got != tc.want {
@@ -341,10 +347,7 @@ func TestPurchaseRejectsInvalidEffectsAtomically(t *testing.T) {
 	state.FlippedCards[models.Level1] = []string{card.ID}
 	state.GemBoard[0][0] = models.GemBlue
 	before, _ := json.Marshal(state)
-	data := map[string]any{
-		"cardId": card.ID, "paymentPlan": map[string]any{},
-		"effects": map[string]any{"extraToken": map[string]any{"selectedGem": map[string]any{"x": 0.5, "y": float64(0)}}},
-	}
+	data := models.PurchaseSelection{CardID: card.ID, PaymentPlan: models.PaymentPlan{}, Effects: &models.PurchaseEffects{ExtraToken: &models.PurchaseExtraToken{SelectedGem: &models.BoardPosition{X: -1, Y: 0}}}}
 	if err := gl.BuyCardWithPaymentPlanAndEffects("p1", data); err == nil {
 		t.Fatal("purchase with invalid effect data was accepted")
 	}
@@ -447,9 +450,7 @@ func TestPurchaseEffectRuleMatrix(t *testing.T) {
 				tc.prepare(state)
 			}
 			before, _ := json.Marshal(state)
-			err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{
-				"cardId": tc.card.ID, "paymentPlan": map[string]any{}, "effects": tc.effects,
-			})
+			err := gl.BuyCardWithPaymentPlanAndEffects("p1", purchaseSelection(tc.card.ID, tc.effects))
 			if tc.wantErr {
 				if err == nil {
 					t.Fatal("invalid effect choice was accepted")
@@ -484,9 +485,9 @@ func TestPurchaseEffectsOmissionRemainsLegacyCompatible(t *testing.T) {
 			state.CardMap[card.ID], state.CardDetails[card.ID] = card, card
 			state.FlippedCards[models.Level1] = []string{card.ID}
 			state.GemBoard[0][0] = models.GemBlue
-			data := map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}
+			data := models.PurchaseSelection{CardID: card.ID, PaymentPlan: models.PaymentPlan{}}
 			if tc.includeEffects {
-				data["effects"] = map[string]any{}
+				data.Effects = &models.PurchaseEffects{}
 			}
 			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", data); err != nil {
 				t.Fatal(err)
@@ -502,8 +503,8 @@ func TestNobleSelectionRequiresAvailabilityAndCrowns(t *testing.T) {
 	gl, state := regressionGame()
 	state.AvailableNobles = []string{"noble1"}
 	card := models.DevelopmentCard{Crowns: 1}
-	plan := func(id string) map[string]any {
-		return map[string]any{"effects": map[string]any{"noble": map[string]any{"id": id}}}
+	plan := func(id string) *models.PurchaseEffects {
+		return &models.PurchaseEffects{Noble: &models.PurchaseNoble{ID: id}}
 	}
 	if err := gl.validatePurchaseEffects(&state.Players[0], &card, plan("noble1")); err == nil {
 		t.Fatal("noble was allowed below the first crown threshold")
@@ -540,7 +541,7 @@ func TestPurchaseRequiresVisibleOrOwnReservedCard(t *testing.T) {
 				state.Level1Deck = []string{card.ID}
 			}
 			before, _ := json.Marshal(state)
-			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}); err == nil {
+			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", purchaseSelection(card.ID, nil)); err == nil {
 				t.Fatal("unavailable card was purchased")
 			}
 			after, _ := json.Marshal(state)
@@ -562,7 +563,7 @@ func TestRegressionPurchaseVisibleAndOwnReservedCards(t *testing.T) {
 			} else {
 				state.Players[0].ReservedCards = []string{card.ID}
 			}
-			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", map[string]any{"cardId": card.ID, "paymentPlan": map[string]any{}}); err != nil {
+			if err := gl.BuyCardWithPaymentPlanAndEffects("p1", purchaseSelection(card.ID, nil)); err != nil {
 				t.Fatal(err)
 			}
 			if !containsString(state.Players[0].DevelopmentCards, card.ID) || state.Players[0].Bonus[models.GemBlue] != 1 {

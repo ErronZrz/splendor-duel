@@ -6,6 +6,9 @@ import {
   isActionResult,
   type ActionResult,
   type ConnectionStatus,
+  type GameActionInput,
+  type GameActionPayloadMap,
+  type GameActionType,
   type PendingAction,
   type ServerMessage
 } from '../protocol'
@@ -51,11 +54,6 @@ interface StoreResult {
   success: boolean
   roomId?: string
   message?: string
-}
-
-interface GameActionInput<TData = Record<string, unknown>> {
-  type: string
-  data?: TData
 }
 
 type PendingActions = Record<string, PendingAction>
@@ -445,11 +443,11 @@ export const useGameStore = defineStore('game', () => {
 
   // 执行游戏动作
   const performGameAction = (action: GameActionInput): string => {
-    return sendGameAction(action.type, action.data || {})
+    return sendGameAction(action.type, action.data)
   }
 
   // 发送游戏操作
-  const sendGameAction = (actionType: string, data: Record<string, unknown>): string => {
+  const sendGameAction = <TAction extends GameActionType>(actionType: TAction, data: GameActionPayloadMap[TAction]): string => {
     if (isConnected.value && isSocketOpen() && currentPlayer.value) {
       const requestId = createRequestId()
       const message = {

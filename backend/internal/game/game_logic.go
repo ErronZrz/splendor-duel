@@ -11,24 +11,6 @@ import (
 	"strings"
 )
 
-// GameActionType 游戏行动类型
-type GameActionType string
-
-const (
-	ActionSpendPrivilege GameActionType = "spend_privilege" // 花费特权指示物
-	ActionRefillBoard    GameActionType = "refill_board"    // 补充版图
-	ActionTakeGems       GameActionType = "take_gems"       // 拿取宝石
-	ActionBuyCard        GameActionType = "buy_card"        // 购买发展卡
-	ActionReserveCard    GameActionType = "reserve_card"    // 保留发展卡
-)
-
-// GameAction 游戏行动
-type GameAction struct {
-	Type     GameActionType `json:"type"`
-	PlayerID string         `json:"playerId"`
-	Data     map[string]any `json:"data"`
-}
-
 // GameLogic 游戏逻辑管理器
 type GameLogic struct {
 	gameState *models.GameState
@@ -324,7 +306,7 @@ func (gl *GameLogic) drawCardsFromDeck(level models.CardLevel, count int) []stri
 }
 
 // 验证宝石是否在一条直线上且连续
-func (gl *GameLogic) validateGemLine(positions []any) bool {
+func (gl *GameLogic) validateGemLine(positions []models.BoardPosition) bool {
 	n := len(positions)
 	if n < 1 || n > 3 {
 		return false
@@ -334,15 +316,7 @@ func (gl *GameLogic) validateGemLine(positions []any) bool {
 	type pt struct{ x, y int }
 	pts := make([]pt, 0, n)
 	for _, p := range positions {
-		m, ok := p.(map[string]any)
-		if !ok {
-			return false
-		}
-		x, y, ok := parseGemPosition(m)
-		if !ok {
-			return false
-		}
-		pts = append(pts, pt{x: x, y: y})
+		pts = append(pts, pt{x: p.X, y: p.Y})
 	}
 
 	// 判定是否同一条线（横/竖/两条对角线）
@@ -376,17 +350,6 @@ func (gl *GameLogic) validateGemLine(positions []any) bool {
 		}
 	}
 	return true
-}
-
-// Validate coordinates before converting JSON numbers to array indices.
-func parseGemPosition(pos map[string]any) (int, int, bool) {
-	x, xOK := pos["x"].(float64)
-	y, yOK := pos["y"].(float64)
-	if !xOK || !yOK || !(x >= 0 && x < 5 && y >= 0 && y < 5) {
-		return 0, 0, false
-	}
-	row, col := int(x), int(y)
-	return row, col, x == float64(row) && y == float64(col)
 }
 
 // 计算应支付费用
@@ -793,7 +756,7 @@ func (gl *GameLogic) getPlayer(playerID string) *models.Player {
 }
 
 // TakeGems 拿取宝石
-func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) error {
+func (gl *GameLogic) TakeGems(playerID string, gemPositions []models.BoardPosition) error {
 	if gl.gameState.Status == models.GameStatusFinished {
 		return errors.New("游戏已结束")
 	}
@@ -810,22 +773,15 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		return errors.New("只能拿取1-3个宝石")
 	}
 
-	// 验证宝石位置和连续性
-	// 转换类型以匹配validateGemLine函数的参数
-	var positions []any
-	for _, pos := range gemPositions {
-		positions = append(positions, pos)
-	}
-
-	if !gl.validateGemLine(positions) {
+	if !gl.validateGemLine(gemPositions) {
 		return errors.New("宝石不在同一直线上或不相邻")
 	}
 
 	// Validate the entire action before moving any tokens. A rejected request
 	// must leave both the board and player resources unchanged.
 	for _, pos := range gemPositions {
-		rowIndex, colIndex, ok := parseGemPosition(pos)
-		if !ok {
+		rowIndex, colIndex := pos.X, pos.Y
+		if rowIndex < 0 || colIndex < 0 {
 			return errors.New("无效的宝石位置")
 		}
 		if rowIndex >= len(gl.gameState.GemBoard) || colIndex >= len(gl.gameState.GemBoard[rowIndex]) {
@@ -841,7 +797,7 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 		}
 	}
 	for _, pos := range gemPositions {
-		rowIndex, colIndex, _ := parseGemPosition(pos)
+		rowIndex, colIndex := pos.X, pos.Y
 		gemType := gl.gameState.GemBoard[rowIndex][colIndex]
 		// 将宝石添加到玩家手中
 		gl.gameState.Players[playerIndex].Gems[gemType]++
@@ -860,7 +816,8 @@ func (gl *GameLogic) TakeGems(playerID string, gemPositions []map[string]any) er
 }
 
 // ReserveCard 保留发展卡
-func (gl *GameLogic) ReserveCard(playerID string, cardID string, goldX, goldY int) error {
+func (gl *GameLogic) ReserveCard(playerID string, selection models.ReserveSelection) error {
+	cardID, goldX, goldY := selection.CardID, selection.GoldPosition.X, selection.GoldPosition.Y
 	if gl.gameState.Status == models.GameStatusFinished {
 		return errors.New("游戏已结束")
 	}
@@ -984,7 +941,7 @@ func (gl *GameLogic) deckForLevel(level models.CardLevel) []string {
 }
 
 // SpendPrivilege 花费特权指示物
-func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPositions []map[string]any) error {
+func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPositions []models.BoardPosition) error {
 	if gl.gameState.Status == models.GameStatusFinished {
 		return errors.New("游戏已结束")
 	}
@@ -1018,8 +975,8 @@ func (gl *GameLogic) SpendPrivilege(playerID string, privilegeCount int, gemPosi
 	validatedPositions := make([][2]int, 0, len(gemPositions))
 	seen := make(map[[2]int]bool, len(gemPositions))
 	for _, pos := range gemPositions {
-		rowIndex, colIndex, ok := parseGemPosition(pos)
-		if !ok {
+		rowIndex, colIndex := pos.X, pos.Y
+		if rowIndex < 0 || colIndex < 0 {
 			return errors.New("无效的宝石位置")
 		}
 		if rowIndex >= len(gl.gameState.GemBoard) || colIndex >= len(gl.gameState.GemBoard[rowIndex]) {
@@ -1186,19 +1143,17 @@ func getGemDisplayName(gemType models.GemType) string {
 }
 
 // 验证支付计划是否有效
-func (gl *GameLogic) validatePaymentPlan(player *models.Player, paymentPlan map[string]any, requiredGems map[models.GemType]int) bool {
+func (gl *GameLogic) validatePaymentPlan(player *models.Player, paymentPlan models.PaymentPlan, requiredGems map[models.GemType]int) bool {
 	allowed := map[models.GemType]bool{
 		models.GemWhite: true, models.GemBlue: true, models.GemGreen: true,
 		models.GemRed: true, models.GemBlack: true, models.GemPearl: true, models.GemGold: true,
 	}
 	paid := make(map[models.GemType]int, len(paymentPlan))
-	for gemType, count := range paymentPlan {
-		gem := models.GemType(gemType)
-		countFloat, ok := count.(float64)
-		if !ok || !allowed[gem] || countFloat < 0 || countFloat != float64(int(countFloat)) {
+	for gem, count := range paymentPlan {
+		if !allowed[gem] || count < 0 {
 			return false
 		}
-		paid[gem] = int(countFloat)
+		paid[gem] = count
 		if player.Gems[gem] < paid[gem] {
 			return false
 		}
@@ -1220,21 +1175,14 @@ func (gl *GameLogic) validatePaymentPlan(player *models.Player, paymentPlan map[
 }
 
 // 从玩家扣除支付计划中的宝石和黄金
-func (gl *GameLogic) deductPaymentFromPlayer(player *models.Player, paymentPlan map[string]any) {
+func (gl *GameLogic) deductPaymentFromPlayer(player *models.Player, paymentPlan models.PaymentPlan) {
 	for gemType, count := range paymentPlan {
-		if countFloat, ok := count.(float64); ok {
-			countInt := int(countFloat)
-			if gemType == "gold" {
-				player.Gems[models.GemGold] -= countInt
-			} else {
-				player.Gems[models.GemType(gemType)] -= countInt
-			}
-		}
+		player.Gems[gemType] -= count
 	}
 }
 
 // BuyCardWithPaymentPlanAndEffects 购买发展卡（带支付计划与特效一次性结算）
-func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[string]any) error {
+func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, purchase models.PurchaseSelection) error {
 	if gl.gameState.Status == models.GameStatusFinished {
 		return errors.New("游戏已结束")
 	}
@@ -1249,8 +1197,8 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	}
 
 	// 获取卡牌ID
-	cardID, ok := data["cardId"].(string)
-	if !ok {
+	cardID := purchase.CardID
+	if cardID == "" {
 		return errors.New("缺少卡牌ID")
 	}
 
@@ -1270,8 +1218,8 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	}
 
 	// 获取支付计划
-	paymentPlan, ok := data["paymentPlan"].(map[string]any)
-	if !ok {
+	paymentPlan := purchase.PaymentPlan
+	if paymentPlan == nil {
 		return errors.New("缺少支付计划")
 	}
 
@@ -1293,7 +1241,7 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 	if !gl.validatePaymentPlan(player, paymentPlan, requiredGems) {
 		return errors.New("支付计划无效或宝石不足")
 	}
-	if err := gl.validatePurchaseEffects(player, &card, data); err != nil {
+	if err := gl.validatePurchaseEffects(player, &card, purchase.Effects); err != nil {
 		return err
 	}
 
@@ -1302,12 +1250,8 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 
 	// 将宝石放回袋子
 	for gemType, count := range paymentPlan {
-		if countFloat, ok := count.(float64); ok {
-			countInt := int(countFloat)
-			// 将宝石添加到宝石袋子中
-			for i := 0; i < countInt; i++ {
-				gl.gameState.GemBag = append(gl.gameState.GemBag, models.GemType(gemType))
-			}
+		for i := 0; i < count; i++ {
+			gl.gameState.GemBag = append(gl.gameState.GemBag, gemType)
 		}
 	}
 
@@ -1347,7 +1291,7 @@ func (gl *GameLogic) BuyCardWithPaymentPlanAndEffects(playerID string, data map[
 		Cost:      card.Cost,
 		Effects:   card.Effects,
 		IsSpecial: card.IsSpecial,
-	}, playerID, data)
+	}, playerID, purchase.Effects)
 
 	// 再结算无需确认的效果（新回合、获得特权等）
 	gl.resolveCardEffects(&DevelopmentCardData{
@@ -1384,29 +1328,20 @@ func (gl *GameLogic) isCardPurchasableByPlayer(player *models.Player, cardID str
 	return false
 }
 
-func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models.DevelopmentCard, data map[string]any) error {
-	effects, ok := data["effects"].(map[string]any)
-	if !ok {
-		if data["effects"] == nil {
-			return nil
-		}
-		return errors.New("特效数据无效")
+func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models.DevelopmentCard, effects *models.PurchaseEffects) error {
+	if effects == nil {
+		return nil
 	}
-	if extra, exists := effects["extraToken"]; exists {
+	if extra := effects.ExtraToken; extra != nil {
 		if !cardHasEffect(card, models.ExtraToken) {
 			return errors.New("该卡牌没有额外宝石特效")
 		}
-		extraData, ok := extra.(map[string]any)
-		if !ok {
-			return errors.New("额外宝石特效数据无效")
-		}
-		if skipped, _ := extraData["skipped"].(bool); !skipped {
-			selected, ok := extraData["selectedGem"].(map[string]any)
-			if !ok {
+		if !extra.Skipped {
+			if extra.SelectedGem == nil {
 				return errors.New("额外宝石位置无效")
 			}
-			x, y, ok := parseGemPosition(selected)
-			if !ok || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[x]) {
+			x, y := extra.SelectedGem.X, extra.SelectedGem.Y
+			if x < 0 || y < 0 || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[x]) {
 				return errors.New("额外宝石位置无效")
 			}
 			gem := gl.gameState.GemBoard[x][y]
@@ -1417,50 +1352,40 @@ func (gl *GameLogic) validatePurchaseEffects(player *models.Player, card *models
 			return errors.New("存在可拿取的额外宝石时不能跳过")
 		}
 	}
-	if steal, exists := effects["steal"]; exists {
-		stealData, ok := steal.(map[string]any)
-		if !ok {
-			return errors.New("窃取特效数据无效")
+	if steal := effects.Steal; steal != nil {
+		nobleID := ""
+		if effects.Noble != nil {
+			nobleID = effects.Noble.ID
 		}
-		nobleData, _ := effects["noble"].(map[string]any)
-		nobleID, _ := nobleData["id"].(string)
 		if !cardHasEffect(card, models.Steal) && nobleID != "noble1" {
 			return errors.New("当前购买不能执行窃取特效")
 		}
-		if skipped, _ := stealData["skipped"].(bool); !skipped {
-			gem, ok := stealData["gemType"].(string)
+		if !steal.Skipped {
+			gem := steal.GemType
 			allowed := map[string]bool{"white": true, "blue": true, "green": true, "red": true, "black": true, "pearl": true}
-			if !ok || !allowed[gem] {
+			if !allowed[string(gem)] {
 				return errors.New("窃取的宝石类型无效")
 			}
 			opponent := gl.getOpponent(player.ID)
-			if opponent == nil || opponent.Gems[models.GemType(gem)] <= 0 {
+			if opponent == nil || opponent.Gems[gem] <= 0 {
 				return errors.New("对手没有可窃取的该类宝石")
 			}
 		} else if gl.hasStealTarget(player.ID) {
 			return errors.New("存在可窃取的宝石时不能跳过")
 		}
 	}
-	if wildcard, exists := effects["wildcard"]; exists {
-		wildcardData, ok := wildcard.(map[string]any)
-		if !ok || !cardHasEffect(card, models.Wildcard) {
+	if wildcard := effects.Wildcard; wildcard != nil {
+		if !cardHasEffect(card, models.Wildcard) {
 			return errors.New("百搭颜色特效数据无效")
 		}
-		if skipped, _ := wildcardData["skipped"].(bool); !skipped {
-			color, ok := wildcardData["color"].(string)
-			allowed := map[string]bool{"white": true, "blue": true, "green": true, "red": true, "black": true}
-			if !ok || !allowed[color] {
-				return errors.New("百搭颜色无效")
-			}
+		allowed := map[models.GemType]bool{models.GemWhite: true, models.GemBlue: true, models.GemGreen: true, models.GemRed: true, models.GemBlack: true}
+		if !allowed[wildcard.Color] {
+			return errors.New("百搭颜色无效")
 		}
 	}
-	if noble, exists := effects["noble"]; exists {
-		nobleData, ok := noble.(map[string]any)
-		if !ok {
-			return errors.New("贵族选择数据无效")
-		}
-		id, ok := nobleData["id"].(string)
-		if !ok || !containsString(gl.gameState.AvailableNobles, id) {
+	if noble := effects.Noble; noble != nil {
+		id := noble.ID
+		if !containsString(gl.gameState.AvailableNobles, id) {
 			return errors.New("所选贵族当前不可用")
 		}
 		if containsString(player.Nobles, id) {
@@ -1530,17 +1455,14 @@ func containsString(values []string, target string) bool {
 
 // 处理需要玩家二次确认的特效（额外token/窃取/百搭颜色）
 // 本次仅实现额外token
-func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID string, data map[string]any) {
+func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID string, effects *models.PurchaseEffects) {
 	player := gl.getPlayer(playerID)
 	if player == nil {
 		return
 	}
 
-	var effectsData map[string]any
-	if v, ok := data["effects"].(map[string]any); ok {
-		effectsData = v
-	} else {
-		effectsData = map[string]any{}
+	if effects == nil {
+		effects = &models.PurchaseEffects{}
 	}
 
 	// 标记卡牌本身是否包含对应效果
@@ -1549,12 +1471,12 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
 	for _, effect := range card.Effects {
 		switch effect {
 		case models.ExtraToken:
-			gl.handleExtraTokenEffect(playerID, card.Color, effectsData)
+			gl.handleExtraTokenEffect(playerID, card.Color, effects.ExtraToken)
 		case models.Steal:
 			hasSteal = true
-			gl.handleStealEffect(playerID, effectsData)
+			gl.handleStealEffect(playerID, effects.Steal)
 		case models.Wildcard:
-			gl.handleWildcardEffect(playerID, card, effectsData)
+			gl.handleWildcardEffect(playerID, card, effects.Wildcard)
 		default:
 			// 其他需要确认的效果后续实现
 		}
@@ -1562,20 +1484,23 @@ func (gl *GameLogic) resolveImmediateEffects(card *DevelopmentCardData, playerID
 
 	// 若卡牌本身不含窃取效果，但前端传来了窃取（例如 noble1 触发），也应结算一次
 	if !hasSteal {
-		if _, ok := effectsData["steal"].(map[string]any); ok {
-			gl.handleStealEffect(playerID, effectsData)
+		if effects.Steal != nil {
+			gl.handleStealEffect(playerID, effects.Steal)
 		}
 	}
 
 	// 处理贵族选择（若传入）
-	if nobleRaw, ok := effectsData["noble"].(map[string]any); ok {
-		gl.handleNobleSelection(playerID, nobleRaw)
+	if effects.Noble != nil {
+		gl.handleNobleSelection(playerID, effects.Noble)
 	}
 }
 
 // 处理贵族选择与效果结算（noble2: +2分+新回合；noble3: +2分+特权；noble4: +3分）
-func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]any) bool {
-	id, _ := nobleData["id"].(string)
+func (gl *GameLogic) handleNobleSelection(playerID string, noble *models.PurchaseNoble) bool {
+	if noble == nil {
+		return false
+	}
+	id := noble.ID
 	if id == "" {
 		return false
 	}
@@ -1631,30 +1556,20 @@ func (gl *GameLogic) handleNobleSelection(playerID string, nobleData map[string]
 // handleExtraTokenEffect 处理额外token效果：
 // - 前端可在effects.extraToken传入 { selectedGem: {x:int, y:int} } 或 { skipped: true }
 // - 只允许拿取与卡牌颜色相同的一个token
-func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.GemType, effectsData map[string]any) bool {
-	extraRaw, ok := effectsData["extraToken"].(map[string]any)
-	// 未提供数据则视为无效
-	if !ok {
+func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.GemType, extra *models.PurchaseExtraToken) bool {
+	if extra == nil {
 		return false
 	}
 
 	// 跳过则直接返回成功
-	if skipped, ok := extraRaw["skipped"].(bool); ok && skipped {
+	if extra.Skipped {
 		return true
 	}
 
-	sel, ok := extraRaw["selectedGem"].(map[string]any)
-	if !ok {
+	if extra.SelectedGem == nil {
 		return false
 	}
-
-	var x, y int
-	if xv, ok := sel["x"].(float64); ok {
-		x = int(xv)
-	}
-	if yv, ok := sel["y"].(float64); ok {
-		y = int(yv)
-	}
+	x, y := extra.SelectedGem.X, extra.SelectedGem.Y
 
 	if x < 0 || y < 0 || x >= len(gl.gameState.GemBoard) || y >= len(gl.gameState.GemBoard[0]) {
 		return false
@@ -1683,21 +1598,16 @@ func (gl *GameLogic) handleExtraTokenEffect(playerID string, cardColor models.Ge
 // handleStealEffect 处理窃取效果：
 // - 前端通过 effects.steal 传入 { gemType: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
 // - 从对手处窃取一个对应的非黄金token
-func (gl *GameLogic) handleStealEffect(playerID string, effectsData map[string]any) bool {
-	stealRaw, ok := effectsData["steal"].(map[string]any)
-	if !ok {
+func (gl *GameLogic) handleStealEffect(playerID string, steal *models.PurchaseSteal) bool {
+	if steal == nil {
 		return false
 	}
 
-	if skipped, ok := stealRaw["skipped"].(bool); ok && skipped {
+	if steal.Skipped {
 		return true
 	}
 
-	gemStr, ok := stealRaw["gemType"].(string)
-	if !ok {
-		return false
-	}
-	gemType := models.GemType(gemStr)
+	gemType := steal.GemType
 	if gemType == models.GemGold || gemType == "" {
 		return false
 	}
@@ -1727,19 +1637,11 @@ func (gl *GameLogic) handleStealEffect(playerID string, effectsData map[string]a
 // handleWildcardEffect 处理百搭颜色效果：
 // - 前端通过 effects.wildcard 传入 { color: 'white'|'blue'|'green'|'red'|'black' } 或 { skipped: true }
 // - 调整玩家bonus：将本卡默认计入的灰色bonus转移到所选颜色
-func (gl *GameLogic) handleWildcardEffect(playerID string, card *DevelopmentCardData, effectsData map[string]any) bool {
-	wildRaw, ok := effectsData["wildcard"].(map[string]any)
-	if !ok {
+func (gl *GameLogic) handleWildcardEffect(playerID string, card *DevelopmentCardData, wildcard *models.PurchaseWildcard) bool {
+	if wildcard == nil {
 		return false
 	}
-	if skipped, ok := wildRaw["skipped"].(bool); ok && skipped {
-		return true
-	}
-	colorStr, ok := wildRaw["color"].(string)
-	if !ok {
-		return false
-	}
-	chosen := models.GemType(colorStr)
+	chosen := wildcard.Color
 	switch chosen {
 	case models.GemWhite, models.GemBlue, models.GemGreen, models.GemRed, models.GemBlack:
 		// ok

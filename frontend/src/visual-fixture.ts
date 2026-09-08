@@ -42,7 +42,7 @@ if (scenario === 'pending' || scenario === 'unknown') {
     'stage46-request': {
       requestId: 'stage46-request',
       actionType: 'takeGems',
-      data: {},
+    data: { gemPositions: [] },
       status: scenario,
       sentAt: 1
     }

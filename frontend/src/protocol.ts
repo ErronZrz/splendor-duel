@@ -7,6 +7,34 @@ export const connectionStatuses = [
 
 export type ConnectionStatus = typeof connectionStatuses[number]
 
+export interface ExtensiblePayload { [extension: string]: unknown }
+export interface BoardPosition extends ExtensiblePayload { x: number; y: number }
+export type PaymentPlan = Record<string, number>
+export interface PurchaseEffects extends ExtensiblePayload {
+  extraToken?: ({ selectedGem: BoardPosition; skipped?: boolean } | { selectedGem?: BoardPosition; skipped: true }) & ExtensiblePayload
+  steal?: ({ gemType: string; skipped?: boolean } | { gemType?: string; skipped: true }) & ExtensiblePayload
+  wildcard?: { color: string } & ExtensiblePayload
+  noble?: { id: string } & ExtensiblePayload
+}
+
+export interface GameActionPayloadMap {
+  start_game: ExtensiblePayload
+  takeGems: { gemPositions: BoardPosition[] } & ExtensiblePayload
+  buyCard: { cardId: string; paymentPlan: PaymentPlan; effects?: PurchaseEffects } & ExtensiblePayload
+  reserveCard: { cardId: string; goldX: number; goldY: number } & ExtensiblePayload
+  spendPrivilege: { privilegeCount: number; gemPositions: BoardPosition[] } & ExtensiblePayload
+  refillBoard: ExtensiblePayload
+  grantOpponentPrivilege: ExtensiblePayload
+  discardGem: { gemType: string } & ExtensiblePayload
+  discardGemsBatch: { gemDiscards: Record<string, number> } & ExtensiblePayload
+  endTurn: ExtensiblePayload
+}
+
+export type GameActionType = keyof GameActionPayloadMap
+export type GameActionInput = {
+  [K in GameActionType]: { type: K; data: GameActionPayloadMap[K] }
+}[GameActionType]
+
 export interface ActionResult {
   requestId: string
   actionType: string
@@ -15,10 +43,10 @@ export interface ActionResult {
   replayed?: boolean
 }
 
-export interface PendingAction<TData = unknown> {
+export interface PendingAction {
   requestId: string
-  actionType: string
-  data: TData
+  actionType: GameActionType
+  data: GameActionPayloadMap[GameActionType]
   status: 'pending' | 'unknown'
   sentAt: number
 }
@@ -36,19 +64,21 @@ export interface ChatMessage {
   message: string
 }
 
-export interface GameActionMessage<TData = unknown> {
-  type: 'game_action'
-  playerId: string
-  playerName: string
-  actionType: string
-  data: TData
-  requestId: string
-}
+export type GameActionMessage<TAction extends GameActionType = GameActionType> = {
+  [K in TAction]: {
+    type: 'game_action'
+    playerId: string
+    playerName: string
+    actionType: K
+    data: GameActionPayloadMap[K]
+    requestId: string
+  }
+}[TAction]
 
-export type ClientMessage<TData = unknown> =
+export type ClientMessage =
   | PlayerJoinMessage
   | ChatMessage
-  | GameActionMessage<TData>
+  | GameActionMessage
 
 export interface ServerMessage {
   type: string
