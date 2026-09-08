@@ -2,7 +2,22 @@ package models
 
 import (
 	"time"
+	"unicode/utf8"
 )
+
+const (
+	MaxRoomNameRunes    = 25
+	MaxPlayerNameRunes  = 25
+	MaxChatMessageRunes = 100
+)
+
+func validFreeText(value string, maximum int) bool {
+	return utf8.ValidString(value) && utf8.RuneCountInString(value) >= 1 && utf8.RuneCountInString(value) <= maximum
+}
+
+func ValidRoomName(value string) bool    { return validFreeText(value, MaxRoomNameRunes) }
+func ValidPlayerName(value string) bool  { return validFreeText(value, MaxPlayerNameRunes) }
+func ValidChatMessage(value string) bool { return validFreeText(value, MaxChatMessageRunes) }
 
 // 宝石类型
 type GemType string

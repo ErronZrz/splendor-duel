@@ -13,6 +13,7 @@ import (
 
 	"splendor-duel-backend/internal/game"
 	"splendor-duel-backend/internal/models"
+	"splendor-duel-backend/internal/security"
 
 	"github.com/gorilla/websocket"
 )
@@ -126,12 +127,6 @@ func domainPurchase(payload buyCardPayload) models.PurchaseSelection {
 	return purchase
 }
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允许所有来源，生产环境应该限制
-	},
-}
-
 // Client WebSocket 客户端
 type Client struct {
 	ID          string
@@ -169,10 +164,11 @@ func NewHub() *Hub {
 }
 
 // HandleWebSocket 处理 WebSocket 连接
-func HandleWebSocket(w http.ResponseWriter, r *http.Request, roomID string, gameManager *game.Manager) {
+func HandleWebSocket(w http.ResponseWriter, r *http.Request, roomID string, gameManager *game.Manager, originPolicy security.OriginPolicy) {
+	upgrader := newUpgrader(originPolicy)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket 升级失败: %v", err)
+		log.Printf("WebSocket upgrade failed")
 		return
 	}
 
@@ -194,6 +190,10 @@ func HandleWebSocket(w http.ResponseWriter, r *http.Request, roomID string, game
 	go client.readPump()
 }
 
+func newUpgrader(originPolicy security.OriginPolicy) websocket.Upgrader {
+	return websocket.Upgrader{CheckOrigin: originPolicy.Allows}
+}
+
 // 全局 Hub 实例
 var globalHub *Hub
 
@@ -212,7 +212,7 @@ func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *C
 		Data: gameManager.GetRoom(roomID),
 	})
 	if err != nil {
-		log.Printf("房间信息序列化失败: %v", err)
+		log.Printf("WebSocket room-info serialization failed")
 	}
 
 	h.mutex.Lock()
@@ -244,7 +244,7 @@ func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *C
 			},
 		})
 		if marshalErr != nil {
-			log.Printf("历史快照序列化失败: %v", marshalErr)
+			log.Printf("WebSocket history serialization failed")
 		} else {
 			select {
 			case client.Send <- historySnapshot:
@@ -267,9 +267,9 @@ func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *C
 	}
 
 	if initialQueued {
-		log.Printf("客户端 %s 加入房间 %s", client.ID, room.ID)
+		log.Printf("WebSocket client connected")
 	} else {
-		log.Printf("客户端 %s 初始消息队列已满，拒绝加入房间 %s", client.ID, room.ID)
+		log.Printf("WebSocket client rejected: initial queue full")
 	}
 	return room
 }
@@ -297,7 +297,7 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	}
 	delete(room.Clients, client)
 	close(client.Send)
-	log.Printf("客户端 %s 离开房间 %s", client.ID, room.ID)
+	log.Printf("WebSocket client disconnected")
 	if len(room.Clients) == 0 {
 		delete(h.Rooms, client.RoomID)
 	}
@@ -308,7 +308,7 @@ func (h *Hub) unregisterClient(client *Client) bool {
 func (r *Room) broadcastToClient(client *Client, message models.WSMessage) {
 	data, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("消息序列化失败: %v", err)
+		log.Printf("WebSocket message serialization failed")
 		return
 	}
 
@@ -335,7 +335,7 @@ func (r *Room) broadcastToClient(client *Client, message models.WSMessage) {
 func (r *Room) broadcastToAll(message models.WSMessage) {
 	data, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("消息序列化失败: %v", err)
+		log.Printf("WebSocket message serialization failed")
 		return
 	}
 
@@ -374,7 +374,7 @@ func (c *Client) readPump() {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket 读取错误: %v", err)
+				log.Printf("WebSocket read failed")
 			}
 			break
 		}
@@ -422,7 +422,7 @@ func (c *Client) writePump() {
 func (c *Client) handleMessage(message []byte) {
 	var wsMessage models.WSMessage
 	if err := json.Unmarshal(message, &wsMessage); err != nil {
-		log.Printf("消息解析失败: %v", err)
+		log.Printf("WebSocket message rejected: invalid JSON")
 		c.sendError("消息格式无效")
 		return
 	}
@@ -457,7 +457,7 @@ func (c *Client) handleMessage(message []byte) {
 	case "start_game":
 		c.handleStartGame(room)
 	default:
-		log.Printf("未知消息类型: %s", wsMessage.Type)
+		log.Printf("WebSocket message rejected: unknown type")
 		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "未知消息类型"})
 	}
 }
@@ -521,12 +521,12 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 
 		// 检查是否应该自动开始游戏（当有2个玩家且状态为waiting时）
 		if len(roomData.GameState.Players) >= 2 && roomData.GameState.Status == models.GameStatusWaiting {
-			log.Printf("房间 %s 有 %d 个玩家，自动开始游戏", c.RoomID, len(roomData.GameState.Players))
+			log.Printf("WebSocket automatic game start")
 
 			// 创建游戏逻辑实例并开始游戏
 			gl := game.NewGameLogic(&roomData.GameState, room.Manager)
 			if err := gl.StartGame(); err != nil {
-				log.Printf("自动开始游戏失败: %v", err)
+				log.Printf("WebSocket automatic game start failed")
 				return
 			}
 
@@ -556,6 +556,10 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 
 // handleChatMessage 处理聊天消息
 func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
+	if !models.ValidChatMessage(message.Message) {
+		c.sendError("聊天消息长度无效")
+		return
+	}
 	chatMessage := models.ChatMessage{
 		ID:         generateClientID(),
 		PlayerID:   message.PlayerID,
@@ -664,7 +668,7 @@ func actionReceiptKey(playerID, requestID string) string {
 
 // handleGameAction 处理游戏动作
 func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
-	log.Printf("处理游戏动作: %s, 玩家: %s, 数据: %+v", message.Type, message.PlayerName, message.Data)
+	log.Printf("WebSocket game action received")
 	if !validRequestID(message.RequestID) {
 		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "requestId 无效"})
 		return
@@ -721,7 +725,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 		// 前端发送的actionType在消息的顶层，data在消息的data字段中
 		actionType := message.ActionType
 
-		log.Printf("解析到actionType: %s", actionType)
+		log.Printf("WebSocket game action processing")
 
 		switch actionType {
 		case "start_game":
@@ -738,7 +742,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			if len(roomData.GameState.Players) >= 2 {
 				if err := gl.StartGame(); err != nil {
-					log.Printf("开始游戏失败: %v", err)
+					log.Printf("WebSocket action failed")
 					fail(err.Error())
 					return
 				}
@@ -755,7 +759,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				fail("无效的宝石位置")
 				return
 			}
-			log.Printf("执行拿取宝石操作，位置: %+v", payload.GemPositions)
+			log.Printf("WebSocket action: takeGems")
 			positions := make([]models.BoardPosition, 0, len(payload.GemPositions))
 			for _, position := range payload.GemPositions {
 				domain, ok := domainPosition(position)
@@ -779,7 +783,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				pics = append(pics, histGemImg(g))
 			}
 			if err := gl.TakeGems(message.PlayerID, positions); err != nil {
-				log.Printf("拿取宝石失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				// 检查是否触发让对手获得特权条件：3同色（非gold）或包含2枚珍珠
@@ -813,7 +817,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			purchase := domainPurchase(payload)
 			cardID := payload.CardID
-			log.Printf("执行购买发展卡操作，卡牌ID: %s", cardID)
+			log.Printf("WebSocket action: buyCard")
 			// 预处理：支付、特效与来源
 			// 查找当前玩家索引
 			idx := -1
@@ -855,7 +859,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			// 执行购买
 			if err := gl.BuyCardWithPaymentPlanAndEffects(message.PlayerID, purchase); err != nil {
-				log.Printf("购买发展卡失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				// 组装购买历史
@@ -936,7 +940,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			{
 				cardID := payload.CardID
-				log.Printf("执行保留发展卡操作，卡牌ID: %s", cardID)
+				log.Printf("WebSocket action: reserveCard")
 				goldRow, goldCol := *payload.GoldX, *payload.GoldY
 				// 执行前后比较找出真实卡ID
 				// 查找当前玩家索引
@@ -952,7 +956,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				}
 				before := roomData.GameState.Players[idx].ReservedCards
 				if err := gl.ReserveCard(message.PlayerID, models.ReserveSelection{CardID: cardID, GoldPosition: models.BoardPosition{X: goldRow, Y: goldCol}}); err != nil {
-					log.Printf("保留发展卡失败: %v", err)
+					log.Printf("WebSocket action failed")
 					fail(err.Error())
 				} else {
 					after := roomData.GameState.Players[idx].ReservedCards
@@ -998,7 +1002,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				return
 			}
 			privilegeCount := *payload.PrivilegeCount
-			log.Printf("执行花费特权操作，特权数量: %d", privilegeCount)
+			log.Printf("WebSocket action: spendPrivilege")
 			positions := make([]models.BoardPosition, 0, len(payload.GemPositions))
 			inner := make([]string, 0, len(payload.GemPositions))
 			for _, position := range payload.GemPositions {
@@ -1016,7 +1020,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				inner = append(inner, histGemImg(string(roomData.GameState.GemBoard[x][y])))
 			}
 			if err := gl.SpendPrivilege(message.PlayerID, privilegeCount, positions); err != nil {
-				log.Printf("花费特权失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				pics := strings.Join(inner, "")
@@ -1032,7 +1036,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			log.Printf("执行补充版图操作")
 			if err := gl.RefillBoard(message.PlayerID); err != nil {
-				log.Printf("补充版图失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				log.Printf("补充版图成功")
@@ -1047,7 +1051,7 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			log.Printf("执行让对手获得特权指示物操作")
 			if err := gl.GrantOpponentPrivilege(message.PlayerID); err != nil {
-				log.Printf("让对手获得特权指示物失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				log.Printf("让对手获得特权指示物成功")
@@ -1059,9 +1063,9 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				return
 			}
 			gemType := payload.GemType
-			log.Printf("执行丢弃宝石操作，宝石类型: %s", gemType)
+			log.Printf("WebSocket action: discardGem")
 			if err := gl.DiscardGem(message.PlayerID, models.GemType(gemType)); err != nil {
-				log.Printf("丢弃宝石失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				log.Printf("丢弃宝石成功")
@@ -1077,13 +1081,13 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 				fail("无效的丢弃宝石数据")
 				return
 			}
-			log.Printf("执行批量丢弃宝石操作，丢弃详情: %v", payload.GemDiscards)
+			log.Printf("WebSocket action: discardGemsBatch")
 			gemDiscards := make(map[models.GemType]int, len(payload.GemDiscards))
 			for gemType, count := range payload.GemDiscards {
 				gemDiscards[models.GemType(gemType)] = count
 			}
 			if err := gl.DiscardGemsBatch(message.PlayerID, gemDiscards); err != nil {
-				log.Printf("批量丢弃宝石失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				log.Printf("批量丢弃宝石成功")
@@ -1106,13 +1110,13 @@ func (c *Client) handleGameAction(message models.WSMessage, room *Room) {
 			}
 			log.Printf("执行回合结束操作")
 			if err := gl.HandleTurnEnd(); err != nil {
-				log.Printf("回合结束处理失败: %v", err)
+				log.Printf("WebSocket action failed")
 				fail(err.Error())
 			} else {
 				log.Printf("回合结束处理成功")
 			}
 		default:
-			log.Printf("未知的游戏动作类型: %s", actionType)
+			log.Printf("WebSocket action rejected: unknown type")
 			fail("未知的游戏动作类型")
 		}
 
@@ -1150,7 +1154,7 @@ func (c *Client) handleStartGame(room *Room) {
 
 		// 开始游戏（这会初始化宝石版图、发展卡等）
 		if err := gl.StartGame(); err != nil {
-			log.Printf("开始游戏失败: %v", err)
+			log.Printf("WebSocket start game failed")
 			startErr = err
 			return
 		}

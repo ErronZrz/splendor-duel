@@ -1,16 +1,28 @@
 package game
 
 import (
+	"bytes"
+	"io"
 	"log"
 	"net/http"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"splendor-duel-backend/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
+
+func bindJSONWithValidUTF8(c *gin.Context, target any) error {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil || !utf8.Valid(body) {
+		return io.ErrUnexpectedEOF
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	return c.ShouldBindJSON(target)
+}
 
 // Manager 游戏管理器
 type Manager struct {
@@ -101,11 +113,19 @@ func NewManager() *Manager {
 // CreateRoom 创建房间
 func (m *Manager) CreateRoom(c *gin.Context) {
 	var req models.CreateRoomRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSONWithValidUTF8(c, &req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Message: "请求参数无效",
 		})
+		return
+	}
+	if !models.ValidRoomName(req.RoomName) {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "房间名称长度无效"})
+		return
+	}
+	if !models.ValidPlayerName(req.PlayerName) {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "玩家名称长度无效"})
 		return
 	}
 
@@ -194,7 +214,7 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 	responseRoom := cloneRoom(room)
 	m.mutex.Unlock()
 
-	log.Printf("创建房间: %s (ID: %s), 玩家: %s", req.RoomName, roomID, req.PlayerName)
+	log.Printf("room created")
 
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
@@ -208,11 +228,19 @@ func (m *Manager) CreateRoom(c *gin.Context) {
 // JoinRoom 加入房间
 func (m *Manager) JoinRoom(c *gin.Context) {
 	var req models.JoinRoomRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := bindJSONWithValidUTF8(c, &req); err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
 			Message: "请求参数无效",
 		})
+		return
+	}
+	if !models.ValidRoomName(req.RoomName) {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "房间名称长度无效"})
+		return
+	}
+	if !models.ValidPlayerName(req.PlayerName) {
+		c.JSON(http.StatusBadRequest, models.APIResponse{Success: false, Message: "玩家名称长度无效"})
 		return
 	}
 
@@ -281,7 +309,7 @@ func (m *Manager) JoinRoom(c *gin.Context) {
 	responseRoom := cloneRoom(targetRoom)
 	m.mutex.Unlock()
 
-	log.Printf("玩家 %s 加入房间: %s", req.PlayerName, req.RoomName)
+	log.Printf("room joined")
 
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
@@ -345,7 +373,7 @@ func (m *Manager) CleanupExpiredRooms() {
 
 	for _, roomID := range expiredRooms {
 		delete(m.rooms, roomID)
-		log.Printf("清理过期房间: %s", roomID)
+		log.Printf("expired room cleaned")
 	}
 }
 

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.25-bookworm AS builder
 WORKDIR /app
 
 # Enable Go modules and cache deps
@@ -14,7 +14,7 @@ COPY . .
 RUN go test ./... && go vet ./... && go build -o server ./cmd
 
 # Run stage
-FROM alpine:3.19
+FROM alpine:3.21
 WORKDIR /app
 
 # Non-root user (optional)

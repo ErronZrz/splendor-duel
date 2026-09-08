@@ -12,7 +12,42 @@ import (
 	"github.com/gin-gonic/gin"
 	"splendor-duel-backend/internal/game"
 	"splendor-duel-backend/internal/models"
+	"splendor-duel-backend/internal/security"
 )
+
+func TestWebSocketOriginPolicyIncludesSameOriginAndNonBrowserClients(t *testing.T) {
+	tests := []struct {
+		name, configured, origin string
+		want                     bool
+	}{
+		{"same origin default", "", "http://game.example", true},
+		{"explicit allow", "https://app.example", "https://app.example", true},
+		{"reject unlisted", "https://app.example", "https://evil.example", false},
+		{"no origin", "https://app.example", "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("GET", "http://game.example/ws/room", nil)
+			r.Host = "game.example"
+			if tc.origin != "" {
+				r.Header.Set("Origin", tc.origin)
+			}
+			if got := newUpgrader(security.NewOriginPolicy(tc.configured)).CheckOrigin(r); got != tc.want {
+				t.Fatalf("CheckOrigin() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChatLengthRejectionDoesNotAppendOrBroadcast(t *testing.T) {
+	_, room, client, playerID := protocolTestRoom(t)
+	client.PlayerID, client.PlayerName = playerID, "p1"
+	client.handleChatMessage(models.WSMessage{PlayerID: playerID, PlayerName: "p1", Message: string(make([]byte, 101))}, room)
+	if len(room.ChatMessages) != 0 {
+		t.Fatal("invalid chat was appended")
+	}
+	expectClientError(t, client)
+}
 
 func protocolTestRoom(t *testing.T) (*game.Manager, *Room, *Client, string) {
 	t.Helper()

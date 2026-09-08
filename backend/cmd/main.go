@@ -2,9 +2,11 @@ package main
 
 import (
 	"log"
+	"os"
 	"time"
 
 	"splendor-duel-backend/internal/game"
+	"splendor-duel-backend/internal/security"
 	"splendor-duel-backend/internal/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -18,7 +20,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			gameManager.CleanupExpiredRooms()
 		}
@@ -27,17 +29,20 @@ func main() {
 	// 设置 Gin 路由
 	r := gin.Default()
 
-	// 添加 CORS 中间件
+	originPolicy := security.NewOriginPolicy(os.Getenv(security.AllowedOriginsEnv))
+
+	// CORS and WebSocket upgrades share the same exact-origin policy.
 	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
-		
+		if !originPolicy.ApplyCORS(c.Writer, c.Request) {
+			c.AbortWithStatusJSON(403, map[string]any{"success": false, "message": "来源不被允许"})
+			return
+		}
+
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
 		}
-		
+
 		c.Next()
 	})
 
@@ -53,7 +58,7 @@ func main() {
 	// WebSocket 路由
 	r.GET("/ws/:roomId", func(c *gin.Context) {
 		roomId := c.Param("roomId")
-		websocket.HandleWebSocket(c.Writer, c.Request, roomId, gameManager)
+		websocket.HandleWebSocket(c.Writer, c.Request, roomId, gameManager, originPolicy)
 	})
 
 	// 启动服务器
