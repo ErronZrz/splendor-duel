@@ -166,7 +166,7 @@ it('renders player status cards with the local player first and preserves names'
   expect(cards.map(card => card.find('.player-name').text())).toEqual(['本地玩家', '对手'])
   const details = wrapper.findAll('.player-details')
   expect(details).toHaveLength(2)
-  expect(details[0].classes()).toContain('expanded')
+  expect(details[0].classes()).not.toContain('expanded')
   expect(details[1].classes()).not.toContain('expanded')
   expect(details[0].find('.player-summary').text()).toContain('本地玩家')
   expect(details[0].find('.player-summary').text()).toContain('你')
@@ -187,8 +187,8 @@ it('renders player status cards with the local player first and preserves names'
   expect(mobileNav.text()).toContain('等待 对手')
   await mobileNav.findAll('button')[3].trigger('click')
   await flushPromises()
-  expect(wrapper.findAll('.mobile-collapsible-panel')[2].classes()).toContain('expanded')
-  expect(wrapper.findAll('.mobile-collapsible-panel')[2].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[1].classes()).toContain('expanded')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[1].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
   expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
   await wrapper.find('.chat-input input').trigger('focus')
   expect(wrapper.find('.chat-input input').attributes('aria-label')).toBe('聊天消息')
@@ -747,6 +747,11 @@ describe('existing game action orchestration', () => {
   it('surfaces pending and rejected ACK feedback without changing unknown-action recovery', async () => {
     const { store } = await createGameFlowHarness()
     const requestId = 'request-ack'
+    store.pendingActions = { [requestId]: { requestId, actionType: 'takeGems', data: {}, status: 'pending', sentAt: Date.now() } }
+    await flushPromises()
+    expect(wrapper.find('.request-feedback-banner').text()).toContain('等待服务器确认')
+    expect(wrapper.find('.request-feedback-banner').attributes('role')).toBe('status')
+
     store.lastActionResult = { requestId: 'request-success', actionType: 'takeGems', success: true, completedAt: Date.now() }
     await flushPromises()
     expect(document.body.textContent).toContain('操作成功')
@@ -761,5 +766,7 @@ describe('existing game action orchestration', () => {
     expect(store.pendingActions[requestId]).toMatchObject({ status: 'unknown', actionType: 'takeGems' })
     expect(document.body.textContent).toContain('操作结果未知')
     expect(document.body.textContent).toContain('不会自动重发操作')
+    expect(wrapper.find('.request-feedback-banner').classes()).toContain('is-warning')
+    expect(wrapper.find('.request-feedback-banner').attributes('role')).toBe('alert')
   })
 })

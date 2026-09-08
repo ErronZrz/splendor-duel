@@ -121,10 +121,12 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
   gap: var(--space-3);
   margin: 0 0 var(--space-6);
   padding: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: rgba(255, 255, 255, .98);
-  box-shadow: var(--shadow-overlay);
+  border: 1px solid color-mix(in srgb, var(--color-action) 42%, var(--color-border));
+  border-top: 4px solid var(--color-action);
+  border-radius: var(--radius-surface);
+  background: color-mix(in srgb, var(--color-surface) 97%, transparent);
+  box-shadow: var(--shadow-raised);
+  backdrop-filter: blur(18px);
 }
 
 .context-summary,
@@ -149,6 +151,12 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
   margin: 0;
 }
 
+.context-summary h4 {
+  color: var(--color-ink);
+  font-size: var(--font-section);
+  line-height: var(--line-section);
+}
+
 .context-message,
 .empty-selection {
   color: var(--color-ink-muted);
@@ -159,6 +167,7 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
 .selected-gem {
   padding: 4px 8px;
   border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
   background: var(--color-surface-subtle);
   color: var(--color-ink);
   font-size: 12px;
@@ -168,14 +177,29 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
 .context-warning {
   padding: var(--space-2) var(--space-3);
   border-left: 4px solid var(--color-warning);
-  background: #fff7ed;
-  color: #92400e;
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
   font-weight: 600;
 }
 
 .context-pending {
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed currentColor;
+  border-radius: var(--radius-control);
+  background: var(--color-warning-soft);
   color: var(--color-warning);
   font-weight: 600;
+}
+
+.context-pending::before {
+  content: '…';
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
 }
 
 .privilege-count button,
@@ -185,7 +209,7 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
 }
 
 .privilege-count button {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-ink);
@@ -195,9 +219,10 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
 
 .privilege-count button.selected {
   border-color: var(--color-action);
-  background: #e3f2fd;
-  color: #174ea6;
+  background: var(--color-action-soft);
+  color: var(--color-action-strong);
   font-weight: 700;
+  box-shadow: inset 0 0 0 1px var(--color-action);
 }
 
 .context-actions {
@@ -220,11 +245,13 @@ button:disabled {
     right: var(--page-gutter);
     bottom: max(var(--space-2), env(safe-area-inset-bottom));
     left: var(--page-gutter);
-    max-height: min(46vh, 360px);
+    max-height: min(48vh, 390px);
     margin: 0;
     overflow-y: auto;
     overscroll-behavior-y: contain;
+    padding: var(--space-3);
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
+    border-radius: var(--radius-surface);
   }
 
   .context-summary {
@@ -237,7 +264,7 @@ button:disabled {
 
   .context-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   }
 }
 </style>

@@ -1,6 +1,9 @@
 <template>
-  <div class="gem-board" :data-mode="mode">
-    <h4>宝石版图 (5x5)</h4>
+  <div class="gem-board" :class="{ 'is-pending': pending }" :data-mode="mode">
+    <div class="gem-board-heading">
+      <h4>宝石版图 <span>5×5</span></h4>
+      <span v-if="pending" class="board-state" role="status">等待确认 · 已锁定</span>
+    </div>
     <div class="gem-grid" role="group" aria-label="宝石版图">
       <div
         v-for="(row, rowIndex) in board"
@@ -34,6 +37,8 @@
           >
             {{ selectionOrder(rowIndex, colIndex) }}
           </span>
+          <span v-else-if="mode !== 'idle' && isSelectable(rowIndex, colIndex)" class="cell-state legal-next" aria-hidden="true">+</span>
+          <span v-else-if="mode !== 'idle' && isIllegal(rowIndex, colIndex)" class="cell-state unavailable" aria-hidden="true">×</span>
         </button>
       </div>
     </div>
@@ -113,22 +118,52 @@ const handleImageError = (event: Event, gem: string): void => {
   margin-bottom: 24px;
 }
 
+.gem-board-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
 .gem-board h4 {
-  margin: 0 0 12px;
-  color: #495057;
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--font-small);
+  line-height: var(--line-small);
+}
+
+.gem-board h4 span {
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+  font-weight: 500;
+}
+
+.board-state {
+  padding: 3px 8px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-pill);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+  font-size: 11px;
+  font-weight: 800;
 }
 
 .gem-grid {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  width: min(100%, 266px);
+  gap: 5px;
+  width: min(100%, 280px);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-strong);
 }
 
 .gem-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 4px;
+  gap: 5px;
 }
 
 .gem-cell {
@@ -138,10 +173,10 @@ const handleImageError = (event: Event, gem: string): void => {
   min-width: 0;
   aspect-ratio: 1;
   padding: 0;
-  border: 2px solid #dee2e6;
-  border-radius: 8px;
-  background: #fff;
-  color: #6c757d;
+  border: 2px solid var(--color-border-strong);
+  border-radius: 11px;
+  background: var(--color-surface-raised);
+  color: var(--color-ink-muted);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -151,8 +186,8 @@ const handleImageError = (event: Event, gem: string): void => {
 }
 
 .gem-cell.has-gem {
-  background: #e3f2fd;
-  border-color: #2196f3;
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-strong);
 }
 
 .gem-cell.selectable,
@@ -162,16 +197,19 @@ const handleImageError = (event: Event, gem: string): void => {
 
 .gem-cell.selected {
   border-color: var(--color-action);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, .24);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 26%, transparent);
 }
 
 .gem-cell.illegal {
-  opacity: .48;
+  opacity: .55;
+  border-style: dashed;
+  filter: grayscale(.42);
 }
 
 .gem-cell.pending {
   cursor: wait;
   opacity: .62;
+  background-image: repeating-linear-gradient(135deg, transparent 0 6px, rgba(95, 105, 118, .11) 6px 10px);
 }
 
 .gem-cell:disabled {
@@ -201,11 +239,35 @@ const handleImageError = (event: Event, gem: string): void => {
   height: 22px;
   border: 2px solid #fff;
   border-radius: 999px;
-  background: var(--color-action);
+  background: var(--color-action-strong);
   color: #fff;
   font-size: 12px;
   line-height: 1;
   box-shadow: var(--shadow-surface);
+}
+
+.cell-state {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-surface-raised);
+  border-radius: var(--radius-pill);
+  color: white;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.cell-state.legal-next {
+  background: var(--color-action-strong);
+}
+
+.cell-state.unavailable {
+  background: var(--color-ink-muted);
 }
 
 .empty-cell,

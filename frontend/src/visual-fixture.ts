@@ -6,10 +6,10 @@ import { useGameStore } from './stores/game'
 import { createGameVisualFixture } from './visual-fixtures/game-fixture'
 import './style.css'
 
-type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory' | 'pending' | 'unknown'
 
 const requestedScenario = new URLSearchParams(window.location.search).get('scenario')
-const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'spend-privilege' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'refill' || requestedScenario === 'extra-token' || requestedScenario === 'steal-token' || requestedScenario === 'wildcard' || requestedScenario === 'noble' || requestedScenario === 'discard' || requestedScenario === 'victory'
+const scenario: Scenario = requestedScenario === 'take-gems' || requestedScenario === 'spend-privilege' || requestedScenario === 'purchase' || requestedScenario === 'reserve' || requestedScenario === 'refill' || requestedScenario === 'extra-token' || requestedScenario === 'steal-token' || requestedScenario === 'wildcard' || requestedScenario === 'noble' || requestedScenario === 'discard' || requestedScenario === 'victory' || requestedScenario === 'pending' || requestedScenario === 'unknown'
   ? requestedScenario
   : 'default'
 
@@ -37,6 +37,17 @@ store.gameHistory = fixture.gameHistory
 store.isConnected = true
 store.connectionStatus = 'connected'
 store.connectWebSocket = () => undefined
+if (scenario === 'pending' || scenario === 'unknown') {
+  store.pendingActions = {
+    'stage46-request': {
+      requestId: 'stage46-request',
+      actionType: 'takeGems',
+      data: {},
+      status: scenario,
+      sentAt: 1
+    }
+  }
+}
 
 const app = createApp(Game, { roomId: fixture.room.id })
 app.use(pinia)

@@ -104,53 +104,54 @@ defineExpose({
 <style scoped>
 .notification-container {
   position: fixed;
-  top: 20px;
-  right: 20px;
+  top: var(--space-4);
+  right: var(--space-4);
   z-index: 9999;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   pointer-events: none;
 }
 
 .notification {
-  background: white;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  background: var(--color-surface-raised);
+  border-radius: var(--radius-card);
+  padding: var(--space-4) 52px var(--space-4) var(--space-4);
+  box-shadow: var(--shadow-raised);
   max-width: 400px;
   min-width: 300px;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  border-left: 4px solid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 5px solid;
   pointer-events: auto;
   position: relative;
 }
 
 .notification-success {
-  border-left-color: #28a745;
-  background: linear-gradient(135deg, #ffffff 0%, #f8fff8 100%);
+  border-left-color: var(--color-success);
+  background: linear-gradient(135deg, var(--color-surface-raised), var(--color-success-soft));
 }
 
 .notification-error {
-  border-left-color: #dc3545;
-  background: linear-gradient(135deg, #ffffff 0%, #fff8f8 100%);
+  border-left-color: var(--color-danger);
+  background: linear-gradient(135deg, var(--color-surface-raised), var(--color-danger-soft));
 }
 
 .notification-warning {
-  border-left-color: #ffc107;
-  background: linear-gradient(135deg, #ffffff 0%, #fffef8 100%);
+  border-left-color: var(--color-warning);
+  background: linear-gradient(135deg, var(--color-surface-raised), var(--color-warning-soft));
 }
 
 .notification-info {
-  border-left-color: #17a2b8;
-  background: linear-gradient(135deg, #ffffff 0%, #f8feff 100%);
+  border-left-color: var(--color-info);
+  background: linear-gradient(135deg, var(--color-surface-raised), var(--color-info-soft));
 }
 
 .notification-game {
-  border-left-color: #667eea;
-  background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+  border-left-color: var(--color-brand);
+  background: linear-gradient(135deg, var(--color-surface-raised), var(--color-brand-soft));
 }
 
 .notification-content {
@@ -161,9 +162,14 @@ defineExpose({
 }
 
 .notification-icon {
-  font-size: 20px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  font-size: 17px;
   line-height: 1;
-  margin-top: 2px;
 }
 
 .notification-text {
@@ -171,45 +177,47 @@ defineExpose({
 }
 
 .notification-title {
-  font-weight: 600;
-  color: #495057;
+  font-weight: 750;
+  color: var(--color-ink);
   margin-bottom: 4px;
   line-height: 1.3;
 }
 
 .notification-message {
   font-size: 14px;
-  color: #6c757d;
+  color: var(--color-ink-muted);
   line-height: 1.4;
 }
 
 .notification-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  background: none;
-  border: none;
+  top: 6px;
+  right: 6px;
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: 0;
   font-size: 20px;
   line-height: 1;
-  color: #adb5bd;
+  color: var(--color-ink-muted);
   cursor: pointer;
-  padding: 4px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  padding: 0;
+  border-radius: var(--radius-pill);
+  transition: color var(--duration-fast), background-color var(--duration-fast);
 }
 
 .notification-close:hover {
-  background: #f8f9fa;
-  color: #495057;
+  background: var(--color-surface-strong);
+  color: var(--color-ink);
 }
 
 /* 动画效果 */
 .notification-enter-active {
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  transition: opacity var(--duration-sheet) ease, transform var(--duration-sheet) ease;
 }
 
 .notification-leave-active {
-  transition: all 0.3s ease-in;
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease;
 }
 
 .notification-enter-from {
@@ -225,14 +233,20 @@ defineExpose({
 /* 响应式设计 */
 @media (max-width: 768px) {
   .notification-container {
-    top: 10px;
-    right: 10px;
-    left: 10px;
+    top: var(--space-2);
+    right: var(--page-gutter);
+    left: var(--page-gutter);
   }
   
   .notification {
     min-width: auto;
     width: 100%;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-enter-active,
+  .notification-leave-active,
+  .notification-close { transition: none; }
 }
 </style>

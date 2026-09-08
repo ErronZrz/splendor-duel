@@ -117,16 +117,17 @@ const joinRoom = async () => {
 
 <style scoped>
 .title {
-  font-size: 3rem;
-  color: white;
-  margin-bottom: 1rem;
-  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+  margin-bottom: var(--space-2);
+  color: var(--color-brand-strong);
+  font-size: clamp(2.25rem, 8vw, 3.5rem);
+  line-height: 1;
+  letter-spacing: -.05em;
 }
 
 .subtitle {
-  font-size: 1.2rem;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 3rem;
+  margin-bottom: var(--space-8);
+  color: var(--color-ink-muted);
+  font-size: var(--font-body);
 }
 
 .button-group {
@@ -137,12 +138,13 @@ const joinRoom = async () => {
 }
 
 .error-message {
-  color: #dc3545;
-  background: #f8d7da;
-  border: 1px solid #f5c6cb;
-  border-radius: 8px;
-  padding: 12px;
-  margin-top: 16px;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border: 1px solid var(--color-danger);
+  border-left-width: 5px;
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  margin-top: var(--space-4);
   text-align: center;
 }
 
@@ -152,15 +154,15 @@ const joinRoom = async () => {
 }
 
 .game-rules li {
-  padding: 8px 0;
-  border-bottom: 1px solid #eee;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
   position: relative;
   padding-left: 20px;
 }
 
 .game-rules li:before {
-  content: "•";
-  color: #667eea;
+  content: "◆";
+  color: var(--color-brand);
   font-weight: bold;
   position: absolute;
   left: 0;
@@ -175,8 +177,6 @@ const joinRoom = async () => {
     flex-direction: column;
   }
   
-  .title {
-    font-size: 2rem;
-  }
+  .button-group .btn { width: 100%; }
 }
 </style>

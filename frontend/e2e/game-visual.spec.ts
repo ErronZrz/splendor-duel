@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory'
+type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory' | 'pending' | 'unknown'
 
 const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   const applicationSockets: string[] = []
@@ -17,7 +17,6 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   await openFixture(page, 'default')
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
   await expect(page.locator('.status[role="status"]')).toHaveAttribute('aria-live', 'polite')
-  await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
   const firstBoardGem = page.locator('.game-board .gem-cell:not(:disabled)').first()
   await firstBoardGem.focus()
   await expect(firstBoardGem).toBeFocused()
@@ -38,34 +37,34 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(tracks.every(track => track.scrollWidth >= track.clientWidth)).toBe(true)
     await expect(page.locator('.development-cards .deck-count').first()).toBeVisible()
     await expect(page.locator('.player-summary')).toHaveCount(2)
-    await expect(page.locator('.player-details').first()).toHaveClass(/expanded/)
+    await expect(page.locator('.player-details').first()).not.toHaveClass(/expanded/)
     await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
-    await expect(page.locator('.player-card:visible')).toHaveCount(1)
+    await expect(page.locator('.player-card:visible')).toHaveCount(0)
     const mobilePanels = page.locator('.mobile-collapsible-panel')
     await expect(mobilePanels).toHaveCount(3)
     await expect(mobilePanels.nth(0)).not.toHaveClass(/expanded/)
     await expect(mobilePanels.nth(1)).toHaveClass(/expanded/)
     await expect(mobilePanels.nth(2)).not.toHaveClass(/expanded/)
-    await expect(page.locator('.chat-input')).toBeVisible()
+    await expect(page.locator('.history-list')).toBeVisible()
+    await expect(page.locator('.chat-input')).toBeHidden()
     const panelBoundsAreValid = await page.locator('.mobile-panel-summary').evaluateAll(summaries => summaries.every(summary => {
       const bounds = summary.getBoundingClientRect()
       return bounds.left >= 0 && bounds.right <= window.innerWidth && bounds.height >= 44
     }))
     expect(panelBoundsAreValid).toBe(true)
-    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
-    await expect(page.locator('.history-list')).toBeVisible()
     const historyPreviewTrigger = page.getByRole('button', { name: '查看发展卡图片预览' })
     await historyPreviewTrigger.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toBeVisible()
     await page.getByRole('button', { name: '关闭历史图片预览' }).click()
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
-    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    await page.locator('.player-details').first().locator('.player-summary').click()
     const nobleDisclosure = page.getByRole('button', { name: /查看1位贵族/ }).first()
     await nobleDisclosure.click()
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'true')
     await page.getByRole('button', { name: '关闭贵族预览' }).click()
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'false')
+    await page.locator('.player-details').first().locator('.player-summary').click()
     const mobileNav = page.locator('.mobile-game-nav')
     await expect(mobileNav).toBeVisible()
     await expect(mobileNav.getByText('轮到你', { exact: true })).toBeVisible()
@@ -76,17 +75,20 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(navBounds.left).toBeGreaterThanOrEqual(0)
     expect(navBounds.right).toBeLessThanOrEqual(page.viewportSize()!.width)
     expect(navBounds.bottom).toBeLessThanOrEqual(page.viewportSize()!.height)
+    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
     await page.locator('.chat-input input').focus()
     await expect(mobileNav).toBeHidden()
     await page.locator('.chat-input input').blur()
     await expect(mobileNav).toBeVisible()
+    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
     await mobileNav.getByRole('button', { name: '历史' }).click()
     await expect(page.locator('#game-history-section')).toBeInViewport()
     await mobileNav.getByRole('button', { name: '棋盘' }).click()
     await expect(page.locator('#game-board-section')).toBeInViewport()
-    await mobilePanels.nth(2).locator('.mobile-panel-summary').evaluate(button => (button as HTMLButtonElement).click())
     await page.evaluate(() => window.scrollTo(0, 0))
   } else {
+    await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
     await expect(page.locator('.player-card:visible')).toHaveCount(2)
     await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(3)
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
@@ -106,6 +108,26 @@ test('uses a labelled neutral fallback for a broken business image', async ({ pa
   await expect(fallback).toHaveAttribute('aria-label', label || '发展卡')
   await expect(fallback).not.toHaveText('加载失败')
 })
+
+for (const [scenario, role, message] of [
+  ['pending', 'status', '等待服务器确认'],
+  ['unknown', 'alert', '不会自动重发']
+] as const) {
+  test(`expresses ${scenario} request state with text and shape`, async ({ page }, testInfo) => {
+    await openFixture(page, scenario)
+    const banner = page.locator('.request-feedback-banner')
+    await expect(banner).toHaveAttribute('role', role)
+    await expect(banner).toContainText(message)
+    await expect(banner.locator('.request-feedback-icon')).toHaveText(scenario === 'pending' ? '…' : '!')
+    const bannerStyle = await banner.evaluate(element => ({
+      borderWidth: getComputedStyle(element).borderTopWidth,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    }))
+    expect(Number.parseFloat(bannerStyle.borderWidth)).toBeGreaterThanOrEqual(1)
+    expect(bannerStyle.overflow).toBe(0)
+    await page.screenshot({ path: testInfo.outputPath(`${scenario}-request-state-actual.png`), fullPage: true, animations: 'disabled' })
+  })
+}
 
 test('keeps victory focus inside the named modal and makes the game inert', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-primary')

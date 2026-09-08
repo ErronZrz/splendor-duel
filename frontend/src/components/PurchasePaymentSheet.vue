@@ -514,4 +514,97 @@ grid-column: 1 / -1;
 }
 
 }
+
+.dialog-overlay {
+  background: rgba(20, 23, 29, .58);
+  backdrop-filter: blur(6px);
+}
+
+.dialog-content {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.dialog-header {
+  padding: var(--space-5) var(--space-6) var(--space-3);
+  border-bottom-color: var(--color-border);
+}
+
+.dialog-header h3,
+.card-selection h4,
+.payment-section h5 {
+  color: var(--color-ink);
+}
+
+.dialog-body {
+  padding: var(--space-5) var(--space-6);
+}
+
+.dialog-body p,
+.payment-label {
+  color: var(--color-ink-muted);
+}
+
+.dialog-footer {
+  padding: var(--space-4) var(--space-6);
+  border-top-color: var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.dialog-footer .btn {
+  min-height: 44px;
+  margin-left: 0;
+  border-radius: var(--radius-control);
+}
+
+.btn-primary { background: var(--color-brand); }
+.btn-primary:hover:not(:disabled) { background: var(--color-brand-strong); }
+.btn-secondary { border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-ink); }
+.btn-secondary:hover:not(:disabled) { background: var(--color-surface-strong); }
+
+.card-preview-large {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-surface);
+}
+
+.token-item {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
+  color: var(--color-ink);
+}
+
+.token-item.clickable {
+  min-height: 44px;
+  border: 2px solid var(--color-action);
+  background: var(--color-action-soft);
+}
+
+.token-item.clickable::after {
+  content: '可替换';
+  margin-left: 4px;
+  color: var(--color-action-strong);
+  font-size: 10px;
+}
+
+.token-count { color: var(--color-danger); }
+
+.payment-note {
+  border-left-color: var(--color-info);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+
+@media (max-width: 767px) {
+  .dialog-content { border-radius: var(--radius-surface) var(--radius-surface) 0 0; }
+  .dialog-header { padding: var(--space-3) var(--space-4) var(--space-2); }
+  .dialog-body { padding: var(--space-3) var(--space-4); }
+  .dialog-footer { padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom)); }
+  .token-item.clickable::after { content: '替换'; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn, .token-item { transition: none; }
+}
 </style>

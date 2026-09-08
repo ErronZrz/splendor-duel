@@ -1,29 +1,59 @@
 :root {
   color-scheme: light;
-  --color-canvas: #f4f1ea;
-  --color-surface: #ffffff;
-  --color-surface-subtle: #f8f6f1;
-  --color-ink: #20242a;
-  --color-ink-muted: #687078;
-  --color-border: #d8d2c8;
-  --color-brand: #5b4b8a;
-  --color-action: #2563eb;
-  --color-turn: #0f766e;
-  --color-success: #16794a;
-  --color-warning: #b45309;
-  --color-danger: #b42318;
+  --color-canvas: #f4f0e7;
+  --color-surface: #fffdf9;
+  --color-surface-raised: #ffffff;
+  --color-surface-subtle: #f7f3ec;
+  --color-surface-strong: #eee7da;
+  --color-ink: #18212d;
+  --color-ink-muted: #5f6976;
+  --color-ink-faint: #697480;
+  --color-border: #d8d0c2;
+  --color-border-strong: #b9ad9b;
+  --color-brand: #3d3a78;
+  --color-brand-strong: #292657;
+  --color-brand-soft: #eeecfa;
+  --color-action: #2f6266;
+  --color-action-strong: #20484c;
+  --color-action-soft: #e6f2f1;
+  --color-turn: #126b5d;
+  --color-turn-soft: #e1f2ec;
+  --color-success: #176a48;
+  --color-success-soft: #e6f3eb;
+  --color-warning: #94540b;
+  --color-warning-soft: #fff1dc;
+  --color-danger: #a33636;
+  --color-danger-soft: #fae9e7;
+  --color-info: #315d89;
+  --color-info-soft: #e8f0f8;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
   --radius-control: 8px;
-  --radius-card: 12px;
-  --radius-surface: 16px;
+  --radius-card: 14px;
+  --radius-surface: 20px;
   --radius-pill: 999px;
-  --shadow-surface: 0 1px 2px rgba(32, 36, 42, 0.08);
-  --shadow-overlay: 0 12px 32px rgba(32, 36, 42, 0.18);
+  --shadow-surface: 0 1px 2px rgba(41, 38, 32, .08), 0 8px 22px rgba(41, 38, 32, .05);
+  --shadow-raised: 0 12px 30px rgba(41, 38, 32, .12);
+  --shadow-overlay: 0 24px 64px rgba(20, 23, 29, .24);
+  --border-subtle: 1px solid color-mix(in srgb, var(--color-border) 76%, transparent);
+  --font-meta: 12px;
+  --font-small: 14px;
+  --font-body: 16px;
+  --font-section: 18px;
+  --font-title: 22px;
+  --line-meta: 16px;
+  --line-small: 20px;
+  --line-body: 24px;
+  --line-section: 24px;
+  --line-title: 28px;
+  --duration-fast: 150ms;
+  --duration-sheet: 200ms;
   --page-gutter: var(--space-3);
 }
 
@@ -43,10 +73,15 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: var(--color-canvas);
+  background:
+    radial-gradient(circle at 12% -10%, rgba(61, 58, 120, .08), transparent 30rem),
+    var(--color-canvas);
   min-height: 100vh;
   color: var(--color-ink);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
   overflow-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -54,26 +89,32 @@ body {
 }
 
 .container {
-  max-width: 1200px;
+  width: min(100%, 760px);
   margin: 0 auto;
-  padding: 20px;
+  padding: clamp(32px, 8vh, 80px) var(--page-gutter);
 }
 
 .btn {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 10px var(--space-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font: inherit;
+  font-size: var(--font-small);
+  font-weight: 700;
+  line-height: var(--line-small);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease, border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease, transform var(--duration-fast) ease;
   text-decoration: none;
-  display: inline-block;
 }
 
 :where(button, input, a, [tabindex]):focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--color-action) 72%, white);
-  outline-offset: 2px;
+  outline: 3px solid color-mix(in srgb, var(--color-action) 78%, white);
+  outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -86,32 +127,42 @@ body {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--color-brand);
   color: white;
+  box-shadow: 0 3px 10px rgba(61, 58, 120, .2);
 }
 
-.btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-brand-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(61, 58, 120, .24);
 }
 
 .btn-secondary {
-  background: #f8f9fa;
-  color: #495057;
-  border: 2px solid #dee2e6;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border-color: var(--color-border-strong);
 }
 
-.btn-secondary:hover {
-  background: #e9ecef;
-  border-color: #adb5bd;
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-surface-subtle);
+  border-color: var(--color-action);
+}
+
+.btn:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+  filter: saturate(.55);
 }
 
 .card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-  padding: 24px;
-  margin-bottom: 20px;
+  background: var(--color-surface);
+  border: var(--border-subtle);
+  border-radius: var(--radius-surface);
+  box-shadow: var(--shadow-surface);
+  padding: var(--space-6);
+  margin-bottom: var(--space-5);
 }
 
 .input-group {
@@ -122,21 +173,26 @@ body {
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
-  color: #495057;
+  color: var(--color-ink);
 }
 
 .input-group input {
   width: 100%;
   padding: 12px 16px;
-  border: 2px solid #dee2e6;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 0.3s ease;
+  min-height: 48px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--font-body);
+  transition: border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
 }
 
-.input-group input:focus {
+.input-group input:focus:not(:focus-visible) {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--color-action);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 18%, transparent);
 }
 
 .text-center {

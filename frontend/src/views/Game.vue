@@ -2,21 +2,44 @@
   <div class="game-container">
     <!-- 游戏头部信息 -->
     <header class="game-header" :inert="victoryDialog.visible || undefined">
+      <span class="brand-mark" aria-hidden="true"><UiIcon name="diamond" /></span>
       <div class="room-info">
         <h2 role="heading" aria-level="1">{{ currentRoom?.name || '游戏房间' }}</h2>
-        <p>房间ID: {{ roomId }}</p>
+        <p>房间 · {{ roomId }}</p>
       </div>
       <div class="player-info">
-        <span>玩家: {{ currentPlayer?.name }}</span>
+        <span class="player-identity"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
         <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
+          <UiIcon name="connection" />
           {{ connectionStatusText }}
         </span>
       </div>
-      <button @click="leaveGame" class="btn btn-secondary">离开游戏</button>
+      <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
     </header>
 
     <!-- 游戏主体 -->
     <main class="game-main" :class="{ 'has-context-action': Boolean(contextActionBar) }" :inert="victoryDialog.visible || undefined">
+      <section class="turn-overview" :class="{ 'is-my-turn': isMyTurn }" aria-labelledby="turn-overview-heading">
+        <span class="turn-overview-icon" aria-hidden="true"><UiIcon name="turn" /></span>
+        <div class="turn-overview-copy">
+          <p class="turn-kicker">{{ isMyTurn ? '你的回合' : '对手回合' }}</p>
+          <h2 id="turn-overview-heading">{{ isMyTurn ? '请选择本回合行动' : `等待 ${getCurrentPlayerName()} 行动` }}</h2>
+          <p>{{ isMyTurn ? '直接在棋盘、市场或玩家资产上操作' : '局面会在服务器确认后自动更新' }}</p>
+        </div>
+        <span class="turn-owner">当前 · {{ getCurrentPlayerName() }}</span>
+      </section>
+
+      <section
+        v-if="requestFeedbackBanner"
+        class="request-feedback-banner"
+        :class="`is-${requestFeedbackBanner.tone}`"
+        :role="requestFeedbackBanner.tone === 'warning' || requestFeedbackBanner.tone === 'error' ? 'alert' : 'status'"
+        aria-atomic="true"
+      >
+        <span class="request-feedback-icon" aria-hidden="true">{{ requestFeedbackBanner.tone === 'warning' ? '!' : '…' }}</span>
+        <span><strong>{{ requestFeedbackBanner.title }}</strong>{{ requestFeedbackBanner.message }}</span>
+      </section>
+
       <!-- 游戏版图区域 -->
       <div class="game-board-area">
         <div v-if="showWaitingArea" class="waiting-area">
@@ -47,11 +70,14 @@
             <!-- 左侧：游戏版图 -->
             <section id="game-board-section" class="game-board" aria-labelledby="game-board-heading">
               <div class="board-header">
-                <h3 id="game-board-heading" role="heading" aria-level="2">游戏版图</h3>
+                <div>
+                  <p class="section-kicker">主要行动区</p>
+                  <h3 id="game-board-heading" role="heading" aria-level="2">游戏版图</h3>
+                </div>
                 <div class="game-status">
-                  <span>状态: {{ gameState?.status || '进行中' }}</span>
+                  <span class="game-state-chip">{{ gameStatusText }}</span>
                   <span v-if="gameState?.currentPlayerIndex !== undefined">
-                    当前玩家: {{ getCurrentPlayerName() }}
+                    <UiIcon name="turn" />{{ getCurrentPlayerName() }}
                   </span>
                   <div 
                     class="bag-container"
@@ -72,7 +98,7 @@
                       @keydown.enter.stop.prevent="handleRefillBoard"
                       @keydown.space.stop.prevent="handleRefillBoard"
                       title="点击补充版图"
-                    >袋中宝石</span>
+                    ><UiIcon name="diamond" />袋中宝石</span>
                     <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
                       <div class="bag-row">
                         <div v-for="item in bagCounts" :key="`bag-${item.type}`" class="bag-item">
@@ -149,7 +175,10 @@
             <div class="game-sidebar">
               <!-- 玩家状态 -->
               <section id="game-player-section" class="player-status" aria-labelledby="player-status-heading">
-                <h3 id="player-status-heading" role="heading" aria-level="2">玩家状态</h3>
+                <div class="section-heading">
+                  <p class="section-kicker">对局概览</p>
+                  <h3 id="player-status-heading" role="heading" aria-level="2">双方状态</h3>
+                </div>
                 <div class="players-list">
                   <div
                     v-for="player in orderedPlayers"
@@ -164,10 +193,10 @@
                         <span v-if="isCurrentPlayerTurn(player.id)" class="player-summary-turn">当前回合</span>
                       </span>
                       <span class="player-summary-metrics">
-                        <span>{{ getPlayerTokenTotal(player) }} 宝石</span>
-                        <span>{{ player.points || 0 }} 分</span>
-                        <span>{{ player.crowns || 0 }} 👑</span>
-                        <span>{{ player.privilegeTokens || 0 }} 特权</span>
+                        <span><b>{{ getPlayerTokenTotal(player) }}</b> 宝石</span>
+                        <span><b>{{ player.points || 0 }}</b> 分</span>
+                        <span><b>{{ player.crowns || 0 }}</b> 皇冠</span>
+                        <span><b>{{ player.privilegeTokens || 0 }}</b> 特权</span>
                       </span>
                     </button>
                     <PlayerStatusCard
@@ -199,7 +228,7 @@
                     :aria-expanded="isMobilePanelExpanded('actions')"
                     @click="toggleMobilePanel('actions')"
                   >
-                    <span>游戏操作</span>
+                    <span class="panel-title"><UiIcon name="action" />游戏操作</span>
                     <span class="mobile-panel-meta">{{ isMyTurn ? '轮到你' : '等待对手' }}</span>
                   </button>
                 </h3>
@@ -229,6 +258,42 @@
 
       <!-- 底部面板区域 -->
       <div class="bottom-panels" aria-label="交流与操作记录">
+        <!-- 操作历史面板（手机默认优先展开） -->
+        <section id="game-history-section" class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }" aria-labelledby="game-history-heading">
+          <h3 role="heading" aria-level="2">
+            <button
+              id="game-history-heading"
+              class="mobile-panel-summary"
+              type="button"
+              aria-controls="game-history-content"
+              :aria-expanded="isMobilePanelExpanded('history')"
+              @click="toggleMobilePanel('history')"
+            >
+              <span class="panel-title"><UiIcon name="history" />操作历史</span>
+              <span class="mobile-panel-meta">{{ gameHistory.length }} 条</span>
+            </button>
+          </h3>
+          <div id="game-history-content" class="mobile-panel-content">
+            <div class="history-list" ref="historyListRef">
+              <div
+                v-for="(action, index) in gameHistory.slice().reverse()"
+                :key="gameHistory.length - 1 - index"
+                class="history-item"
+                :class="{ 'own-history-item': action.playerId === currentPlayer?.id }"
+              >
+                <span class="action-time">{{ formatTime(action.timestamp) }}</span>
+                <span class="action-player">{{ action.playerName }}</span>
+                <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
+                <span class="action-text" v-else v-html="getAccessibleActionHtml(action)"></span>
+              </div>
+              <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef" role="dialog" aria-label="历史图片预览">
+                <img :src="preview.image" alt="" />
+                <button type="button" class="history-preview-close" aria-label="关闭历史图片预览" @click="closeHistoryPreview">×</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- 聊天面板 -->
         <section id="game-chat-section" class="chat-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('chat') }" aria-labelledby="game-chat-heading">
           <h3 role="heading" aria-level="2">
@@ -240,7 +305,7 @@
               :aria-expanded="isMobilePanelExpanded('chat')"
               @click="toggleMobilePanel('chat')"
             >
-              <span>聊天</span>
+              <span class="panel-title"><UiIcon name="chat" />聊天</span>
               <span class="mobile-panel-meta">{{ chatMessages.length }} 条</span>
             </button>
           </h3>
@@ -270,51 +335,15 @@
             </div>
           </div>
         </section>
-
-        <!-- 历史记录面板 -->
-        <section id="game-history-section" class="history-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('history') }" aria-labelledby="game-history-heading">
-          <h3 role="heading" aria-level="2">
-            <button
-              id="game-history-heading"
-              class="mobile-panel-summary"
-              type="button"
-              aria-controls="game-history-content"
-              :aria-expanded="isMobilePanelExpanded('history')"
-              @click="toggleMobilePanel('history')"
-            >
-              <span>操作历史</span>
-              <span class="mobile-panel-meta">{{ gameHistory.length }} 条</span>
-            </button>
-          </h3>
-          <div id="game-history-content" class="mobile-panel-content">
-            <div class="history-list" ref="historyListRef">
-              <div
-                v-for="(action, index) in gameHistory.slice().reverse()"
-                :key="gameHistory.length - 1 - index"
-                class="history-item"
-                :class="{ 'own-history-item': action.playerId === currentPlayer?.id }"
-              >
-                <span class="action-time">{{ formatTime(action.timestamp) }}</span>
-                <span class="action-player">{{ action.playerName }}</span>
-                <span class="action-text" v-if="!getActionHtml(action)">{{ action.description }}</span>
-                <span class="action-text" v-else v-html="getAccessibleActionHtml(action)"></span>
-              </div>
-              <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef" role="dialog" aria-label="历史图片预览">
-                <img :src="preview.image" alt="" />
-                <button type="button" class="history-preview-close" aria-label="关闭历史图片预览" @click="closeHistoryPreview">×</button>
-              </div>
-            </div>
-          </div>
-        </section>
       </div>
     </main>
 
     <nav v-if="!showWaitingArea && !actionDialog.visible && !contextActionBar" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
       <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
-      <button type="button" @click="scrollToMobileSection('game-board-section')">棋盘</button>
-      <button type="button" @click="scrollToMobileSection('game-player-section')">玩家</button>
-      <button type="button" @click="scrollToMobileSection('game-chat-section', 'chat')">聊天</button>
-      <button type="button" @click="scrollToMobileSection('game-history-section', 'history')">历史</button>
+      <button type="button" @click="scrollToMobileSection('game-board-section')"><UiIcon name="board" />棋盘</button>
+      <button type="button" @click="scrollToMobileSection('game-player-section')"><UiIcon name="player" />玩家</button>
+      <button type="button" @click="scrollToMobileSection('game-chat-section', 'chat')"><UiIcon name="chat" />聊天</button>
+      <button type="button" @click="scrollToMobileSection('game-history-section', 'history')"><UiIcon name="history" />历史</button>
     </nav>
     
     <!-- 通知组件 -->
@@ -482,6 +511,7 @@ import PlayerStatusCard from '../components/PlayerStatusCard.vue'
 import DevelopmentCardMarket from '../components/DevelopmentCardMarket.vue'
 import NobleChoiceBoard from '../components/NobleChoiceBoard.vue'
 import InlineWildcardChoices from '../components/InlineWildcardChoices.vue'
+import UiIcon from '../components/UiIcon.vue'
 import { replaceBrokenImageWithLabel } from '../image-fallback'
 import {
   createGameInteractionState,
@@ -606,7 +636,7 @@ const tooltipStyle = ref({
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, pendingActions, lastActionResult } = storeToRefs(gameStore)
 const isChatInputFocused = ref(false)
-const expandedMobilePanels = ref(new Set(['chat']))
+const expandedMobilePanels = ref(new Set(['history']))
 const isMobilePanelExpanded = (panelId) => expandedMobilePanels.value.has(panelId)
 const toggleMobilePanel = (panelId) => {
   const next = new Set(expandedMobilePanels.value)
@@ -628,17 +658,26 @@ const togglePlayerDetails = (playerId) => {
   next.has(playerId) ? next.delete(playerId) : next.add(playerId)
   expandedPlayerIds.value = next
 }
-watch(() => currentPlayer.value?.id, (playerId) => {
-  if (playerId && expandedPlayerIds.value.size === 0) {
-    expandedPlayerIds.value = new Set([playerId])
-  }
-}, { immediate: true })
 const connectionStatusText = computed(() => ({
   connected: '已连接',
   connecting: '连接中…',
   reconnecting: '正在重连…',
   disconnected: '未连接'
 }[connectionStatus.value] || '未连接'))
+const gameStatusText = computed(() => ({
+  waiting: '等待开局',
+  playing: '对局进行中',
+  finished: '对局已结束'
+}[gameState.value?.status] || '对局进行中'))
+const requestFeedbackBanner = computed(() => {
+  const stateFeedback = toRequestFeedbackView(interactionState.value.feedback)
+  if (stateFeedback) return stateFeedback
+  const tracked = Object.values(pendingActions.value).find(action => action.status === 'unknown' || action.status === 'pending')
+  if (!tracked) return null
+  return tracked.status === 'unknown'
+    ? { tone: 'warning', title: '操作结果未知', message: '连接已中断，等待权威状态；不会自动重发。' }
+    : { tone: 'info', title: '等待服务器确认', message: '操作已发送，相关入口暂时锁定。' }
+})
 
 // 袋中宝石：悬停状态
 const bagHover = ref(false)
@@ -2893,5 +2932,646 @@ watch(gameState, (newState, oldState) => {
 }
 .bonus-stack { display: flex; flex-direction: column; align-items: center; }
 .bonus-label { margin-top: 4px; font-size: 11px; color: #6c757d; }
+
+/* Stage 46 visual system and information hierarchy */
+.game-header {
+  position: relative;
+  z-index: 700;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-3) max(var(--page-gutter), calc((100vw - 1440px) / 2));
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  box-shadow: 0 1px 0 rgba(41, 38, 32, .04);
+  backdrop-filter: blur(16px);
+}
+
+.brand-mark,
+.turn-overview-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: var(--color-brand);
+  color: white;
+  box-shadow: 0 5px 16px rgba(61, 58, 120, .2);
+}
+
+.room-info h2 {
+  color: var(--color-ink);
+  font-size: var(--font-section);
+  line-height: var(--line-section);
+  letter-spacing: -.01em;
+}
+
+.room-info p {
+  margin-top: 1px;
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+  line-height: var(--line-meta);
+}
+
+.player-info {
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+}
+
+.player-identity,
+.status,
+.game-status > span,
+.bag-pill,
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status {
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+}
+
+.status.connected {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.status.disconnected {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.leave-button {
+  align-self: center;
+  min-width: 116px;
+}
+
+.game-main {
+  gap: var(--space-5);
+  max-width: 1480px;
+  padding-top: var(--space-5);
+}
+
+.turn-overview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-brand) 28%, var(--color-border));
+  border-radius: var(--radius-surface);
+  background:
+    linear-gradient(115deg, rgba(61, 58, 120, .07), transparent 62%),
+    var(--color-surface);
+  box-shadow: var(--shadow-surface);
+}
+
+.turn-overview.is-my-turn {
+  border-color: color-mix(in srgb, var(--color-turn) 44%, var(--color-border));
+  background:
+    linear-gradient(115deg, var(--color-turn-soft), transparent 68%),
+    var(--color-surface);
+}
+
+.turn-overview.is-my-turn .turn-overview-icon {
+  background: var(--color-turn);
+}
+
+.turn-kicker,
+.section-kicker {
+  margin: 0 0 2px;
+  color: var(--color-brand);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: var(--line-meta);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.turn-overview.is-my-turn .turn-kicker {
+  color: var(--color-turn);
+}
+
+.turn-overview h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: var(--font-title);
+  line-height: var(--line-title);
+  letter-spacing: -.02em;
+}
+
+.turn-overview-copy > p:last-child {
+  margin: 1px 0 0;
+  color: var(--color-ink-muted);
+  font-size: var(--font-small);
+  line-height: var(--line-small);
+}
+
+.turn-owner {
+  padding: 6px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.request-feedback-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-card);
+  font-size: var(--font-small);
+  line-height: var(--line-small);
+}
+
+.request-feedback-banner strong {
+  margin-right: var(--space-2);
+}
+
+.request-feedback-banner.is-info { background: var(--color-info-soft); color: var(--color-info); }
+.request-feedback-banner.is-success { background: var(--color-success-soft); color: var(--color-success); }
+.request-feedback-banner.is-warning { background: var(--color-warning-soft); color: var(--color-warning); }
+.request-feedback-banner.is-error { background: var(--color-danger-soft); color: var(--color-danger); }
+
+.request-feedback-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-weight: 900;
+}
+
+.game-board-area {
+  padding: var(--space-5);
+  border: var(--border-subtle);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  box-shadow: var(--shadow-surface);
+}
+
+.game-layout {
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--space-5);
+}
+
+.game-board,
+.player-status,
+.action-panel,
+.chat-panel,
+.history-panel {
+  border: var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: none;
+}
+
+.game-board {
+  padding: var(--space-5);
+}
+
+.board-header {
+  align-items: flex-end;
+  margin-bottom: var(--space-5);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.board-header h3,
+.section-heading h3,
+.player-status h3,
+.action-panel h3,
+.chat-panel h3,
+.history-panel h3 {
+  color: var(--color-ink);
+  font-size: var(--font-section);
+  line-height: var(--line-section);
+  letter-spacing: -.01em;
+}
+
+.section-heading {
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section-heading h3,
+.section-heading p {
+  margin: 0;
+}
+
+.game-status {
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+}
+
+.game-status > span,
+.bag-pill {
+  min-height: 30px;
+  padding: 4px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-subtle);
+}
+
+.game-state-chip {
+  color: var(--color-success);
+  font-weight: 750;
+}
+
+.bag-pill {
+  color: var(--color-ink);
+}
+
+.bag-pill.selected {
+  border-color: var(--color-action);
+  background: var(--color-action-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 22%, transparent);
+}
+
+.game-sidebar {
+  position: sticky;
+  top: var(--space-5);
+  gap: var(--space-4);
+}
+
+.player-status,
+.action-panel {
+  padding: var(--space-4);
+}
+
+.player-status > h3,
+.action-panel > h3,
+.chat-panel > h3,
+.history-panel > h3 {
+  border-bottom-color: var(--color-border);
+}
+
+.players-list {
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.action-panel {
+  background: var(--color-surface-subtle);
+}
+
+.hint-text,
+.waiting-turn {
+  color: var(--color-ink-muted);
+  font-size: var(--font-small);
+  line-height: 1.65;
+}
+
+.bottom-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+.chat-panel,
+.history-panel {
+  min-width: 0;
+  padding: var(--space-4);
+  box-shadow: var(--shadow-surface);
+}
+
+.chat-messages,
+.history-list {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
+}
+
+.chat-message,
+.history-item {
+  color: var(--color-ink);
+  background: var(--color-surface-raised);
+}
+
+.chat-message.own-message,
+.history-item.own-history-item {
+  background: var(--color-info-soft);
+}
+
+.chat-input input {
+  min-width: 0;
+  min-height: 44px;
+  border-color: var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 16px;
+}
+
+.history-preview-close {
+  width: 44px;
+  height: 44px;
+}
+
+.hist-link {
+  color: var(--color-action-strong);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+.victory-dialog {
+  width: min(420px, calc(100vw - 2 * var(--page-gutter)));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-surface);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-overlay);
+}
+
+.victory-body {
+  color: var(--color-ink-muted);
+}
+
+@media (max-width: 1200px) {
+  .game-sidebar { position: static; }
+  .bottom-panels { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 768px) {
+  .game-header {
+    position: sticky;
+    top: 0;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: var(--space-2) var(--space-3);
+    min-height: 0;
+    padding: var(--space-2) var(--page-gutter);
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .room-info h2 {
+    font-size: 17px;
+    line-height: 22px;
+  }
+
+  .room-info p {
+    font-size: 11px;
+  }
+
+  .player-info {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    flex-direction: row;
+    justify-content: space-between;
+    padding-top: var(--space-1);
+    border-top: 1px solid var(--color-border);
+  }
+
+  .leave-button {
+    grid-column: 3;
+    min-width: 44px;
+    padding-inline: var(--space-3);
+  }
+
+  .leave-button :deep(.ui-icon) {
+    display: none;
+  }
+
+  .game-main {
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+  }
+
+  .turn-overview {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border-radius: var(--radius-card);
+  }
+
+  .turn-overview-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .turn-overview h2 {
+    font-size: 18px;
+    line-height: 24px;
+  }
+
+  .turn-overview-copy > p:last-child {
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .turn-owner {
+    display: none;
+  }
+
+  .request-feedback-banner {
+    padding: var(--space-3);
+  }
+
+  .game-board-area,
+  .game-area,
+  .game-sidebar {
+    display: contents;
+  }
+
+  .game-layout {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  #game-player-section { order: 1; }
+  #game-board-section { order: 2; }
+  .action-panel { order: 3; }
+
+  .game-board,
+  .player-status,
+  .action-panel {
+    width: 100%;
+    padding: var(--space-3);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-surface);
+  }
+
+  .section-heading {
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+
+  .section-kicker {
+    font-size: 10px;
+  }
+
+  .board-header {
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+  }
+
+  .board-header h3,
+  .section-heading h3 {
+    font-size: 17px;
+    line-height: 22px;
+  }
+
+  .game-status {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: var(--space-2);
+  }
+
+  .game-status > span,
+  .bag-pill {
+    min-height: 32px;
+  }
+
+  .bag-container {
+    margin-left: 0;
+  }
+
+  .player-summary {
+    position: relative;
+    gap: 5px;
+    padding: 10px var(--space-3);
+    border-left: 4px solid transparent;
+  }
+
+  .player-details:first-child > .player-summary {
+    border-left-color: var(--color-brand);
+  }
+
+  .player-details:has(.player-card.active-turn) > .player-summary {
+    border-left-color: var(--color-turn);
+    background: var(--color-turn-soft);
+  }
+
+  .player-summary::after {
+    position: absolute;
+    top: 10px;
+    right: var(--space-3);
+    padding: 2px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface-raised);
+    color: var(--color-action-strong);
+    font-size: 10px;
+  }
+
+  .player-summary-name {
+    padding-right: 72px;
+  }
+
+  .player-summary-metrics {
+    gap: 5px 10px;
+    color: var(--color-ink-muted);
+  }
+
+  .player-summary-metrics span {
+    white-space: nowrap;
+  }
+
+  .player-summary-metrics b {
+    color: var(--color-ink);
+  }
+
+  .player-summary-self,
+  .player-summary-turn {
+    border: 1px solid currentColor;
+    background: transparent;
+  }
+
+  .player-summary-self { color: var(--color-brand); }
+  .player-summary-turn { color: var(--color-turn); }
+
+  .mobile-collapsible-panel > .mobile-panel-content {
+    border-top-color: var(--color-border);
+  }
+
+  .mobile-panel-summary::after {
+    padding: 2px 7px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    color: var(--color-action-strong);
+  }
+
+  .panel-title {
+    color: var(--color-ink);
+  }
+
+  .bottom-panels {
+    gap: var(--space-3);
+  }
+
+  .chat-panel,
+  .history-panel {
+    padding: var(--space-3);
+    border-radius: var(--radius-card);
+  }
+
+  .chat-messages,
+  .history-list {
+    height: min(34vh, 240px);
+  }
+
+  .mobile-game-nav {
+    grid-template-columns: minmax(66px, 1.2fr) repeat(4, minmax(48px, 1fr));
+    min-height: 58px;
+    border-color: var(--color-border-strong);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+    box-shadow: var(--shadow-raised);
+  }
+
+  .mobile-game-nav button {
+    flex-direction: column;
+    gap: 1px;
+    min-height: 52px;
+    padding: 4px;
+    color: var(--color-ink-muted);
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .mobile-game-nav button :deep(.ui-icon) {
+    font-size: 16px;
+    color: var(--color-action-strong);
+  }
+
+  .mobile-turn-status {
+    color: var(--color-turn);
+    font-size: 11px;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .btn:hover:not(:disabled),
+  .noble-item:hover,
+  .reserved-card-item.clickable:hover {
+    transform: none;
+  }
+}
 
 </style>

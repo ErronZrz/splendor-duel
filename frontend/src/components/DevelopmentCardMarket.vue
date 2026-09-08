@@ -85,30 +85,41 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-.development-cards { margin-bottom: 24px; min-width: 0; }
-.development-cards h4 { margin: 0 0 16px 0; color: #495057; }
-.card-levels { display: flex; flex-direction: column; gap: 16px; }
-.card-level { min-width: 0; }
-.card-level h5 { margin: 0 0 8px 0; color: #495057; font-size: 14px; }
-.cards-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.card-item { background: transparent; border: none; padding: 4px; cursor: pointer; transition: all .2s; display: flex; flex-direction: column; align-items: center; }
-.card-item:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
-.card-item.selected, .deck-item.selected { box-shadow: 0 0 0 3px var(--color-action); }
-.card-item[aria-disabled="true"], .deck-item[aria-disabled="true"] { cursor: default; }
+.development-cards { margin-bottom: var(--space-6); min-width: 0; }
+.development-cards h4 { margin: 0 0 var(--space-3); color: var(--color-ink); font-size: var(--font-small); line-height: var(--line-small); }
+.card-levels { display: flex; flex-direction: column; gap: var(--space-4); }
+.card-level { min-width: 0; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-card); background: var(--color-surface-subtle); }
+.card-level h5 { margin: 0 0 var(--space-2); color: var(--color-ink-muted); font-size: var(--font-meta); line-height: var(--line-meta); letter-spacing: .04em; }
+.cards-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.card-item { position: relative; background: transparent; border: 1px solid transparent; border-radius: var(--radius-card); padding: 4px; cursor: pointer; transition: transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast); display: flex; flex-direction: column; align-items: center; }
+.card-item:hover { transform: translateY(-3px); border-color: var(--color-border-strong); box-shadow: var(--shadow-surface); }
+.card-item.selected, .deck-item.selected { border-color: var(--color-action); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 26%, transparent); }
+.card-item.selected::after, .deck-item.selected::after { content: '✓ 已选'; position: absolute; right: 7px; bottom: 7px; z-index: 2; padding: 2px 6px; border-radius: var(--radius-pill); background: var(--color-action-strong); color: white; font-size: 10px; font-weight: 800; }
+.card-item[aria-disabled="true"], .deck-item[aria-disabled="true"] { cursor: default; filter: saturate(.5); opacity: .62; }
 .card-item[aria-disabled="true"]:hover, .deck-item[aria-disabled="true"]:hover { transform: none; box-shadow: none; }
-.card-image { width: 96px; height: 144px; object-fit: cover; border-radius: 10px; }
-.deck-item { position: relative; display: flex; flex-direction: column; align-items: center; padding: 4px; margin-right: 36px; cursor: pointer; transition: all .2s; }
-.deck-item:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
-.deck-image { width: 96px; height: 144px; object-fit: cover; border-radius: 10px; border: 4px solid #ccccdd; }
-.deck-count { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24px; height: 24px; background: #ffffff; border: 2px solid #445566; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 500; color: #334455; box-shadow: 0 2px 4px rgba(0, 0, 0, .1); opacity: 1; transition: opacity .2s; }
+.card-image { width: 96px; height: 144px; object-fit: cover; border-radius: 11px; box-shadow: 0 2px 6px rgba(41, 38, 32, .15); }
+.deck-item { position: relative; display: flex; flex-direction: column; align-items: center; border: 1px solid transparent; border-radius: var(--radius-card); padding: 4px; margin-right: var(--space-5); cursor: pointer; transition: transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast); }
+.deck-item:hover { transform: translateY(-3px); border-color: var(--color-border-strong); box-shadow: var(--shadow-surface); }
+.deck-image { width: 96px; height: 144px; object-fit: cover; border-radius: 11px; border: 3px solid var(--color-border-strong); box-shadow: 0 2px 6px rgba(41, 38, 32, .15); }
+.deck-count { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 30px; height: 30px; padding: 0 6px; background: var(--color-surface-raised); border: 2px solid var(--color-brand); border-radius: var(--radius-pill); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: var(--color-brand-strong); box-shadow: var(--shadow-surface); opacity: 1; transition: opacity var(--duration-fast); }
 .deck-item:hover .deck-count { opacity: 1; }
 .deck-item.deck-empty { cursor: default; width: 104px; height: 152px; border: 4px solid transparent; border-radius: 10px; box-sizing: border-box; }
 .deck-item.deck-empty:hover { transform: none; box-shadow: none; }
 @media (max-width: 768px) {
+  .card-level { padding: var(--space-2) 0 var(--space-1); border-right: 0; border-left: 0; border-radius: 0; background: transparent; }
+  .card-level h5 { padding-inline: var(--space-1); font-weight: 800; }
   .cards-row { flex-wrap: nowrap; gap: var(--space-2); margin-inline: calc(-1 * var(--space-3)); padding: 0 var(--space-3) var(--space-2); overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; scroll-padding-inline: var(--space-3); scroll-snap-type: x proximity; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
   .cards-row > * { flex: 0 0 auto; scroll-snap-align: start; }
   .deck-item { margin-right: var(--space-2); }
   .card-image, .deck-image { width: 84px; height: 126px; }
   .deck-item.deck-empty { width: 92px; height: 134px; }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .card-item:hover, .deck-item:hover { transform: none; box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-item, .deck-item, .deck-count { transition: none; }
 }
 </style>

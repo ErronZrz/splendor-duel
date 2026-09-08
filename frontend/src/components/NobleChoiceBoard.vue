@@ -43,12 +43,16 @@ const emit = defineEmits<{
 </script>
 
 <style scoped>
-.noble-cards { margin-bottom: 24px; }
-.noble-cards h4 { margin: 0 0 12px 0; color: #495057; }
-.nobles-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.noble-item { background: transparent; border: none; padding: 4px; cursor: pointer; transition: all .2s; text-align: center; display: flex; flex-direction: column; align-items: center; }
-.noble-item:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
-.noble-item.selectable { cursor: pointer; min-width: 44px; min-height: 44px; outline: 2px solid var(--color-action); outline-offset: 2px; }
-.noble-item.selected { box-shadow: 0 0 0 4px rgba(37, 99, 235, .28); }
-.noble-image { width: 80px; height: 120px; object-fit: cover; border-radius: 8px; }
+.noble-cards { margin-bottom: var(--space-2); }
+.noble-cards h4 { margin: 0 0 var(--space-3); color: var(--color-ink); font-size: var(--font-small); line-height: var(--line-small); }
+.nobles-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.noble-item { position: relative; background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 5px; cursor: default; transition: transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast); text-align: center; display: flex; flex-direction: column; align-items: center; }
+.noble-item.selectable:hover { transform: translateY(-3px); box-shadow: var(--shadow-surface); }
+.noble-item.selectable { cursor: pointer; min-width: 44px; min-height: 44px; border: 2px solid var(--color-action); }
+.noble-item.selectable::after { content: '+'; position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center; width: 20px; height: 20px; border: 2px solid var(--color-surface); border-radius: var(--radius-pill); background: var(--color-action-strong); color: white; font-weight: 900; }
+.noble-item.selected { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-action) 28%, transparent); }
+.noble-item.selected::after { content: '✓'; }
+.noble-image { width: 80px; height: 120px; object-fit: cover; border-radius: 10px; }
+@media (hover: none), (pointer: coarse) { .noble-item.selectable:hover { transform: none; box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .noble-item { transition: none; } }
 </style>
