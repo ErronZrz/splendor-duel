@@ -245,6 +245,62 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.find('.victory-dialog').exists()).toBe(false)
 })
 
+describe('stage 60 mobile keyboard avoidance and stickiness throttling', () => {
+  it('hides the nav from visual viewport keyboard geometry and keeps it hidden until the keyboard closes', async () => {
+    const visualViewport = new EventTarget()
+    visualViewport.height = window.innerHeight
+    visualViewport.offsetTop = 0
+    vi.stubGlobal('visualViewport', visualViewport)
+    await createGameFlowHarness()
+
+    const nav = wrapper.find('.mobile-game-nav')
+    expect(nav.classes()).not.toContain('keyboard-hidden')
+
+    // 键盘打开（overlay 模式：布局视口不变，visual 视口收缩超过阈值）→ 未聚焦也隐藏
+    visualViewport.height = window.innerHeight - 320
+    visualViewport.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(nav.classes()).toContain('keyboard-hidden')
+
+    // 聚焦再失焦：键盘仍开着，导航保持隐藏不闪现
+    await wrapper.find('.chat-input input').trigger('focus')
+    await wrapper.find('.chat-input input').trigger('blur')
+    await flushPromises()
+    expect(nav.classes()).toContain('keyboard-hidden')
+
+    // 键盘实际收起后才恢复
+    visualViewport.height = window.innerHeight
+    visualViewport.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(nav.classes()).not.toContain('keyboard-hidden')
+
+    // 小幅收缩（工具栏收放）不判定为键盘
+    visualViewport.height = window.innerHeight - 80
+    visualViewport.dispatchEvent(new Event('resize'))
+    await flushPromises()
+    expect(nav.classes()).not.toContain('keyboard-hidden')
+  })
+
+  it('throttles stickiness measurement into a single frame batch instead of measuring per scroll event', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
+    await createGameFlowHarness()
+    await flushPromises()
+    // 等挂载时 nextTick 的初始测量完成
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
+    const rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect')
+    rectSpy.mockClear()
+    // 一帧内同步派发多个 scroll 事件：监听器只安排 rAF，不得同步测量
+    for (let i = 0; i < 5; i += 1) window.dispatchEvent(new Event('scroll'))
+    expect(rectSpy).not.toHaveBeenCalled()
+
+    // 帧末批处理一次：多次事件合并为单次测量（2-3 次 gBCR，留宽限）
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    expect(rectSpy.mock.calls.length).toBeGreaterThan(0)
+    expect(rectSpy.mock.calls.length).toBeLessThanOrEqual(6)
+  })
+})
+
 describe('existing game action orchestration', () => {
   beforeEach(() => {
     vi.useFakeTimers()

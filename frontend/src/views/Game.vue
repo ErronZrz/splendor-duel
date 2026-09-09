@@ -345,7 +345,7 @@
       </div>
     </main>
 
-    <nav v-if="!showWaitingArea" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused, 'nav-hidden': actionDialog.visible || Boolean(contextActionBar) }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
+    <nav v-if="!showWaitingArea" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatNavAvoided, 'nav-hidden': actionDialog.visible || Boolean(contextActionBar) }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
       <span class="mobile-turn-status">{{ isMyTurn ? '你的回合' : '对手回合' }}</span>
       <button type="button" aria-label="玩家" title="玩家" @click="scrollToMobileSection('game-player-section')"><UiIcon name="player" /></button>
       <button type="button" aria-label="版图" title="版图" @click="scrollToMobileSection('game-board-section')"><UiIcon name="board" /></button>
@@ -677,6 +677,20 @@ const tooltipStyle = ref({
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, pendingActions, lastActionResult } = storeToRefs(gameStore)
 const isChatInputFocused = ref(false)
+// 软键盘几何状态：visualViewport 底部被布局视口遮挡超过阈值即认为软键盘打开（iOS overlay 模式）。
+// Chrome interactive-widget=resizes-content 下布局视口随键盘同步收缩、overlap≈0，由浏览器自身避让；
+// 无 visualViewport 的环境回退为仅聚焦驱动（与阶段 59 行为一致）。
+const isVirtualKeyboardOpen = ref(false)
+const VIRTUAL_KEYBOARD_OVERLAP_THRESHOLD = 150
+let detachVisualViewportListeners = null
+const syncVirtualKeyboardState = () => {
+  const visualViewport = window.visualViewport
+  if (!visualViewport) return
+  const overlap = window.innerHeight - visualViewport.height - visualViewport.offsetTop
+  isVirtualKeyboardOpen.value = overlap > VIRTUAL_KEYBOARD_OVERLAP_THRESHOLD
+}
+// 键盘实际收起（overlap 回落）前保持隐藏，避免失焦后导航在仍动画中的键盘上方闪现
+const isChatNavAvoided = computed(() => isChatInputFocused.value || isVirtualKeyboardOpen.value)
 const expandedMobilePanels = ref(new Set(['history']))
 const isMobilePanelExpanded = (panelId) => expandedMobilePanels.value.has(panelId)
 const toggleMobilePanel = (panelId) => {
@@ -749,10 +763,35 @@ const updateLocalPlayerSummaryStickiness = () => {
   const headerBottom = gameHeaderRef.value?.getBoundingClientRect().bottom ?? 58
   isLocalPlayerSummaryStuck.value = anchor.getBoundingClientRect().top <= headerBottom
 }
+// 滚动监听按 rAF 节流：一帧内多个 scroll/resize 事件只测量一次，避免每次事件同步强制布局
+let stickinessRafId = 0
+const scheduleLocalPlayerSummaryStickiness = () => {
+  if (stickinessRafId) return
+  const requestFrame = window.requestAnimationFrame ?? ((callback) => setTimeout(callback, 16))
+  stickinessRafId = requestFrame(() => {
+    stickinessRafId = 0
+    updateLocalPlayerSummaryStickiness()
+  })
+}
+const cancelScheduledStickiness = () => {
+  if (!stickinessRafId) return
+  const cancelFrame = window.cancelAnimationFrame ?? clearTimeout
+  cancelFrame(stickinessRafId)
+  stickinessRafId = 0
+}
 onMounted(() => {
-  window.addEventListener('scroll', updateLocalPlayerSummaryStickiness, { passive: true })
-  window.addEventListener('resize', updateLocalPlayerSummaryStickiness)
+  window.addEventListener('scroll', scheduleLocalPlayerSummaryStickiness, { passive: true })
+  window.addEventListener('resize', scheduleLocalPlayerSummaryStickiness)
   window.addEventListener('resize', syncGameHeaderHeight)
+  const visualViewport = window.visualViewport
+  if (visualViewport) {
+    visualViewport.addEventListener('resize', syncVirtualKeyboardState)
+    visualViewport.addEventListener('scroll', syncVirtualKeyboardState)
+    detachVisualViewportListeners = () => {
+      visualViewport.removeEventListener('resize', syncVirtualKeyboardState)
+      visualViewport.removeEventListener('scroll', syncVirtualKeyboardState)
+    }
+  }
   if (typeof ResizeObserver !== 'undefined' && gameHeaderRef.value) {
     gameHeaderResizeObserver = new ResizeObserver(syncGameHeaderHeight)
     gameHeaderResizeObserver.observe(gameHeaderRef.value)
@@ -763,9 +802,12 @@ onMounted(() => {
   })
 })
 onUnmounted(() => {
-  window.removeEventListener('scroll', updateLocalPlayerSummaryStickiness)
-  window.removeEventListener('resize', updateLocalPlayerSummaryStickiness)
+  cancelScheduledStickiness()
+  window.removeEventListener('scroll', scheduleLocalPlayerSummaryStickiness)
+  window.removeEventListener('resize', scheduleLocalPlayerSummaryStickiness)
   window.removeEventListener('resize', syncGameHeaderHeight)
+  detachVisualViewportListeners?.()
+  detachVisualViewportListeners = null
   gameHeaderResizeObserver?.disconnect()
   contextBarResizeObserver?.disconnect()
   document.documentElement.style.removeProperty('--game-header-height')
@@ -2889,8 +2931,18 @@ watch(gameState, (newState, oldState) => {
     cursor: pointer;
   }
 
+  /* 阶段 60：聊天聚焦/软键盘避让改为 transform+opacity 平滑隐藏，不再 display:none 瞬时卸载；
+     导航为 fixed，隐藏期间不改变文档布局，聚焦/失焦与键盘收起均无布局跳变 */
+  .mobile-game-nav {
+    transition: transform 0.18s ease, opacity 0.18s ease, visibility 0s;
+  }
+
   .mobile-game-nav.keyboard-hidden {
-    display: none;
+    transform: translateY(calc(100% + var(--space-2) + env(safe-area-inset-bottom)));
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.18s ease, opacity 0.18s ease, visibility 0s linear 0.18s;
   }
 
   /* 操作栏/对话框展示期间导航保持占位隐藏：不卸载 DOM，避免页面补偿跳变并可即时恢复 */
@@ -2903,6 +2955,10 @@ watch(gameState, (newState, oldState) => {
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto !important;
+  }
+  .mobile-game-nav,
+  .mobile-game-nav.keyboard-hidden {
+    transition: none;
   }
 }
 .victory-overlay {

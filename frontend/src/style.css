@@ -217,6 +217,14 @@ html {
   touch-action: manipulation;
 }
 
+/* ===== 阶段 60：滚动行为 ===== */
+/* 抑制 Android 顶部下拉刷新与越界滚动链（root 越界回弹）；内层列表
+   overscroll-behavior-y: auto 的滚动接力（阶段 56）不受影响 */
+html,
+body {
+  overscroll-behavior-y: none;
+}
+
 /* 游戏操作控件：禁止文本误选与 iOS 长按图片菜单；聊天输入等文本场景不在列表内 */
 .gem-cell,
 .card-item,
