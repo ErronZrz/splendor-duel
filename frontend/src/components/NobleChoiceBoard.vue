@@ -47,12 +47,17 @@ const emit = defineEmits<{
 .noble-cards h4 { margin: 0 0 var(--space-3); color: var(--color-ink); font-size: var(--font-small); line-height: var(--line-small); }
 .nobles-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 .noble-item { position: relative; background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: 5px; cursor: default; transition: transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast); text-align: center; display: flex; flex-direction: column; align-items: center; }
-.noble-item.selectable:hover { transform: translateY(-3px); box-shadow: var(--shadow-surface); }
+.noble-item.selectable:hover:not(:active) { transform: translateY(-3px); box-shadow: var(--shadow-surface); }
 .noble-item.selectable { cursor: pointer; min-width: 44px; min-height: 44px; border: 2px solid var(--color-action); }
-.noble-item.selectable::after { content: '+'; position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center; width: 20px; height: 20px; border: 2px solid var(--color-surface); border-radius: var(--radius-pill); background: var(--color-action-strong); color: white; font-weight: 900; }
+.noble-item.selectable::after { content: '+'; position: absolute; right: -5px; bottom: -5px; display: grid; place-items: center; width: 18px; height: 18px; border: 2px solid var(--color-surface); border-radius: var(--radius-pill); background: var(--color-action-strong); color: white; font-size: 12px; font-weight: 900; }
 .noble-item.selected { box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-action) 28%, transparent); }
 .noble-item.selected::after { content: '✓'; }
 .noble-image { width: 80px; height: 120px; object-fit: cover; border-radius: 10px; }
-@media (hover: none), (pointer: coarse) { .noble-item.selectable:hover { transform: none; box-shadow: none; } }
+@media (max-width: 768px) {
+  .nobles-row { flex-wrap: nowrap; gap: 6px; justify-content: flex-start; }
+  .noble-item { padding: 2px; }
+  .noble-image { width: 60px; height: 90px; }
+}
+@media (hover: none), (pointer: coarse) { .noble-item.selectable:hover:not(:active) { transform: none; box-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { .noble-item { transition: none; } }
 </style>

@@ -30,7 +30,7 @@ const GEM_DISPLAY_NAMES: Readonly<Record<GemType, string>> = {
 }
 
 const NOBLE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
-  noble1: '贵族1', noble2: '贵族2', noble3: '贵族3', noble4: '贵族4'
+  noble1: '2分+窃取', noble2: '2分+新回合', noble3: '2分+特权', noble4: '3分'
 }
 
 const paddedTokenRow = (tokens: readonly GemType[], start: number): Array<GemType | null> =>

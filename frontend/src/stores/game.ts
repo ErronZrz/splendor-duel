@@ -480,6 +480,13 @@ export const useGameStore = defineStore('game', () => {
     }
   }
 
+  // A subsequent server-authoritative turn for this player conclusively places
+  // any older local request in the past.  We never resend it; this only avoids
+  // a stale receipt lock keeping a newly returned turn unusable.
+  const clearResolvedPendingActions = (): void => {
+    pendingActions.value = {}
+  }
+
   // 断开连接
   const disconnect = () => {
     shouldReconnect = false
@@ -545,6 +552,7 @@ export const useGameStore = defineStore('game', () => {
     sendChatMessage,
     performGameAction,
     sendGameAction,
+    clearResolvedPendingActions,
     disconnect,
     reset,
     restoreSession

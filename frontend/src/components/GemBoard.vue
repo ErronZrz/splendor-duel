@@ -175,7 +175,7 @@ const handleImageError = (event: Event, gem: string): void => {
   padding: 0;
   border: 2px solid var(--color-border-strong);
   border-radius: 11px;
-  background: var(--color-surface-raised);
+  background: #f7f4ed;
   color: var(--color-ink-muted);
   font: inherit;
   font-size: 12px;
@@ -186,7 +186,7 @@ const handleImageError = (event: Event, gem: string): void => {
 }
 
 .gem-cell.has-gem {
-  background: var(--color-surface-raised);
+  background: #f7f4ed;
   border-color: var(--color-border-strong);
 }
 
@@ -214,6 +214,18 @@ const handleImageError = (event: Event, gem: string): void => {
 
 .gem-cell:disabled {
   cursor: default;
+}
+
+@media (max-width: 768px) {
+  .gem-grid {
+    width: 80%;
+    margin-inline: auto;
+  }
+
+  .gem-cell {
+    width: 100%;
+    height: auto;
+  }
 }
 
 .gem-image {

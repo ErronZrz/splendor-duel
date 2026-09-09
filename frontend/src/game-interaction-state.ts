@@ -101,6 +101,7 @@ export type GameInteractionEvent =
   | { type: 'REOPEN_MANDATORY_DISCARD'; playerData?: unknown }
   | { type: 'RESET_MANDATORY_DISCARD' }
   | { type: 'COMPLETE_MANDATORY_DISCARD' }
+  | { type: 'AUTHORITATIVE_TURN_RESUMED' }
   | { type: 'REQUEST_SENT'; requestId: string; actionType: string }
   | { type: 'REQUEST_UNKNOWN'; requestId: string; actionType: string }
   | { type: 'ACK_SUCCESS'; requestId: string; actionType: string; replayed?: boolean }
@@ -542,13 +543,17 @@ export const transitionGameInteraction = (
       })
     case 'RESET_MANDATORY_DISCARD':
       return state.action.kind === 'mandatory-discard'
-        ? withAction(state, { kind: 'idle' })
+        ? withAction(state, { ...state.action, open: true, completed: false })
         : noCommands(state)
     case 'COMPLETE_MANDATORY_DISCARD':
       if (state.action.kind !== 'mandatory-discard') return noCommands(state)
       return withAction(state, { ...state.action, open: false, completed: true }, [
         { actionType: 'endTurn', data: {} }
       ])
+    case 'AUTHORITATIVE_TURN_RESUMED':
+      // A later authoritative state has handed the turn back to this player.
+      // Any old local selection/receipt lock is therefore no longer an active action.
+      return withAction({ ...state, feedback: { kind: 'idle' } }, { kind: 'idle' })
     case 'REQUEST_SENT':
       return noCommands({
         ...state,

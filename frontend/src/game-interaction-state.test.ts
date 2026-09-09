@@ -362,7 +362,7 @@ describe('mandatory discard authority transitions', () => {
     const reopened = apply(closed.state, { type: 'REOPEN_MANDATORY_DISCARD' })
     expect(toActionDialogView(reopened.state.action).visible).toBe(true)
     const reset = apply(reopened.state, { type: 'RESET_MANDATORY_DISCARD' })
-    expect(reset.state.action.kind).toBe('idle')
+    expect(toActionDialogView(reset.state.action)).toMatchObject({ visible: true, actionType: 'discardGems' })
   })
 
   it('completes with endTurn and prevents the timer transition from reopening', () => {
@@ -372,6 +372,13 @@ describe('mandatory discard authority transitions', () => {
     expect(toActionDialogView(completed.state.action).visible).toBe(false)
     const timerResult = apply(completed.state, { type: 'REOPEN_MANDATORY_DISCARD' })
     expect(toActionDialogView(timerResult.state.action).visible).toBe(false)
+  })
+
+  it('unlocks stale local interaction only after an authoritative turn resumes', () => {
+    const pending = apply(createGameInteractionState(), { type: 'REQUEST_SENT', requestId: 'old', actionType: 'takeGems' }).state
+    const resumed = apply(pending, { type: 'AUTHORITATIVE_TURN_RESUMED' }).state
+    expect(resumed.action.kind).toBe('idle')
+    expect(resumed.feedback.kind).toBe('idle')
   })
 })
 

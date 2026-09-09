@@ -62,7 +62,7 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     const nobleDisclosure = page.getByRole('button', { name: /查看1位贵族/ }).first()
     await nobleDisclosure.click()
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'true')
-    await page.getByRole('button', { name: '关闭贵族预览' }).click()
+    await page.locator('body').click({ position: { x: 4, y: 4 } })
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'false')
     await page.locator('.player-details').first().locator('.player-summary').click()
     const mobileNav = page.locator('.mobile-game-nav')
@@ -109,6 +109,209 @@ test('uses a labelled neutral fallback for a broken business image', async ({ pa
   await expect(fallback).toHaveAttribute('role', 'img')
   await expect(fallback).toHaveAttribute('aria-label', label || '发展卡')
   await expect(fallback).not.toHaveText('加载失败')
+})
+
+test('keeps the local mobile summary globally pinned with colored bonuses', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-primary')
+  await openFixture(page, 'default')
+  const localSummary = page.locator('.player-details.is-local-player > .player-summary')
+  const localDetails = page.locator('.player-details.is-local-player')
+  const normalContentInset = await localDetails.evaluate(element => {
+    const outer = element.getBoundingClientRect()
+    const name = element.querySelector('.player-summary-name')!.getBoundingClientRect()
+    return Math.round(name.left - outer.left)
+  })
+  await page.locator('.player-summary-sticky-anchor').evaluate(anchor => {
+    window.scrollTo(0, window.scrollY + anchor.getBoundingClientRect().top - 58 + 100)
+  })
+  await expect(localSummary).toHaveClass(/is-globally-stuck/)
+  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(58)
+  expect(await localSummary.evaluate(element => getComputedStyle(element).borderLeft)).toBe('5px solid rgb(8, 127, 153)')
+  expect(await localSummary.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe('0px')
+  expect(await localSummary.evaluate(element => getComputedStyle(element).borderTopRightRadius)).toBe('0px')
+  const stuckContentInset = await localSummary.evaluate(element => {
+    const outer = element.getBoundingClientRect()
+    const name = element.querySelector('.player-summary-name')!.getBoundingClientRect()
+    return Math.round(name.left - outer.left)
+  })
+  expect(stuckContentInset).toBe(normalContentInset)
+  await expect(localSummary).toHaveAttribute('aria-label', '展开本地玩家的详情')
+  await expect(localSummary.locator('.player-summary-disclosure .ui-icon')).toHaveCount(1)
+  await localSummary.click()
+  await expect(localDetails).toHaveClass(/expanded/)
+  await expect(localSummary).toHaveAttribute('aria-label', '收起本地玩家的详情')
+  await expect(localSummary).not.toHaveClass(/is-globally-stuck/)
+  const expandedDetailsPosition = await localDetails.evaluate(element => {
+    const summary = element.querySelector<HTMLElement>('.player-summary')
+    const card = element.querySelector<HTMLElement>('.player-card')
+    if (!summary || !card) throw new Error('expanded player details are incomplete')
+    return {
+      detailsTop: Math.round(card.getBoundingClientRect().top),
+      summaryBottom: Math.round(summary.getBoundingClientRect().bottom)
+    }
+  })
+  expect(expandedDetailsPosition.detailsTop - expandedDetailsPosition.summaryBottom).toBe(0)
+  await localSummary.click()
+  await expect(localDetails).not.toHaveClass(/expanded/)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(localSummary).toHaveClass(/is-globally-stuck/)
+  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(58)
+  const navigatedByBottomNav = await page.evaluate(() => {
+    const button = document.querySelector<HTMLButtonElement>('.mobile-game-nav button[aria-label="版图"]')
+    button?.click()
+    return Boolean(button)
+  })
+  expect(navigatedByBottomNav).toBe(true)
+  await expect(page.locator('#game-board-section')).toBeInViewport()
+  const navTargetGeometry = await page.evaluate(() => {
+    const summary = document.querySelector<HTMLElement>('.player-summary.is-globally-stuck')
+    const board = document.querySelector<HTMLElement>('#game-board-section')
+    if (!summary || !board) throw new Error('sticky summary or board target is missing')
+    return {
+      summaryBottom: Math.round(summary.getBoundingClientRect().bottom),
+      boardTop: Math.round(board.getBoundingClientRect().top)
+    }
+  })
+  expect(navTargetGeometry.boardTop - navTargetGeometry.summaryBottom).toBeGreaterThanOrEqual(12)
+
+  const bonuses = localSummary.locator('.player-summary-bonus')
+  await expect(bonuses).toHaveCount(5)
+  const colors = await bonuses.evaluateAll(elements => elements.map(element => ({
+    color: getComputedStyle(element).color,
+    background: getComputedStyle(element).backgroundColor,
+    border: getComputedStyle(element).borderColor
+  })))
+  expect(colors.every(item => item.color === 'rgb(51, 51, 51)')).toBe(true)
+  expect(colors.every(item => item.background === 'rgba(0, 0, 0, 0)')).toBe(true)
+  expect(colors.map(item => item.border)).toEqual([
+    'rgb(217, 222, 227)',
+    'rgb(4, 86, 168)',
+    'rgb(8, 165, 73)',
+    'rgb(238, 0, 36)',
+    'rgb(0, 0, 0)'
+  ])
+  expect(await localSummary.evaluate(element => getComputedStyle(element).overflow)).toBe('hidden')
+  expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftColor)).toBe('rgb(8, 127, 153)')
+  expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftWidth)).toBe('5px')
+  const opponentSummary = page.locator('.player-details:not(.is-local-player) > .player-summary')
+  expect(await opponentSummary.locator('..').evaluate(element => getComputedStyle(element).borderLeftColor)).toBe('rgb(201, 104, 8)')
+  expect(await localSummary.locator('.player-summary-gem').first().evaluate(element => getComputedStyle(element).display)).toBe('flex')
+  expect(await localSummary.locator('.player-summary-gems').evaluate(element => getComputedStyle(element).columnGap)).toBe('10px')
+  const measuredGaps = await localSummary.locator('.player-summary-gems').evaluate(element => {
+    const groups = [...element.querySelectorAll('.player-summary-gem')]
+    const blueBonus = groups[1].querySelector('.player-summary-bonus').getBoundingClientRect()
+    const blueTokens = groups[1].querySelectorAll('.player-summary-token')
+    if (blueTokens.length < 2) throw new Error('fixture needs two blue tokens')
+    const firstBlueToken = blueTokens[0].getBoundingClientRect()
+    const secondBlueToken = blueTokens[1].getBoundingClientRect()
+    const lastBlueToken = blueTokens[blueTokens.length - 1].getBoundingClientRect()
+    const greenBonus = groups[2].querySelector('.player-summary-bonus').getBoundingClientRect()
+    return {
+      bonusToToken: Math.round(firstBlueToken.left - blueBonus.right),
+      tokenToToken: Math.round(secondBlueToken.left - firstBlueToken.right),
+      tokenToNextBonus: Math.round(greenBonus.left - lastBlueToken.right)
+    }
+  })
+  expect(measuredGaps).toEqual({ bonusToToken: 3, tokenToToken: 3, tokenToNextBonus: 10 })
+})
+
+test('keeps the bag disclosure compact and shows noble names only after selection', async ({ page }, testInfo) => {
+  test.skip(!['desktop', 'mobile-primary'].includes(testInfo.project.name))
+  await openFixture(page, 'default')
+  if (testInfo.project.name === 'mobile-primary') {
+    const statusDividers = await page.locator('.player-status').evaluate(element => {
+      const title = element.querySelector<HTMLElement>('.section-heading h3')
+      const heading = element.querySelector<HTMLElement>('.section-heading')
+      return {
+        title: title && getComputedStyle(title).borderBottomWidth,
+        heading: heading && getComputedStyle(heading).borderBottomWidth
+      }
+    })
+    expect(statusDividers).toEqual({ title: '0px', heading: '1px' })
+  }
+  const bag = page.locator('.bag-container')
+  const refillBar = page.getByRole('region', { name: '确认补充版图' })
+  if (testInfo.project.name === 'desktop') {
+    await bag.hover()
+    await expect(page.locator('.bag-tooltip')).toBeVisible()
+    await expect(refillBar).toHaveCount(0)
+    await bag.locator('.bag-pill').click()
+  } else {
+    await bag.locator('.bag-pill').tap()
+  }
+  await expect(page.locator('.bag-tooltip')).toBeVisible()
+  await expect(refillBar).toBeVisible()
+  const bagGeometry = await page.locator('.bag-tooltip').evaluate(element => {
+    const box = element.getBoundingClientRect()
+    const row = element.querySelector<HTMLElement>('.bag-row')
+    if (!row) throw new Error('bag row is missing')
+    return {
+      width: Math.round(box.width),
+      columns: getComputedStyle(row).gridTemplateColumns
+    }
+  })
+  expect(bagGeometry).toEqual({ width: 210, columns: '56px 56px 56px' })
+  if (testInfo.project.name === 'mobile-primary') {
+    await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+    await expect(page.locator('.bag-tooltip')).toHaveCount(0)
+  }
+
+  await openFixture(page, 'noble')
+  await expect(page.locator('.noble-name')).toHaveCount(0)
+  const nobleCards = page.locator('.noble-item')
+  await expect(nobleCards).toHaveCount(4)
+  if (testInfo.project.name === 'mobile-primary') {
+    const mobileNobleGeometry = await page.locator('.nobles-row').evaluate(element => {
+      const row = element.getBoundingClientRect()
+      const cards = [...element.querySelectorAll<HTMLElement>('.noble-item')]
+      const images = cards.map(card => card.querySelector<HTMLElement>('.noble-image')?.getBoundingClientRect())
+      return {
+        oneRow: new Set(cards.map(card => Math.round(card.getBoundingClientRect().top))).size === 1,
+        right: Math.round(Math.max(...cards.map(card => card.getBoundingClientRect().right))),
+        rowRight: Math.round(row.right),
+        imageSizes: images.map(image => image && [Math.round(image.width), Math.round(image.height)]),
+        imageInsets: cards.map((card, index) => Math.round((images[index]?.left ?? 0) - card.getBoundingClientRect().left)),
+        frameGaps: cards.slice(1).map((card, index) => Math.round(card.getBoundingClientRect().left - cards[index].getBoundingClientRect().right))
+      }
+    })
+    expect(mobileNobleGeometry.oneRow).toBe(true)
+    expect(mobileNobleGeometry.right).toBeLessThanOrEqual(mobileNobleGeometry.rowRight)
+    expect(mobileNobleGeometry.imageSizes).toEqual([[60, 90], [60, 90], [60, 90], [60, 90]])
+    expect(mobileNobleGeometry.imageInsets).toEqual([4, 4, 4, 4])
+    expect(mobileNobleGeometry.frameGaps).toEqual([6, 6, 6])
+  }
+  const fourthNoble = nobleCards.nth(3)
+  if (testInfo.project.name === 'mobile-primary') await fourthNoble.tap()
+  else await fourthNoble.click()
+  await expect(page.getByText('已选择：3分', { exact: true })).toBeVisible()
+})
+
+test('lets mobile history and chat scroll hand off to the page at their edges', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-primary')
+  await openFixture(page, 'default')
+  for (const [name, list] of [
+    ['history', page.locator('.history-list')],
+    ['chat', page.locator('.chat-messages')]
+  ] as const) {
+    if (name === 'chat') await page.locator('.chat-panel .mobile-panel-summary').click()
+    expect(await list.evaluate(element => getComputedStyle(element).overscrollBehaviorY)).toBe('auto')
+    await list.evaluate(element => {
+      const filler = document.createElement('div')
+      filler.style.height = `${element.clientHeight * 3}px`
+      filler.setAttribute('aria-hidden', 'true')
+      element.append(filler)
+      element.scrollTop = element.scrollHeight
+      const pageFiller = document.createElement('div')
+      pageFiller.style.height = '1000px'
+      pageFiller.setAttribute('aria-hidden', 'true')
+      document.body.append(pageFiller)
+    })
+    await list.scrollIntoViewIfNeeded()
+    const pageTopBefore = await page.evaluate(() => window.scrollY)
+    await list.hover()
+    await page.mouse.wheel(0, 480)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(pageTopBefore)
+  }
 })
 
 for (const [scenario, role, message] of [

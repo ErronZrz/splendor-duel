@@ -237,4 +237,11 @@ describe('game store WebSocket lifecycle', () => {
     expect(secondSocket.sent).toEqual([{ type: 'player_join', playerId: 'p1', playerName: 'Player 1' }])
     expect(store.pendingActions[requestId].status).toBe('unknown')
   })
+
+  it('clears only locally retained receipt locks when a later authoritative turn resolves them', () => {
+    store = connectedStore()
+    const requestId = store.sendGameAction('refillBoard', {})
+    store.clearResolvedPendingActions()
+    expect(store.pendingActions[requestId]).toBeUndefined()
+  })
 })

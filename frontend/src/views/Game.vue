@@ -1,20 +1,31 @@
 <template>
   <div class="game-container">
     <!-- 游戏头部信息 -->
-    <header class="game-header" :inert="victoryDialog.visible || undefined">
-      <span class="brand-mark" aria-hidden="true"><UiIcon name="diamond" /></span>
-      <div class="room-info">
-        <h2 role="heading" aria-level="1">{{ currentRoom?.name || '游戏房间' }}</h2>
-        <p>房间 · {{ roomId }}</p>
-      </div>
-      <div class="player-info">
-        <span class="player-identity"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
+    <header class="game-header" :class="{ collapsed: !isHeaderExpanded }" :inert="victoryDialog.visible || undefined">
+      <template v-if="isHeaderExpanded">
+        <span class="brand-mark" aria-hidden="true"><UiIcon name="diamond" /></span>
+        <div class="room-info">
+          <h2 role="heading" aria-level="1">{{ currentRoom?.name || '游戏房间' }}</h2>
+          <p>房间 · {{ roomId }}</p>
+        </div>
+        <div class="player-info">
+          <span class="player-identity"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
+          <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
+            <UiIcon name="connection" />
+            {{ connectionStatusText }}
+          </span>
+        </div>
+        <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
+      </template>
+      <template v-else>
         <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
           <UiIcon name="connection" />
           {{ connectionStatusText }}
         </span>
-      </div>
-      <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
+      </template>
+      <button class="header-disclosure" type="button" :aria-expanded="isHeaderExpanded" aria-label="展开房间信息" @click="isHeaderExpanded = !isHeaderExpanded">
+        <UiIcon :name="isHeaderExpanded ? 'chevronUp' : 'chevronDown'" />
+      </button>
     </header>
 
     <!-- 游戏主体 -->
@@ -80,6 +91,7 @@
                     <UiIcon name="turn" />{{ getCurrentPlayerName() }}
                   </span>
                   <div 
+                    ref="bagContainerRef"
                     class="bag-container"
                     @mouseenter="bagHover = true"
                     @mouseleave="bagHover = false"
@@ -94,12 +106,12 @@
                       aria-label="补充版图：查看并使用袋中宝石"
                       :aria-pressed="interactionState.action.kind === 'refill-confirm'"
                       :aria-disabled="isBoardActionPending || interactionState.action.kind !== 'idle'"
-                      @click.stop="handleRefillBoard"
-                      @keydown.enter.stop.prevent="handleRefillBoard"
-                      @keydown.space.stop.prevent="handleRefillBoard"
+                      @click.stop="openRefillFromBag"
+                      @keydown.enter.stop.prevent="openRefillFromBag"
+                      @keydown.space.stop.prevent="openRefillFromBag"
                       title="点击补充版图"
                     ><UiIcon name="diamond" />袋中宝石</span>
-                    <div v-if="bagHover && bagCounts.length > 0" class="bag-tooltip">
+                    <div v-if="(bagHover || isMobileBagPopoverPinned) && bagCounts.length > 0" class="bag-tooltip">
                       <div class="bag-row">
                         <div v-for="item in bagCounts" :key="`bag-${item.type}`" class="bag-item">
                           <span class="bag-count">{{ item.count }}×</span>
@@ -135,7 +147,7 @@
                 :max-target-count="contextActionBar.maxPrivilegeCount"
                 :confirm-disabled="contextActionBar.confirmDisabled"
                 :allow-skip="purchaseEffectCanSkip"
-                :selection-label="contextActionBar.selectionLabel"
+                :selection-label="contextSelectionLabel"
                 :pending="isBoardActionPending"
                 @change-count="handlePrivilegeCountChange"
                 @clear="handleBoardSelectionClear"
@@ -152,17 +164,19 @@
                 @select="selectWildcardColor"
               />
 
-              <DevelopmentCardMarket
-                :levels="marketLevels"
-                :reserve-mode="isReserveMode"
-                :selected-card-id="selectedReserveCardId"
-                :selected-deck-level="selectedReserveDeckLevel"
-                :pending="isBoardActionPending"
-                :card-actions-blocked="interactionState.action.kind !== 'idle' && !isReserveMode"
-                @deck-click="handleDeckClick"
-                @card-click="handleCardClick"
-                @card-image-error="handleCardImageError"
-              />
+              <section id="game-development-section" aria-label="发展卡">
+                <DevelopmentCardMarket
+                  :levels="marketLevels"
+                  :reserve-mode="isReserveMode"
+                  :selected-card-id="selectedReserveCardId"
+                  :selected-deck-level="selectedReserveDeckLevel"
+                  :pending="isBoardActionPending"
+                  :card-actions-blocked="interactionState.action.kind !== 'idle' && !isReserveMode"
+                  @deck-click="handleDeckClick"
+                  @card-click="handleCardClick"
+                  @card-image-error="handleCardImageError"
+                />
+              </section>
 
               <NobleChoiceBoard
                 :nobles="nobleChoices"
@@ -184,19 +198,46 @@
                     v-for="player in orderedPlayers"
                     :key="player.id"
                     class="player-details"
-                    :class="{ expanded: isPlayerDetailsExpanded(player.id) }"
+                    :class="{ expanded: isPlayerDetailsExpanded(player.id), 'is-local-player': player.id === currentPlayer?.id }"
                   >
-                    <button class="player-summary" type="button" :aria-expanded="isPlayerDetailsExpanded(player.id)" @click="togglePlayerDetails(player.id)">
+                    <span
+                      v-if="player.id === currentPlayer?.id"
+                      :ref="setLocalPlayerSummaryAnchor"
+                      class="player-summary-sticky-anchor"
+                      :style="isLocalPlayerSummaryStuck ? { height: `${localPlayerSummaryHeight}px` } : undefined"
+                      aria-hidden="true"
+                    ></span>
+                    <button
+                      class="player-summary"
+                      :class="{ 'is-globally-stuck': player.id === currentPlayer?.id && isLocalPlayerSummaryStuck }"
+                      type="button"
+                      :aria-label="isPlayerDetailsExpanded(player.id) ? `收起${player.name}的详情` : `展开${player.name}的详情`"
+                      :aria-expanded="isPlayerDetailsExpanded(player.id)"
+                      @click="togglePlayerDetails(player.id, $event)"
+                    >
                       <span class="player-summary-name">
                         {{ player.name }}
                         <span v-if="player.id === currentPlayer?.id" class="player-summary-self">你</span>
                         <span v-if="isCurrentPlayerTurn(player.id)" class="player-summary-turn">当前回合</span>
                       </span>
                       <span class="player-summary-metrics">
-                        <span><b>{{ getPlayerTokenTotal(player) }}</b> 宝石</span>
-                        <span><b>{{ player.points || 0 }}</b> 分</span>
-                        <span><b>{{ player.crowns || 0 }}</b> 皇冠</span>
-                        <span><b>{{ player.privilegeTokens || 0 }}</b> 特权</span>
+                        <span class="player-summary-primary">
+                          <span :aria-label="`特权${player.privilegeTokens || 0}`"><UiIcon name="privilege" /><b>{{ player.privilegeTokens || 0 }}</b></span>
+                          <span :aria-label="`分数${player.points || 0}`"><UiIcon name="score" /><b>{{ player.points || 0 }}</b></span>
+                          <span :aria-label="`皇冠${player.crowns || 0}`"><UiIcon name="crown" /><b>{{ player.crowns || 0 }}</b></span>
+                        </span>
+                        <span class="player-summary-reserved" :aria-label="`保留的发展卡${player.reservedCards?.length || 0}张`"><UiIcon name="card" /><b>{{ player.reservedCards?.length || 0 }}</b></span>
+                        <span class="player-summary-gems">
+                          <span v-for="gem in playerSummaryGems(player)" :key="gem.type" :aria-label="gem.hasBonus ? `${getGemDisplayName(gem.type)}宝石${gem.gems}，奖励${gem.bonus}` : `${getGemDisplayName(gem.type)}宝石${gem.gems}`" class="player-summary-gem">
+                            <small v-if="gem.hasBonus" class="player-summary-bonus" :class="`is-${gem.type}`">{{ gem.bonus }}</small>
+                            <span class="player-summary-tokens" aria-hidden="true">
+                              <i v-for="token in gem.gems" :key="token" class="player-summary-token" :class="`is-${gem.type}`"></i>
+                            </span>
+                          </span>
+                        </span>
+                      </span>
+                      <span class="player-summary-disclosure" aria-hidden="true">
+                        <UiIcon :name="isPlayerDetailsExpanded(player.id) ? 'chevronUp' : 'chevronDown'" />
                       </span>
                     </button>
                     <PlayerStatusCard
@@ -217,40 +258,6 @@
                 </div>
               </section>
               
-              <!-- 操作面板 -->
-              <section class="action-panel mobile-collapsible-panel" :class="{ expanded: isMobilePanelExpanded('actions') }" aria-labelledby="game-actions-heading">
-                <h3 role="heading" aria-level="2">
-                  <button
-                    id="game-actions-heading"
-                    class="mobile-panel-summary"
-                    type="button"
-                    aria-controls="game-actions-content"
-                    :aria-expanded="isMobilePanelExpanded('actions')"
-                    @click="toggleMobilePanel('actions')"
-                  >
-                    <span class="panel-title"><UiIcon name="action" />游戏操作</span>
-                    <span class="mobile-panel-meta">{{ isMyTurn ? '轮到你' : '等待对手' }}</span>
-                  </button>
-                </h3>
-                <div id="game-actions-content" class="mobile-panel-content">
-                  <div v-if="isMyTurn" class="available-actions">
-                  <!-- 可选行动入口迁移至：
-                      - 玩家卡片右上角特权徽标（花费特权）
-                      - “袋中宝石”标签（补充版图）
-                  -->
-                  <span class="hint-text">
-                    点击你的特权徽标可花费特权；
-                    <br>点击袋中宝石按钮可补充版图；
-                    <br>点击版图上的宝石或珍珠可拿取宝石；
-                    <br>点击版图上的黄金可保留发展卡；
-                    <br>点击翻开或保留的发展卡可购买发展卡。
-                  </span>
-                  </div>
-                  <div v-else class="waiting-turn">
-                    <p>等待其他玩家操作...</p>
-                  </div>
-                </div>
-              </section>
             </div>
           </div>
         </div>
@@ -288,7 +295,6 @@
               </div>
               <div v-if="preview.visible" class="history-preview-tooltip" :style="{ top: preview.y + 'px', left: preview.x + 'px' }" ref="historyPreviewRef" role="dialog" aria-label="历史图片预览">
                 <img :src="preview.image" alt="" />
-                <button type="button" class="history-preview-close" aria-label="关闭历史图片预览" @click="closeHistoryPreview">×</button>
               </div>
             </div>
           </div>
@@ -339,11 +345,12 @@
     </main>
 
     <nav v-if="!showWaitingArea && !actionDialog.visible && !contextActionBar" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
-      <span class="mobile-turn-status">{{ isMyTurn ? '轮到你' : `等待 ${getCurrentPlayerName()}` }}</span>
-      <button type="button" @click="scrollToMobileSection('game-board-section')"><UiIcon name="board" />棋盘</button>
-      <button type="button" @click="scrollToMobileSection('game-player-section')"><UiIcon name="player" />玩家</button>
-      <button type="button" @click="scrollToMobileSection('game-chat-section', 'chat')"><UiIcon name="chat" />聊天</button>
-      <button type="button" @click="scrollToMobileSection('game-history-section', 'history')"><UiIcon name="history" />历史</button>
+      <span class="mobile-turn-status">{{ isMyTurn ? '你的回合' : '对手回合' }}</span>
+      <button type="button" aria-label="玩家" title="玩家" @click="scrollToMobileSection('game-player-section')"><UiIcon name="player" /></button>
+      <button type="button" aria-label="版图" title="版图" @click="scrollToMobileSection('game-board-section')"><UiIcon name="board" /></button>
+      <button type="button" aria-label="发展卡" title="发展卡" @click="scrollToMobileSection('game-development-section')"><UiIcon name="card" /></button>
+      <button type="button" aria-label="历史" title="历史" @click="scrollToMobileSection('game-history-section', 'history')"><UiIcon name="history" /></button>
+      <button type="button" aria-label="聊天" title="聊天" @click="scrollToMobileSection('game-chat-section', 'chat')"><UiIcon name="chat" /></button>
     </nav>
     
     <!-- 通知组件 -->
@@ -401,6 +408,12 @@ const orderedPlayers = computed(() => {
 
 const getPlayerTokenTotal = (player) => Object.values(player?.gems || {})
   .reduce((total, count) => total + (Number(count) || 0), 0)
+const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold'].map(type => ({
+  type,
+  gems: Number(player?.gems?.[type]) || 0,
+  bonus: Number(player?.bonus?.[type]) || 0,
+  hasBonus: type !== 'pearl' && type !== 'gold'
+}))
 
 onMounted(() => {
   // 悬停预览：监听包含 data-preview 的链接
@@ -479,6 +492,14 @@ onMounted(() => {
       closeHistoryPreview()
     }
   }
+  const onDocumentPointerDown = (e) => {
+    const target = e.target
+    if (preview.value.visible && (!(target instanceof Element) || (!target.closest('[data-preview]') && !target.closest('.history-preview-tooltip')))) closeHistoryPreview()
+    if (isMobileBagPopoverPinned.value && (!(target instanceof Element) || !bagContainerRef.value?.contains(target))) {
+      isMobileBagPopoverPinned.value = false
+      bagHover.value = false
+    }
+  }
 
   el.addEventListener('mouseover', onMouseOver)
   el.addEventListener('mousemove', onMouseMove)
@@ -486,6 +507,7 @@ onMounted(() => {
   el.addEventListener('click', onClick)
   el.addEventListener('focusin', onFocusIn)
   el.addEventListener('keydown', onKeyDown)
+  document.addEventListener('pointerdown', onDocumentPointerDown)
 
   // 清理函数
   onUnmounted(() => {
@@ -495,6 +517,7 @@ onMounted(() => {
     el.removeEventListener('click', onClick)
     el.removeEventListener('focusin', onFocusIn)
     el.removeEventListener('keydown', onKeyDown)
+    document.removeEventListener('pointerdown', onDocumentPointerDown)
   })
 })
 const closeHistoryPreview = () => {
@@ -555,6 +578,7 @@ const router = useRouter()
 const gameStore = useGameStore()
 
 const newMessage = ref('')
+const isHeaderExpanded = ref(false)
 const chatMessagesRef = ref(null)
 const notificationRef = ref(null)
 
@@ -650,14 +674,72 @@ const scrollToMobileSection = async (sectionId, panelId) => {
     await nextTick()
   }
   const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  document.getElementById(sectionId)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+  const section = document.getElementById(sectionId)
+  if (!section) return
+  const behavior = reduceMotion ? 'auto' : 'smooth'
+  const isMobile = window.matchMedia?.('(max-width: 768px)').matches
+  const stickySummary = document.querySelector('.player-summary.is-globally-stuck')
+  if (isMobile && stickySummary instanceof HTMLElement) {
+    const desiredTop = stickySummary.getBoundingClientRect().bottom + 12
+    window.scrollBy({ top: section.getBoundingClientRect().top - desiredTop, behavior })
+    return
+  }
+  section.scrollIntoView({ behavior, block: 'start' })
 }
 const expandedPlayerIds = ref(new Set())
+const localPlayerSummaryAnchorRef = ref(null)
+const setLocalPlayerSummaryAnchor = (element) => { localPlayerSummaryAnchorRef.value = element }
+const isLocalPlayerSummaryStuck = ref(false)
+const localPlayerSummaryHeight = ref(0)
+const updateLocalPlayerSummaryStickiness = () => {
+  if (!window.matchMedia?.('(max-width: 768px)').matches) {
+    isLocalPlayerSummaryStuck.value = false
+    return
+  }
+  const anchor = localPlayerSummaryAnchorRef.value
+  const summary = anchor?.nextElementSibling
+  if (!(anchor instanceof HTMLElement) || !(summary instanceof HTMLElement)) return
+  if (!isLocalPlayerSummaryStuck.value) localPlayerSummaryHeight.value = summary.getBoundingClientRect().height
+  isLocalPlayerSummaryStuck.value = anchor.getBoundingClientRect().top <= 58
+}
+onMounted(() => {
+  window.addEventListener('scroll', updateLocalPlayerSummaryStickiness, { passive: true })
+  window.addEventListener('resize', updateLocalPlayerSummaryStickiness)
+  nextTick(updateLocalPlayerSummaryStickiness)
+})
+onUnmounted(() => {
+  window.removeEventListener('scroll', updateLocalPlayerSummaryStickiness)
+  window.removeEventListener('resize', updateLocalPlayerSummaryStickiness)
+})
 const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
-const togglePlayerDetails = (playerId) => {
+const togglePlayerDetails = (playerId, event) => {
+  const summaryElement = event?.currentTarget
+  const summaryTopBefore = summaryElement?.getBoundingClientRect?.().top
   const next = new Set(expandedPlayerIds.value)
-  next.has(playerId) ? next.delete(playerId) : next.add(playerId)
+  const wasExpanded = next.has(playerId)
+  wasExpanded ? next.delete(playerId) : next.add(playerId)
   expandedPlayerIds.value = next
+  const shouldRevealExpandedDetails = !wasExpanded
+    && playerId === currentPlayer.value?.id
+    && isLocalPlayerSummaryStuck.value
+    && window.matchMedia?.('(max-width: 768px)').matches
+  if (shouldRevealExpandedDetails) {
+    nextTick(() => {
+      const detailsCard = summaryElement?.parentElement?.querySelector('.player-card')
+      const summaryBottom = summaryElement?.getBoundingClientRect?.().bottom
+      const detailsTop = detailsCard?.getBoundingClientRect?.().top
+      if (typeof summaryBottom === 'number' && typeof detailsTop === 'number') {
+        window.scrollBy({ top: detailsTop - summaryBottom, behavior: 'auto' })
+      }
+    })
+    return
+  }
+  if (typeof summaryTopBefore === 'number' && window.matchMedia?.('(max-width: 768px)').matches) {
+    nextTick(() => {
+      const summaryTopAfter = summaryElement?.getBoundingClientRect?.().top
+      if (typeof summaryTopAfter === 'number') window.scrollBy({ top: summaryTopAfter - summaryTopBefore, behavior: 'auto' })
+    })
+  }
 }
 const connectionStatusText = computed(() => ({
   connected: '已连接',
@@ -682,6 +764,8 @@ const requestFeedbackBanner = computed(() => {
 
 // 袋中宝石：悬停状态
 const bagHover = ref(false)
+const isMobileBagPopoverPinned = ref(false)
+const bagContainerRef = ref(null)
 const bagCounts = computed(() => countGemBagByDisplayOrder(gameState.value?.gemBag))
 
 // 计算属性
@@ -777,6 +861,9 @@ const nobleChoices = computed(() => (gameState.value?.availableNobles || []).map
   selectable: isNobleSelectable(id),
   selected: selectedNobleId.value === id
 })))
+const contextSelectionLabel = computed(() => contextActionBar.value?.mode === 'noble' && contextActionBar.value.selectionLabel
+  ? getNobleDisplayName(contextActionBar.value.selectionLabel)
+  : contextActionBar.value?.selectionLabel)
 const purchaseEffectCanSkip = computed(() => {
   const action = interactionState.value.action
   if (action.kind === 'extra-token') return boardSelectablePositions.value.length === 0
@@ -1004,6 +1091,12 @@ const handleRefillBoard = () => {
   }
 
   applyInteractionEvent({ type: 'OPEN_REFILL_CONFIRM' })
+}
+
+const openRefillFromBag = () => {
+  bagHover.value = true
+  if (window.matchMedia?.('(max-width: 768px)').matches) isMobileBagPopoverPinned.value = true
+  handleRefillBoard()
 }
 
 // 处理操作对话框确认
@@ -1566,10 +1659,10 @@ watch(lastActionResult, (result) => {
 
 // 监听回合变化
 watch(isMyTurn, (newValue, oldValue) => {
-  if (newValue !== oldValue && notificationRef.value) {
-    if (newValue) {
-      notificationRef.value.info('回合开始', '轮到你行动了！', 4000)
-    }
+  if (newValue && !oldValue) {
+    gameStore.clearResolvedPendingActions()
+    applyInteractionEvent({ type: 'AUTHORITATIVE_TURN_RESUMED' })
+    notificationRef.value?.info('回合开始', '轮到你行动了！', 4000)
   }
 })
 
@@ -1762,9 +1855,11 @@ watch(gameState, (newState, oldState) => {
   box-shadow: 0 8px 24px rgba(0,0,0,0.15);
   padding: 8px 10px;
   z-index: 1200;
-  min-width: 180px;
+  box-sizing: border-box;
+  inline-size: 210px;
+  min-width: 0;
 }
-.bag-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bag-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; align-items: center; }
 .bag-item { display: flex; align-items: center; gap: 4px; }
 .bag-count { font-weight: 700; color: #495057; font-size: 12px; }
 .bag-gem { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
@@ -2012,6 +2107,13 @@ watch(gameState, (newState, oldState) => {
   color: #495057;
   border-bottom: 2px solid #e9ecef;
   padding-bottom: 8px;
+}
+
+/* The surrounding section heading already supplies the single status divider. */
+.player-status .section-heading h3 {
+  margin-bottom: 0;
+  border-bottom: 0;
+  padding-bottom: 0;
 }
 
 .players-list {
@@ -2469,6 +2571,7 @@ watch(gameState, (newState, oldState) => {
   #game-history-section {
     scroll-margin-top: var(--space-3);
   }
+  #game-development-section { scroll-margin-top: var(--space-3); }
 
   .game-header {
     display: grid;
@@ -2620,6 +2723,10 @@ watch(gameState, (newState, oldState) => {
     overscroll-behavior-y: contain;
   }
 
+  /* Conversation panels hand scroll back to the document when they reach either edge. */
+  .chat-messages,
+  .history-list { overscroll-behavior-y: auto; }
+
   .player-details {
     display: block;
     border: 1px solid var(--color-border);
@@ -2627,6 +2734,9 @@ watch(gameState, (newState, oldState) => {
     overflow: hidden;
     background: var(--color-surface-subtle);
   }
+
+  .player-details.is-local-player { border-left: 5px solid var(--color-self); }
+  .player-details:not(.is-local-player) { border-left: 5px solid var(--color-opponent); }
 
   .player-summary {
     display: flex;
@@ -2643,15 +2753,6 @@ watch(gameState, (newState, oldState) => {
     font: inherit;
     text-align: left;
   }
-
-  .player-summary::after {
-    content: '展开详情';
-    align-self: flex-end;
-    color: var(--color-action);
-    font-size: 12px;
-  }
-
-  .player-details.expanded > .player-summary::after { content: '收起详情'; }
 
   .player-summary-name,
   .player-summary-metrics {
@@ -2691,7 +2792,7 @@ watch(gameState, (newState, oldState) => {
     bottom: max(var(--space-2), env(safe-area-inset-bottom));
     left: var(--page-gutter);
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(44px, 1fr));
+    grid-template-columns: minmax(0, 1.3fr) repeat(5, minmax(44px, 1fr));
     align-items: stretch;
     min-height: 52px;
     overflow: hidden;
@@ -2947,6 +3048,24 @@ watch(gameState, (newState, oldState) => {
   background: color-mix(in srgb, var(--color-surface) 94%, transparent);
   box-shadow: 0 1px 0 rgba(41, 38, 32, .04);
   backdrop-filter: blur(16px);
+}
+
+.game-header.collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 0;
+  padding-block: var(--space-2);
+}
+
+.header-disclosure {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+  color: var(--color-action-strong);
+  cursor: pointer;
 }
 
 .brand-mark,
@@ -3457,28 +3576,30 @@ watch(gameState, (newState, oldState) => {
     position: relative;
     gap: 5px;
     padding: 10px var(--space-3);
-    border-left: 4px solid transparent;
+    border-left: 0;
   }
 
   .player-details:first-child > .player-summary {
-    border-left-color: var(--color-brand);
+    border-left: 0;
+    border-radius: calc(var(--radius-card) - 1px);
   }
 
-  .player-details:has(.player-card.active-turn) > .player-summary {
-    border-left-color: var(--color-turn);
-    background: var(--color-turn-soft);
-  }
+  .player-details:not(.is-local-player) > .player-summary { border-left: 0; border-radius: calc(var(--radius-card) - 1px); }
+  .player-details.is-local-player:has(.player-card.active-turn) > .player-summary { background: var(--color-self-soft); }
+  .player-details:not(.is-local-player):has(.player-card.active-turn) > .player-summary { background: var(--color-opponent-soft); }
 
-  .player-summary::after {
+  .player-summary-disclosure {
     position: absolute;
     top: 10px;
     right: var(--space-3);
-    padding: 2px 7px;
+    display: inline-grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-pill);
     background: var(--color-surface-raised);
     color: var(--color-action-strong);
-    font-size: 10px;
   }
 
   .player-summary-name {
@@ -3501,11 +3622,12 @@ watch(gameState, (newState, oldState) => {
   .player-summary-self,
   .player-summary-turn {
     border: 1px solid currentColor;
-    background: transparent;
+    background: var(--color-surface-raised);
   }
 
-  .player-summary-self { color: var(--color-brand); }
-  .player-summary-turn { color: var(--color-turn); }
+  .player-summary-self { color: var(--color-self); }
+  .player-details.is-local-player .player-summary-turn { color: var(--color-self); }
+  .player-details:not(.is-local-player) .player-summary-turn { color: var(--color-opponent); }
 
   .mobile-collapsible-panel > .mobile-panel-content {
     border-top-color: var(--color-border);
@@ -3538,7 +3660,7 @@ watch(gameState, (newState, oldState) => {
   }
 
   .mobile-game-nav {
-    grid-template-columns: minmax(66px, 1.2fr) repeat(4, minmax(48px, 1fr));
+    grid-template-columns: minmax(66px, 1.2fr) repeat(5, minmax(44px, 1fr));
     min-height: 58px;
     border-color: var(--color-border-strong);
     border-radius: var(--radius-card);
@@ -3547,17 +3669,15 @@ watch(gameState, (newState, oldState) => {
   }
 
   .mobile-game-nav button {
-    flex-direction: column;
-    gap: 1px;
+    flex-direction: row;
     min-height: 52px;
     padding: 4px;
     color: var(--color-ink-muted);
-    font-size: 10px;
-    font-weight: 700;
+    font-size: 16px;
   }
 
   .mobile-game-nav button :deep(.ui-icon) {
-    font-size: 16px;
+    font-size: 20px;
     color: var(--color-action-strong);
   }
 
@@ -3565,6 +3685,38 @@ watch(gameState, (newState, oldState) => {
     color: var(--color-turn);
     font-size: 11px;
   }
+
+  .game-header.collapsed { grid-template-columns: minmax(0, 1fr) auto; }
+  .game-header.collapsed .status { justify-self: start; }
+  .bag-tooltip { right: 0; left: auto; inline-size: min(210px, calc(100vw - 2 * var(--page-gutter))); min-width: 0; }
+
+  .player-details.is-local-player { overflow: visible; }
+  .player-summary-sticky-anchor { display: block; width: 100%; height: 0; }
+  .player-details.is-local-player > .player-summary.is-globally-stuck { position: fixed; z-index: 50; top: 58px; right: var(--page-gutter); left: var(--page-gutter); width: auto; overflow: hidden; border: 1px solid var(--color-border); border-left: 5px solid var(--color-self); border-radius: 0 0 var(--radius-card) var(--radius-card); background: var(--color-surface-subtle); box-shadow: var(--shadow-raised); }
+  .player-details.is-local-player:has(.player-card.active-turn) > .player-summary.is-globally-stuck { background: var(--color-self-soft); }
+
+  .player-summary-metrics { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+  .player-summary-primary { display: inline-flex; align-items: center; gap: 6px; }
+  .player-summary-reserved { justify-self: end; }
+  .player-summary-metrics > .player-summary-gems { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 12px; }
+  .player-summary-metrics > span { display: inline-flex; align-items: center; gap: 2px; }
+  .player-summary-gem { display: inline-flex; align-items: center; gap: 3px; }
+  .player-summary-bonus { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding-inline: 3px; border: 1px solid currentColor; border-radius: 4px; background: transparent; font-size: 10px; font-weight: 800; line-height: 1; }
+  .player-summary-tokens { display: inline-flex; flex-wrap: wrap; gap: 3px; max-width: 46px; }
+  .player-summary-token { width: 9px; height: 9px; box-sizing: border-box; border: 1px solid; border-radius: 50%; }
+  .is-white { background: #ffffff; border-color: #d9dee3; }
+  .is-blue { background: #0456a8; border-color: #9bc4ee; }
+  .is-green { background: #08a549; border-color: #9ce0b7; }
+  .is-red { background: #ee0024; border-color: #f5a6b1; }
+  .is-black { background: #000000; border-color: #6c6c6c; }
+  .is-pearl { background: #de7cb9; border-color: #f0b7d8; }
+  .is-gold { background: #ffde1d; border-color: #f5c85c; }
+  .player-summary-bonus { color: #333333; }
+  .player-summary-bonus.is-white { background: transparent; border-color: #d9dee3; }
+  .player-summary-bonus.is-blue { background: transparent; border-color: #0456a8; }
+  .player-summary-bonus.is-green { background: transparent; border-color: #08a549; }
+  .player-summary-bonus.is-red { background: transparent; border-color: #ee0024; }
+  .player-summary-bonus.is-black { background: transparent; border-color: #000000; }
 }
 
 @media (hover: none), (pointer: coarse) {

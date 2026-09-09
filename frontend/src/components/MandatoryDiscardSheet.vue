@@ -8,9 +8,9 @@
           <h4>丢弃宝石</h4>
           <p class="discard-message">您的宝石总数超过10个，请丢弃一些宝石直到总数为{{ gemDiscardTarget }}。</p>
           <div class="gem-display"><div class="gem-row">
-            <div v-for="type in gemTypes" :key="type" class="gem-item" :class="{ clickable: currentCount(type) > 0, disabled: currentCount(type) <= 0 }" role="button" :tabindex="currentCount(type) > 0 ? 0 : -1" :aria-label="`丢弃一枚${getGemDisplayName(type)}，当前${currentCount(type)}枚`" :aria-disabled="currentCount(type) <= 0" @click="discard(type)" @keydown.enter.prevent="discard(type)" @keydown.space.prevent="discard(type)">
+            <div v-for="type in gemTypes" :key="type" class="gem-item" :class="{ clickable: canDiscard(type), disabled: !canDiscard(type) }" role="button" :tabindex="canDiscard(type) ? 0 : -1" :aria-label="`丢弃一枚${getGemDisplayName(type)}，当前${currentCount(type)}枚`" :aria-disabled="!canDiscard(type)" @click="discard(type)" @keydown.enter.prevent="discard(type)" @keydown.space.prevent="discard(type)">
               <img :src="`/images/gems/${type}.jpg`" :alt="type" class="gem-icon" @error="handleGemImageError" />
-              <span class="gem-count">{{ currentCount(type) }}</span><div v-if="currentCount(type) > 0" class="discard-hint">点击丢弃</div>
+              <span class="gem-count">{{ currentCount(type) }}</span><div v-if="canDiscard(type)" class="discard-hint">点击丢弃</div>
             </div>
           </div></div>
           <div class="gem-summary">
@@ -42,7 +42,8 @@ let previouslyFocusedElement: Element|null = null
 watch(() => props.visible, visible => { if (visible) { previouslyFocusedElement=document.activeElement; discardedGems.value={}; nextTick(() => dialogRef.value?.focus()) } else if (previouslyFocusedElement instanceof HTMLElement) { const target=previouslyFocusedElement; nextTick(() => target.focus()); previouslyFocusedElement=null } }, { immediate: true })
 const currentCount = (type: GemType) => Math.max(0, (props.playerData?.gems?.[type] || 0) - (discardedGems.value[type] || 0))
 const totalAfterDiscard = computed(() => Object.entries(props.playerData?.gems || {}).reduce((sum, [type, count]) => sum + Math.max(0, (count || 0) - (discardedGems.value[type as GemType] || 0)), 0))
-const discard = (type: GemType) => { if (currentCount(type) <= 0) return; discardedGems.value[type]=(discardedGems.value[type] || 0)+1 }
+const canDiscard = (type: GemType) => totalAfterDiscard.value > props.gemDiscardTarget && currentCount(type) > 0
+const discard = (type: GemType) => { if (!canDiscard(type)) return; discardedGems.value[type]=(discardedGems.value[type] || 0)+1 }
 const confirm = () => { if (totalAfterDiscard.value !== props.gemDiscardTarget) return; emit('discardGemsBatch',{gemDiscards:discardedGems.value}); emit('confirm',{actionType:'discardGems',completed:true}) }
 const reset = () => { discardedGems.value={}; emit('reset') }
 const closeAttempt = () => emit('cancel',{actionType:'discardGems',closed:true})

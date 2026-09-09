@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="playerCardRef"
     class="player-card"
     :class="{ 'current-player': player.id === localPlayerId, 'active-turn': player.id === currentTurnPlayerId }"
   >
@@ -19,9 +20,9 @@
           @keydown.enter.prevent="canSpendPrivilege ? emit('spend-privilege') : null"
           @keydown.space.prevent="canSpendPrivilege ? emit('spend-privilege') : null"
         >
-          {{ player.privilegeTokens || 0 }}♟
+          <UiIcon name="privilege" />{{ player.privilegeTokens || 0 }}
         </span>
-        <span class="metric-badge" :aria-label="`总分${player.points || 0}，单色最高分${maxSameColorPoints}`">{{ player.points || 0 }}🔸{{ maxSameColorPoints }}</span>
+        <span class="metric-badge" :aria-label="`总分${player.points || 0}，单色最高分${maxSameColorPoints}`"><UiIcon name="score" />{{ player.points || 0 }}<small>最高 {{ maxSameColorPoints }}</small></span>
         <span
           class="metric-badge crown-badge"
           :class="{ 'has-nobles': nobleIds.length > 0 }"
@@ -36,9 +37,8 @@
           @click="showNobleTooltip = true"
           @keydown.escape.prevent="showNobleTooltip = false"
         >
-          {{ player.crowns || 0 }}👑
+          <UiIcon name="crown" />{{ player.crowns || 0 }}
           <div v-if="showNobleTooltip && nobleIds.length > 0" class="noble-tooltip">
-            <button type="button" class="noble-tooltip-close" aria-label="关闭贵族预览" @mousedown.prevent @click.stop="showNobleTooltip = false">×</button>
             <div class="noble-tooltip-content">
               <img
                 v-for="nobleId in nobleIds"
@@ -58,17 +58,17 @@
       <h5>宝石</h5>
       <div class="token-board">
         <div class="token-row">
-          <button v-for="(cell, idx) in tokenLayout.firstRow" :key="`cell-1-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
+          <button v-for="(cell, idx) in tokenLayout.firstRow" :key="`cell-1-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-label="cell ? `${getGemDisplayName(cell)}宝石${isStealSelectable(cell) ? '，可窃取' : ''}` : '空宝石位'" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
             <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
           </button>
         </div>
         <div class="token-row">
-          <button v-for="(cell, idx) in tokenLayout.secondRow" :key="`cell-2-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
+          <button v-for="(cell, idx) in tokenLayout.secondRow" :key="`cell-2-${idx}`" type="button" class="token-cell" :class="{ 'has-token': !!cell, selectable: isStealSelectable(cell), selected: selectedStealType === cell }" :disabled="!isStealSelectable(cell)" :aria-label="cell ? `${getGemDisplayName(cell)}宝石${isStealSelectable(cell) ? '，可窃取' : ''}` : '空宝石位'" :aria-pressed="selectedStealType === cell" @click="cell && emit('select-steal-token', cell)">
             <img v-if="cell" :src="`/images/gems/${getGemImageName(cell)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(cell)" />
           </button>
         </div>
         <div v-for="(row, rIdx) in tokenLayout.overflowRows" :key="`overflow-${rIdx}`" class="token-row overflow">
-          <button v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" type="button" class="token-cell no-placeholder" :class="{ selectable: isStealSelectable(gem), selected: selectedStealType === gem }" :disabled="!isStealSelectable(gem)" :aria-pressed="selectedStealType === gem" @click="emit('select-steal-token', gem)">
+          <button v-for="(gem, cIdx) in row" :key="`of-${rIdx}-${cIdx}`" type="button" class="token-cell no-placeholder" :class="{ selectable: isStealSelectable(gem), selected: selectedStealType === gem }" :disabled="!isStealSelectable(gem)" :aria-label="`${getGemDisplayName(gem)}宝石${isStealSelectable(gem) ? '，可窃取' : ''}`" :aria-pressed="selectedStealType === gem" @click="emit('select-steal-token', gem)">
             <img :src="`/images/gems/${getGemImageName(gem)}.jpg`" class="token-gem-img" :alt="getGemDisplayName(gem)" />
           </button>
         </div>
@@ -126,7 +126,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import UiIcon from './UiIcon.vue'
 import type { DevelopmentCard, GemType, Player } from '../game-state'
 import {
   buildPlayerTokenLayout,
@@ -160,6 +161,12 @@ const emit = defineEmits<{
 const isStealSelectable = (gem: string | null): boolean => Boolean(gem && props.stealSelectableTypes?.includes(gem))
 
 const showNobleTooltip = ref(false)
+const playerCardRef = ref<HTMLElement | null>(null)
+const closeNoblesOnOutsidePress = (event: PointerEvent) => {
+  if (playerCardRef.value && !playerCardRef.value.contains(event.target as Node)) showNobleTooltip.value = false
+}
+onMounted(() => document.addEventListener('pointerdown', closeNoblesOnOutsidePress))
+onUnmounted(() => document.removeEventListener('pointerdown', closeNoblesOnOutsidePress))
 const bonusColorRows: readonly (readonly GemType[])[] = [
   ['white', 'blue', 'green'],
   ['red', 'black', 'gray']
@@ -172,8 +179,10 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 
 <style scoped>
 .player-card { position: relative; background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: var(--radius-card); padding: var(--space-4); transition: border-color var(--duration-fast), box-shadow var(--duration-fast), background-color var(--duration-fast); }
-.player-card.current-player { border-color: var(--color-brand); background: var(--color-brand-soft); }
-.player-card.active-turn { border: 2px solid var(--color-turn); background: var(--color-turn-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-turn) 16%, transparent); }
+.player-card.current-player { border-color: var(--color-self); background: var(--color-self-soft); }
+.player-card:not(.current-player) { border-color: var(--color-opponent); background: var(--color-opponent-soft); }
+.player-card.current-player.active-turn { border: 2px solid var(--color-self); background: var(--color-self-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-self) 16%, transparent); }
+.player-card:not(.current-player).active-turn { border: 2px solid var(--color-opponent); background: var(--color-opponent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-opponent) 16%, transparent); }
 .player-card.active-turn::before { content: '当前回合'; position: absolute; top: 8px; left: 8px; padding: 2px 7px; border-radius: var(--radius-pill); background: var(--color-turn); color: white; font-size: 10px; font-weight: 800; line-height: 16px; }
 .player-header { display: flex; flex-direction: column; align-items: center; margin-bottom: 12px; }
 .player-header-top { display: flex; align-items: center; justify-content: center; text-align: center; }
@@ -185,15 +194,16 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .reserved-cards-list { display: flex; gap: 4px; flex-wrap: wrap; }
 .reserved-card-item { width: 48px; height: 72px; border: 1px solid var(--color-border); border-radius: var(--radius-control); overflow: hidden; position: relative; transition: transform var(--duration-fast), border-color var(--duration-fast), box-shadow var(--duration-fast); }
 .reserved-card-item.clickable { cursor: pointer; }
-.reserved-card-item.clickable:hover { border-color: var(--color-action); transform: translateY(-2px); box-shadow: var(--shadow-surface); }
+.reserved-card-item.clickable:hover:not(:active) { border-color: var(--color-action); transform: translateY(-2px); box-shadow: var(--shadow-surface); }
 .reserved-card-item.empty { background: var(--color-surface); border: 1px dashed var(--color-border-strong); display: flex; align-items: center; justify-content: center; }
 .reserved-card-image { width: 100%; height: 100%; object-fit: cover; }
 .empty-slot { font-size: 10px; color: var(--color-ink-muted); }
 .bonus-card-image { width: 60px; height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid var(--color-border); box-shadow: 0 2px 5px rgba(41, 38, 32, .12); }
 .player-metrics-row { margin-top: 12px; display: flex; gap: 8px; justify-content: center; }
 .player-metrics { display: flex; gap: 6px; }
-.metric-badge { background: var(--color-surface); color: var(--color-ink); padding: 3px 8px; border-radius: var(--radius-pill); font-size: 12px; font-weight: 700; line-height: 1.4; border: 1px solid var(--color-border); }
-.metric-badge.clickable, .metric-badge[role="button"] { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; cursor: pointer; box-shadow: 0 0 0 0 transparent; transition: box-shadow var(--duration-fast) ease; }
+.metric-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; box-sizing: border-box; background: var(--color-surface); color: var(--color-ink); padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 10px; font-size: 12px; font-weight: 700; line-height: 1; vertical-align: middle; }
+.metric-badge small { color: var(--color-ink-muted); font-size: 10px; font-weight: 600; }
+.metric-badge.clickable, .metric-badge[role="button"] { cursor: pointer; box-shadow: 0 0 0 0 transparent; transition: box-shadow var(--duration-fast) ease; }
 .metric-badge.clickable:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 25%, transparent); }
 .crown-badge { position: relative; }
 .crown-badge.has-nobles { cursor: pointer; }
@@ -201,7 +211,6 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .noble-tooltip::before { content: ''; position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 6px solid #ffffff; }
 .noble-tooltip::after { content: ''; position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 7px solid #dee2e6; z-index: -1; }
 .noble-tooltip-content { display: flex; gap: 6px; align-items: center; }
-.noble-tooltip-close { position: absolute; top: 2px; right: 2px; z-index: 1; width: 44px; height: 44px; border: 0; border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 92%, transparent); color: var(--color-ink); }
 .noble-tooltip-image { width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
 .token-board { display: flex; flex-direction: column; gap: 6px; }
 .token-row { display: flex; gap: 6px; }
@@ -219,6 +228,6 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .bonus-column { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
 .bonus-stack { display: flex; flex-direction: column; align-items: center; }
 .bonus-label { margin-top: 4px; font-size: 11px; color: var(--color-ink-muted); }
-@media (hover: none), (pointer: coarse) { .reserved-card-item.clickable:hover { transform: none; box-shadow: none; } }
+@media (hover: none), (pointer: coarse) { .reserved-card-item.clickable:hover:not(:active) { transform: none; box-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { .player-card, .reserved-card-item, .metric-badge.clickable { transition: none; } }
 </style>

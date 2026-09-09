@@ -166,7 +166,7 @@ describe('game display selectors', () => {
     ])
     expect(getGemDisplayName('future')).toBe('future')
     expect(getGemImageName('future')).toBe('future')
-    expect(getNobleDisplayName('noble4')).toBe('贵族4')
+    expect(getNobleDisplayName('noble4')).toBe('3分')
     expect(getNobleDisplayName('future')).toBe('贵族future')
   })
 

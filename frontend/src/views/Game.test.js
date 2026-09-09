@@ -100,6 +100,11 @@ const emitCancel = async (data) => {
   await flushPromises()
 }
 
+const openRefillFromBag = async () => {
+  await wrapper.get('.bag-pill').trigger('click')
+  await flushPromises()
+}
+
 it('passes a delayed server resource update into an already-open purchase', async () => {
   const pinia = createPinia()
   const store = useGameStore(pinia)
@@ -170,25 +175,32 @@ it('renders player status cards with the local player first and preserves names'
   expect(details[1].classes()).not.toContain('expanded')
   expect(details[0].find('.player-summary').text()).toContain('本地玩家')
   expect(details[0].find('.player-summary').text()).toContain('你')
+  expect(details[0].find('.player-summary').attributes('aria-label')).toBe('展开本地玩家的详情')
+  expect(details[0].find('.player-summary-disclosure .ui-icon').exists()).toBe(true)
   expect(details[1].find('.player-summary').text()).toContain('当前回合')
+  const summaryGems = details[0].findAll('.player-summary-gem')
+  expect(summaryGems).toHaveLength(7)
+  expect(summaryGems.slice(-2).every(gem => !gem.find('.player-summary-bonus').exists())).toBe(true)
   await details[1].find('.player-summary').trigger('click')
   expect(wrapper.findAll('.player-details')[1].classes()).toContain('expanded')
   expect(wrapper.findAll('.player-details')[1].find('.player-summary').attributes('aria-expanded')).toBe('true')
+  expect(wrapper.findAll('.player-details')[1].find('.player-summary').attributes('aria-label')).toBe('收起对手的详情')
 
   const mobilePanels = wrapper.findAll('.mobile-collapsible-panel')
-  expect(mobilePanels).toHaveLength(3)
-  expect(mobilePanels.map(panel => panel.classes().includes('expanded'))).toEqual([false, true, false])
-  expect(mobilePanels.map(panel => panel.find('.mobile-panel-summary').attributes('aria-expanded'))).toEqual(['false', 'true', 'false'])
+  expect(mobilePanels).toHaveLength(2)
+  expect(mobilePanels.map(panel => panel.classes().includes('expanded'))).toEqual([true, false])
+  expect(mobilePanels.map(panel => panel.find('.mobile-panel-summary').attributes('aria-expanded'))).toEqual(['true', 'false'])
   const scrollIntoView = vi.fn()
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })))
   vi.spyOn(document, 'getElementById').mockReturnValue({ scrollIntoView })
   const mobileNav = wrapper.find('.mobile-game-nav')
-  expect(mobileNav.findAll('button')).toHaveLength(4)
-  expect(mobileNav.text()).toContain('等待 对手')
+  expect(mobileNav.findAll('button')).toHaveLength(5)
+  expect(mobileNav.text()).toContain('对手回合')
+  expect(mobileNav.findAll('button').map(button => button.attributes('aria-label'))).toEqual(['玩家', '版图', '发展卡', '历史', '聊天'])
   await mobileNav.findAll('button')[3].trigger('click')
   await flushPromises()
-  expect(wrapper.findAll('.mobile-collapsible-panel')[1].classes()).toContain('expanded')
-  expect(wrapper.findAll('.mobile-collapsible-panel')[1].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[0].classes()).toContain('expanded')
+  expect(wrapper.findAll('.mobile-collapsible-panel')[0].find('.mobile-panel-summary').attributes('aria-expanded')).toBe('true')
   expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' })
   await wrapper.find('.chat-input input').trigger('focus')
   expect(wrapper.find('.chat-input input').attributes('aria-label')).toBe('聊天消息')
@@ -201,10 +213,14 @@ it('renders player status cards with the local player first and preserves names'
   expect(historyLink.attributes('aria-label')).toBe('查看发展卡图片预览')
   await historyLink.trigger('keydown', { key: 'Enter' })
   expect(wrapper.find('.history-preview-tooltip').attributes('role')).toBe('dialog')
-  await wrapper.find('.history-preview-close').trigger('click')
+  document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  await flushPromises()
   expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
   expect(wrapper.find('header.game-header').exists()).toBe(true)
   expect(wrapper.find('main.game-main').exists()).toBe(true)
+  expect(wrapper.find('.room-info').exists()).toBe(false)
+  expect(wrapper.find('.header-disclosure').attributes('aria-expanded')).toBe('false')
+  await wrapper.find('.header-disclosure').trigger('click')
   expect(wrapper.find('.room-info h2').attributes('aria-level')).toBe('1')
 
   const chatInput = wrapper.find('.chat-input input')
@@ -394,7 +410,11 @@ describe('existing game action orchestration', () => {
     flow = await createGameFlowHarness({ card: makeCard({ crowns: 3 }) })
     await openPurchase()
     await emitConfirm({ actionType: 'buyCard', selectedCard: flow.card, paymentPlan: { white: 1 } })
+    expect(wrapper.findAll('.noble-name')).toHaveLength(0)
     await wrapper.get('.noble-item.selectable:nth-child(2)').trigger('keydown', { key: ' ' })
+    expect(wrapper.findComponent(ContextActionBar).props('selectionLabel')).toBe('2分+新回合')
+    expect(wrapper.findComponent(ContextActionBar).text()).toContain('已选择：2分+新回合')
+    expect(wrapper.findComponent(ContextActionBar).text()).not.toContain('noble2')
     await wrapper.findComponent(ContextActionBar).get('.btn-primary').trigger('click')
     expect(flow.sendAction).toHaveBeenCalledTimes(1)
     expect(flow.sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { noble: { id: 'noble2' } } }))
@@ -579,9 +599,10 @@ describe('existing game action orchestration', () => {
   it('confirms refill inline with its warning and exact empty payload, then blocks a repeat', async () => {
     const { sendAction } = await createGameFlowHarness()
     const bag = wrapper.get('.bag-pill')
-    await bag.trigger('click')
+    await openRefillFromBag()
     let bar = wrapper.findComponent(ContextActionBar)
     expect(actionDialog().props('visible')).toBe(false)
+    expect(wrapper.find('.bag-tooltip').exists()).toBe(true)
     expect(bar.props('mode')).toBe('refill-confirm')
     expect(bar.text()).toContain('对手获得特权')
     await bar.get('.context-actions .btn-primary').trigger('click')
@@ -595,7 +616,7 @@ describe('existing game action orchestration', () => {
 
   it('does not open refill confirmation for an empty bag', async () => {
     await createGameFlowHarness({ stateOverrides: { gemBag: [] } })
-    await wrapper.get('.bag-pill').trigger('click')
+    await openRefillFromBag()
     expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
     expect(document.body.textContent).toContain('袋子为空')
   })
@@ -654,7 +675,7 @@ describe('existing game action orchestration', () => {
     wrapper.unmount()
     wrapper = undefined
     const refill = await createGameFlowHarness()
-    await wrapper.get('.bag-pill').trigger('click')
+    await openRefillFromBag()
     refill.store.gameState = { ...refill.store.gameState, gemBag: [] }
     await flushPromises()
     await wrapper.findComponent(ContextActionBar).get('.context-actions .btn-primary').trigger('click')
@@ -728,7 +749,7 @@ describe('existing game action orchestration', () => {
 
     actionDialog().vm.$emit('reset')
     await flushPromises()
-    expect(actionDialog().props('visible')).toBe(false)
+    expect(actionDialog().props('visible')).toBe(true)
 
     store.gameState = makeGameState(makeCard(), {}, {
       needsGemDiscard: true,

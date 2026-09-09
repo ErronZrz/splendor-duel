@@ -40,7 +40,7 @@
       <span v-else class="empty-selection">尚未选择市场卡或牌堆</span>
     </div>
     <div v-else-if="selectionLabel" class="selected-list" aria-live="polite">
-      <span class="selected-gem">已选：{{ getGemDisplayName(selectionLabel) }}</span>
+      <span class="selected-gem">已选择：{{ getGemDisplayName(selectionLabel) }}</span>
     </div>
 
     <p v-if="warning" class="context-warning" role="alert">{{ warning }}</p>
