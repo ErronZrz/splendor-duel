@@ -223,8 +223,10 @@ const handleImageError = (event: Event, gem: string): void => {
   }
 
   .gem-cell {
-    width: 100%;
+    width: auto;
     height: auto;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 
@@ -286,15 +288,6 @@ const handleImageError = (event: Event, gem: string): void => {
 .gem-text-fallback {
   color: #6c757d;
   font-size: 10px;
-}
-
-@media (max-width: 768px) {
-  .gem-cell {
-    width: auto;
-    height: auto;
-    min-width: 44px;
-    min-height: 44px;
-  }
 }
 
 @media (hover: none), (pointer: coarse) {

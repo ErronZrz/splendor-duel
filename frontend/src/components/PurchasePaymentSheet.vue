@@ -230,39 +230,6 @@ display: flex;
   background: var(--color-surface, white);
 }
 
-.btn {
-padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-background: #2196f3;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-background: #1976d2;
-}
-
-.btn-primary:disabled {
-opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-background: #6c757d;
-  color: white;
-}
-
-.btn-secondary:hover {
-background: #5a6268;
-}
-
 .payment-section {
 margin-top: 20px;
 }
@@ -393,24 +360,6 @@ opacity: 0.6;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
-}
-
-.btn-primary {
-background-color: #007bff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-background-color: #0056b3;
-}
-
-.btn-secondary {
-background-color: #6c757d;
-  color: white;
-}
-
-.btn-secondary:hover:not(:disabled) {
-background-color: #5a6268;
 }
 
 @media (max-width: 767px) {
@@ -559,7 +508,7 @@ grid-column: 1 / -1;
   border-radius: var(--radius-control);
 }
 
-.btn-primary { background: var(--color-brand); }
+.btn-primary { background: var(--color-brand); color: white; }
 .btn-primary:hover:not(:disabled) { background: var(--color-brand-strong); }
 .btn-secondary { border: 1px solid var(--color-border-strong); background: var(--color-surface); color: var(--color-ink); }
 .btn-secondary:hover:not(:disabled) { background: var(--color-surface-strong); }

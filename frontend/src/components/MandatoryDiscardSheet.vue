@@ -125,30 +125,6 @@ display: flex;
   background: var(--color-surface, white);
 }
 
-.btn {
-padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-background: #2196f3;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-background: #1976d2;
-}
-
-.btn-primary:disabled {
-opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .gem-icon {
 width: 24px;
   height: 24px;
@@ -304,24 +280,6 @@ opacity: 0.6;
   box-shadow: none;
 }
 
-.btn-primary {
-background-color: #007bff;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-background-color: #0056b3;
-}
-
-.btn-warning {
-background-color: #ffc107;
-  color: #212529;
-}
-
-.btn-warning:hover:not(:disabled) {
-background-color: #e0a800;
-}
-
 @media (max-width: 767px) {
 .dialog-overlay {
 align-items: flex-end;
@@ -415,7 +373,7 @@ width: 48px;
 }
 
 .dialog-footer .btn { min-height: 44px; margin-left: 0; border-radius: var(--radius-control); }
-.btn-primary { background: var(--color-brand); }
+.btn-primary { background: var(--color-brand); color: white; }
 .btn-primary:hover:not(:disabled) { background: var(--color-brand-strong); }
 .btn-warning { border: 1px solid var(--color-warning); background: var(--color-warning-soft); color: var(--color-warning); }
 .btn-warning:hover:not(:disabled) { background: color-mix(in srgb, var(--color-warning-soft) 72%, white); }

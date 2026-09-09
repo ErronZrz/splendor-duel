@@ -407,8 +407,6 @@ const orderedPlayers = computed(() => {
   return orderPlayersLocalFirst(gameState.value?.players, currentPlayer.value?.id)
 })
 
-const getPlayerTokenTotal = (player) => Object.values(player?.gems || {})
-  .reduce((total, count) => total + (Number(count) || 0), 0)
 const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold'].map(type => ({
   type,
   gems: Number(player?.gems?.[type]) || 0,
@@ -572,7 +570,6 @@ import {
   getCardDisplayItemsByLevel,
   getGemDisplayName as selectGemDisplayName,
   getGemImageName as selectGemImageName,
-  getOwnedBonusCardIds,
   getNobleDisplayName,
   getPurchaseFollowup as selectPurchaseFollowup,
   getTurnPlayerName,
@@ -661,18 +658,6 @@ const getPurchaseFollowup = (card) => selectPurchaseFollowup(
   currentPlayer.value?.id,
   card?.id
 )
-
-// Bonus工具提示状态
-const activeTooltip = ref({
-  playerId: null,
-  color: null
-})
-
-const tooltipStyle = ref({
-  position: 'absolute',
-  top: '0px',
-  left: '0px'
-})
 
 // 使用 storeToRefs 确保响应式
 const { currentRoom, currentPlayer, gameState, isConnected, connectionStatus, chatMessages, gameHistory, pendingActions, lastActionResult } = storeToRefs(gameStore)
@@ -1007,62 +992,9 @@ const getGemImageName = (gemType) => {
   return selectGemImageName(gemType)
 }
 
-// 显示Bonus工具提示
-const showBonusTooltip = (event, playerId, color) => {
-  clearTimeout(hideTimer)
-  const host = event.currentTarget // .bonus-item
-  tooltipStyle.value = {
-    position: 'absolute',
-    top: `${host.offsetHeight + 6}px`, // 紧贴在条目下方
-    left: '0px',
-    zIndex: 1000
-  }
-  activeTooltip.value = { playerId, color }
-}
-
-// 隐藏Bonus工具提示
-const hideBonusTooltip = () => {
-  hideTimer = setTimeout(() => {
-    activeTooltip.value = { playerId: null, color: null }
-  }, 120) // 给一点时间让鼠标移到提示框
-}
-
-// 隐藏定时器
-let hideTimer = null
-
-// 获取指定玩家的指定颜色bonus卡牌列表
-const getBonusCards = (playerId, color) => {
-  if (!gameState?.value?.players || !gameState?.value?.cardDetails) {
-    return []
-  }
-  
-  const player = findPlayerById(gameState.value.players, playerId)
-  if (!player?.developmentCards) {
-    return []
-  }
-
-  return getOwnedBonusCardIds(player, gameState.value.cardDetails, color)
-}
-
 // 获取牌堆剩余数量（从后端数据中获取）
 const getDeckRemainingCount = (level) => {
   return selectDeckRemainingCount(gameState.value, level)
-}
-
-// 获取贵族名称
-const getNobleName = (nobleId) => {
-  return getNobleDisplayName(nobleId)
-}
-
-// 获取贵族分数
-const getNoblePoints = (nobleId) => {
-  const pointsMap = {
-    'noble1': 2,
-    'noble2': 2, 
-    'noble3': 2,
-    'noble4': 3
-  }
-  return pointsMap[nobleId] || 0
 }
 
 // 处理图片加载错误
@@ -1112,18 +1044,6 @@ const startGame = () => {
 const leaveGame = () => {
   gameStore.disconnect()
   router.push('/')
-}
-
-// 处理购买发展卡操作
-const handleBuyCard = () => {
-  if (!isMyTurn.value) {
-    if (notificationRef.value) {
-      notificationRef.value.error('错误', '不是你的回合')
-    }
-    return
-  }
-  
-  applyInteractionEvent({ type: 'OPEN_PURCHASE_PAYMENT', title: '购买发展卡', card: null })
 }
 
 // 真实黄金进入内联保留模式；具体规则仍由后端权威校验
@@ -1683,11 +1603,6 @@ const initializeGame = () => {
   if (currentPlayer.value && currentRoom.value) {
     // 连接 WebSocket
     gameStore.connectWebSocket(props.roomId)
-    
-    // 模拟等待玩家（实际应该从 WebSocket 获取）
-    // waitingPlayers.value = [
-    //   { id: currentPlayer.value?.id, name: currentPlayer.value?.name }
-    // ]
   }
 }
 
@@ -1945,7 +1860,6 @@ watch(gameState, (newState, oldState) => {
 .bag-pill[aria-disabled="true"] { cursor: default; }
 .metric-badge.clickable { cursor: pointer; box-shadow: 0 0 0 0 rgba(13,110,253,0); transition: box-shadow .2s ease; }
 .metric-badge.clickable:hover { box-shadow: 0 0 0 3px rgba(13,110,253,0.25); }
-.hint-text { font-size: 12px; color: #6c757d; }
 .bag-tooltip {
   position: absolute;
   top: 150%;
@@ -2350,90 +2264,6 @@ watch(gameState, (newState, oldState) => {
   color: #6c757d;
 }
 
-.gems-list, .bonuses-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.bonus-item {
-  position: relative;
-  cursor: pointer;
-  overflow: visible; /* 确保提示框不会被裁切 */
-}
-
-.bonus-count {
-  display: inline-block;
-  background: #e9ecef;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #495057;
-  transition: background-color 0.2s ease;
-}
-
-.bonus-item:hover .bonus-count {
-  background: #667eea;
-  color: white;
-}
-
-.bonus-tooltip {
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  min-width: 200px;
-  z-index: 1000;
-  /* position 由行内样式控制，确保本地定位 */
-}
-
-.bonus-tooltip h6 {
-  margin: 0 0 8px 0;
-  font-size: 12px;
-  color: #495057;
-  text-align: center;
-}
-
-.bonus-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  justify-content: center;
-}
-
-.bonus-card-image {
-  width: 60px;
-  height: 90px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #dee2e6;
-}
-
-.gem-count, .bonus-count {
-  background: white;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  color: #495057;
-  border: 1px solid #dee2e6;
-}
-
-/* 操作面板样式 */
-.action-panel {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #dee2e6;
-}
-
-.action-panel h3 {
-  margin: 0 0 16px 0;
-  color: #495057;
-  border-bottom: 2px solid #e9ecef;
-  padding-bottom: 8px;
-}
-
 .mobile-panel-summary {
   display: contents;
   color: inherit;
@@ -2450,49 +2280,6 @@ watch(gameState, (newState, oldState) => {
 
 .mobile-game-nav {
   display: none;
-}
-
-.available-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.available-actions .btn {
-  width: 100%;
-  text-align: left;
-  padding: 12px;
-  font-size: 14px;
-}
-
-.waiting-turn {
-  text-align: center;
-  color: #6c757d;
-  font-style: italic;
-}
-
-.game-board-placeholder, .action-panel-placeholder {
-  background: #f8f9fa;
-  border: 2px dashed #dee2e6;
-  border-radius: 12px;
-  padding: 40px;
-  text-align: center;
-  min-height: 400px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-.game-board-placeholder h3, .action-panel-placeholder h3 {
-  margin: 0 0 16px 0;
-  color: #495057;
-}
-
-.game-board-placeholder p, .action-panel-placeholder p {
-  margin: 8px 0;
-  color: #6c757d;
-  font-size: 14px;
 }
 
 .waiting-area {
@@ -2608,7 +2395,6 @@ watch(gameState, (newState, oldState) => {
   overflow-y: auto;
   border: 1px solid #dee2e6;
   border-radius: 8px;
-  /*padding: 12px;*/
   background: #f8f9fa;
 }
 
@@ -2616,8 +2402,6 @@ watch(gameState, (newState, oldState) => {
   padding: 8px 12px;
   background: #ffffff;
   border-bottom: 1px solid #e9ecef;
-  /*border-radius: 16px;
-  max-width: 80%;*/
   font-size: 14px;
 }
 
@@ -2627,8 +2411,6 @@ watch(gameState, (newState, oldState) => {
 
 .history-item.own-history-item {
   background: #e3f2fd;
-  /*margin-left: auto;
-  text-align: right;*/
 }
 
 .action-time {
@@ -2645,12 +2427,6 @@ watch(gameState, (newState, oldState) => {
 
 .action-text {
   color: #212529;
-}
-
-.game-placeholder {
-  text-align: center;
-  padding: 60px 20px;
-  color: #6c757d;
 }
 
 @media (max-width: 1200px) {
@@ -2759,7 +2535,7 @@ watch(gameState, (newState, oldState) => {
     height: 134px;
   }
 
-  .player-status, .action-panel, .chat-panel, .history-panel {
+  .player-status, .chat-panel, .history-panel {
     padding: var(--space-4);
   }
 
@@ -3371,7 +3147,6 @@ watch(gameState, (newState, oldState) => {
 
 .game-board,
 .player-status,
-.action-panel,
 .chat-panel,
 .history-panel {
   border: var(--border-subtle);
@@ -3394,7 +3169,6 @@ watch(gameState, (newState, oldState) => {
 .board-header h3,
 .section-heading h3,
 .player-status h3,
-.action-panel h3,
 .chat-panel h3,
 .history-panel h3 {
   color: var(--color-ink);
@@ -3451,13 +3225,11 @@ watch(gameState, (newState, oldState) => {
   gap: var(--space-4);
 }
 
-.player-status,
-.action-panel {
+.player-status {
   padding: var(--space-4);
 }
 
 .player-status > h3,
-.action-panel > h3,
 .chat-panel > h3,
 .history-panel > h3 {
   border-bottom-color: var(--color-border);
@@ -3466,17 +3238,6 @@ watch(gameState, (newState, oldState) => {
 .players-list {
   gap: var(--space-3);
   margin: 0;
-}
-
-.action-panel {
-  background: var(--color-surface-subtle);
-}
-
-.hint-text,
-.waiting-turn {
-  color: var(--color-ink-muted);
-  font-size: var(--font-small);
-  line-height: 1.65;
 }
 
 .bottom-panels {
@@ -3642,11 +3403,9 @@ watch(gameState, (newState, oldState) => {
 
   #game-player-section { order: 1; }
   #game-board-section { order: 2; }
-  .action-panel { order: 3; }
 
   .game-board,
-  .player-status,
-  .action-panel {
+  .player-status {
     width: 100%;
     padding: var(--space-3);
     border-radius: var(--radius-card);
