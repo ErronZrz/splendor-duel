@@ -186,6 +186,16 @@ export const isGameState = (value: unknown): value is GameState => (
   typeof value.startedAt === 'string'
 )
 
+// Compatibility for the deployed backend: taking the final available noble
+// currently serializes the empty slice as null. Keep the core guard strict and
+// normalize only this known legacy wire shape at the WebSocket boundary.
+export const parseGameStateSnapshot = (value: unknown): GameState | null => {
+  const normalized = isRecord(value) && value.availableNobles === null
+    ? { ...value, availableNobles: [] }
+    : value
+  return isGameState(normalized) ? normalized : null
+}
+
 const isRoom = (value: unknown): value is Room => (
   isRecord(value) &&
   typeof value.id === 'string' && value.id.length > 0 &&

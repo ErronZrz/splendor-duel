@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { isGameState, parseRoomAPIResponse, type RoomAPIResponse } from './game-state'
+import { isGameState, parseGameStateSnapshot, parseRoomAPIResponse, type RoomAPIResponse } from './game-state'
 
 const gameState = {
   status: 'waiting',
@@ -105,5 +105,14 @@ describe('game state boundary', () => {
   it('accepts empty board cells after a token is taken, but not unknown board values', () => {
     expect(isGameState({ ...gameState, gemBoard: [['blue', '']] })).toBe(true)
     expect(isGameState({ ...gameState, gemBoard: [['future-gem']] })).toBe(false)
+  })
+
+  it('normalizes only the deployed final-noble null collection wire shape', () => {
+    expect(isGameState({ ...gameState, availableNobles: null })).toBe(false)
+    expect(parseGameStateSnapshot({ ...gameState, availableNobles: null })).toEqual({
+      ...gameState,
+      availableNobles: []
+    })
+    expect(parseGameStateSnapshot({ ...gameState, gemBag: null })).toBeNull()
   })
 })

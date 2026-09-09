@@ -144,19 +144,42 @@ test('compensates the page bottom by the real action bar height without scroll j
   }
 })
 
-test('moves the mobile notification container below the sticky header', async ({ page }, testInfo) => {
+test('stacks compact mobile notifications upward from the bottom edge', async ({ page }, testInfo) => {
   test.skip(skipUnlessMobilePrimary(testInfo.project.name))
   await openFixture(page, 'default')
 
+  await page.locator('.player-details:not(.is-local-player) > .player-summary').click()
+  await page.evaluate(() => {
+    const opponentCard = document.querySelector<HTMLElement>('.player-details:not(.is-local-player) .reserved-card-item:not(.empty)')!
+    opponentCard.click()
+    opponentCard.click()
+  })
+  await expect(page.locator('.notification')).toHaveCount(2)
+
   const geometry = await page.evaluate(() => {
     const container = document.querySelector<HTMLElement>('.notification-container')!
-    const header = document.querySelector<HTMLElement>('.game-header')!
+    const nav = document.querySelector<HTMLElement>('.mobile-game-nav')!
+    const notifications = [...document.querySelectorAll<HTMLElement>('.notification')].map(item => {
+      const bounds = item.getBoundingClientRect()
+      return { top: bounds.top, bottom: bounds.bottom, height: bounds.height }
+    })
     return {
-      top: container.getBoundingClientRect().top,
-      headerBottom: header.getBoundingClientRect().bottom
+      containerBottom: container.getBoundingClientRect().bottom,
+      navTop: nav.getBoundingClientRect().top,
+      flexDirection: getComputedStyle(container).flexDirection,
+      borderRadius: getComputedStyle(notifications.length ? document.querySelector<HTMLElement>('.notification')! : container).borderRadius,
+      viewportHeight: window.innerHeight,
+      notifications
     }
   })
-  expect(geometry.top).toBeGreaterThanOrEqual(geometry.headerBottom)
+  expect(geometry.flexDirection).toBe('column-reverse')
+  expect(geometry.containerBottom).toBeLessThanOrEqual(geometry.viewportHeight)
+  expect(geometry.containerBottom).toBeLessThanOrEqual(geometry.navTop - 8)
+  expect(parseFloat(geometry.borderRadius)).toBeGreaterThanOrEqual(12)
+  expect(geometry.notifications).toHaveLength(2)
+  expect(Math.max(...geometry.notifications.map(item => item.height))).toBeLessThanOrEqual(56)
+  // DOM 中的第二条是后续消息；视觉上应出现在第一条上方。
+  expect(geometry.notifications[1].bottom).toBeLessThan(geometry.notifications[0].top)
 })
 
 test('clamps the history preview tooltip inside the viewport on the tap path', async ({ page }, testInfo) => {

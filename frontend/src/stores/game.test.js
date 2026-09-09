@@ -162,6 +162,33 @@ describe('game store WebSocket lifecycle', () => {
     expect(store.gameState).toEqual(stateAfterTake)
   })
 
+  it('installs and normalizes the authoritative state after the final noble is taken', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const exhaustedNoblesState = {
+      status: 'playing', currentPlayerIndex: 1, turnNumber: 63,
+      players: [{
+        id: 'p1', name: 'Player 1', gems: { pearl: 1 }, bonus: { white: 5 }, reservedCards: [],
+        developmentCards: ['f3'], privilegeTokens: 0, crowns: 6, nobles: ['noble1', 'noble4'], points: 19,
+        isHost: true, lastActive: '2026-09-09T15:12:11Z'
+      }],
+      gemBoard: [['']], gemBag: ['pearl'], availablePrivilegeTokens: 0,
+      unflippedCards: {}, flippedCards: {}, level1Deck: [], level2Deck: [], level3Deck: [],
+      cardDetails: {}, cardMap: {}, availableNobles: null, extraTurns: {},
+      cardToRefill: { level: 0, index: 0 }, refilledThisTurn: false,
+      needsGemDiscard: false, gemDiscardTarget: 10, gemDiscardPlayerID: '',
+      createdAt: '2026-09-09T14:48:05Z', startedAt: '2026-09-09T14:48:28Z'
+    }
+
+    socket.onmessage({ data: JSON.stringify({ type: 'game_state_update', gameState: exhaustedNoblesState }) })
+
+    expect(store.gameState).toMatchObject({
+      currentPlayerIndex: 1,
+      availableNobles: [],
+      players: [{ developmentCards: ['f3'], crowns: 6, nobles: ['noble1', 'noble4'], points: 19 }]
+    })
+  })
+
   it('does not install a malformed successful room response', async () => {
     store = useGameStore(createPinia())
     vi.spyOn(axios, 'post').mockResolvedValue({

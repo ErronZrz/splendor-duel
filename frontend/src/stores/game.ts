@@ -13,8 +13,8 @@ import {
   type ServerMessage
 } from '../protocol'
 import {
-  isGameState,
   isRecord,
+  parseGameStateSnapshot,
   parseRoomAPIResponse,
   type GameState,
   type Room
@@ -336,8 +336,9 @@ export const useGameStore = defineStore('game', () => {
         break
       }
       case 'game_state_update':
-        if (isGameState(data.gameState)) {
-          gameState.value = data.gameState
+        {
+          const snapshot = parseGameStateSnapshot(data.gameState)
+          if (snapshot) gameState.value = snapshot
         }
         break
       case 'chat_message':
@@ -414,10 +415,16 @@ export const useGameStore = defineStore('game', () => {
         // 房间成员始终以服务器的 game_state_update 为准。
         break
       case 'game_start':
-        if (isGameState(data.gameState)) {
-          gameState.value = data.gameState
-        } else if (isRecord(data.data) && isGameState(data.data.gameState)) {
-          gameState.value = data.data.gameState
+        {
+          const directSnapshot = parseGameStateSnapshot(data.gameState)
+          const roomSnapshot = isRecord(data.data)
+            ? parseGameStateSnapshot(data.data.gameState)
+            : null
+          if (directSnapshot) {
+            gameState.value = directSnapshot
+          } else if (roomSnapshot) {
+            gameState.value = roomSnapshot
+          }
         }
         break
       case 'game_end':

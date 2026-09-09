@@ -44,25 +44,33 @@ import { ref, onMounted } from 'vue'
 
 const notifications = ref([])
 let notificationId = 0
+const mobileNotificationDuration = 3000
+
+const getAutoDismissDuration = (duration) => {
+  if (duration <= 0) return duration
+  const isMobile = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches
+  return isMobile ? mobileNotificationDuration : duration
+}
 
 // 显示通知
 const showNotification = (type, title, message = '', duration = 5000) => {
   const id = ++notificationId
+  const autoDismissDuration = getAutoDismissDuration(duration)
   const notification = {
     id,
     type,
     title,
     message,
-    duration
+    duration: autoDismissDuration
   }
   
   notifications.value.push(notification)
   
   // 自动移除
-  if (duration > 0) {
+  if (autoDismissDuration > 0) {
     setTimeout(() => {
       removeNotification(id)
-    }, duration)
+    }, autoDismissDuration)
   }
   
   return id
@@ -233,15 +241,56 @@ defineExpose({
 /* 响应式设计 */
 @media (max-width: 768px) {
   .notification-container {
-    /* 游戏页顶栏为 sticky，通知下移至其实际高度之下；非游戏页未设置该变量时保持原位 */
-    top: calc(var(--game-header-height, 0px) + var(--space-2));
+    top: auto;
     right: var(--page-gutter);
+    bottom: calc(max(var(--space-2), env(safe-area-inset-bottom)) + 68px);
     left: var(--page-gutter);
+    flex-direction: column-reverse;
+    gap: 6px;
   }
   
   .notification {
     min-width: auto;
     width: 100%;
+    min-height: 44px;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 7px 44px 7px 10px;
+    border-left-width: 4px;
+    border-radius: var(--radius-card);
+  }
+
+  .notification-content {
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .notification-icon {
+    width: 22px;
+    height: 22px;
+    font-size: 14px;
+  }
+
+  .notification-title {
+    margin-bottom: 1px;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .notification-message {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .notification-close {
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+  }
+
+  .notification-enter-from,
+  .notification-leave-to {
+    transform: translateY(calc(100% + var(--space-2))) scale(0.96);
   }
 }
 
