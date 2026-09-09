@@ -38,7 +38,7 @@
           @keydown.escape.prevent="showNobleTooltip = false"
         >
           <UiIcon name="crown" />{{ player.crowns || 0 }}
-          <div v-if="showNobleTooltip && nobleIds.length > 0" class="noble-tooltip">
+          <div v-if="showNobleTooltip && nobleIds.length > 0" ref="nobleTooltipRef" class="noble-tooltip" :style="nobleTooltipShift ? { '--noble-tooltip-shift': `${nobleTooltipShift}px` } : undefined">
             <div class="noble-tooltip-content">
               <img
                 v-for="nobleId in nobleIds"
@@ -126,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 import type { DevelopmentCard, GemType, Player } from '../game-state'
 import {
@@ -162,11 +162,44 @@ const isStealSelectable = (gem: string | null): boolean => Boolean(gem && props.
 
 const showNobleTooltip = ref(false)
 const playerCardRef = ref<HTMLElement | null>(null)
+const nobleTooltipRef = ref<HTMLElement | null>(null)
+// 贵族浮层水平视口钳制位移（px），0 表示保持居中
+const nobleTooltipShift = ref(0)
+const clampNobleTooltip = async () => {
+  await nextTick()
+  const tip = nobleTooltipRef.value
+  if (!(tip instanceof HTMLElement)) return
+  // 当前位移并入测量，得到未偏移时相对视口的基准边界
+  const rect = tip.getBoundingClientRect()
+  const baseLeft = rect.left - nobleTooltipShift.value
+  const baseRight = rect.right - nobleTooltipShift.value
+  const gutter = 8
+  if (baseLeft < gutter) nobleTooltipShift.value = gutter - baseLeft
+  else if (baseRight > window.innerWidth - gutter) nobleTooltipShift.value = (window.innerWidth - gutter) - baseRight
+  else nobleTooltipShift.value = 0
+}
+// 窗口/可视视口尺寸变化后延迟一帧钳制，等待视口尺寸稳定（移动仿真与真机旋转时 innerWidth 逐帧收敛）
+const clampVisibleNobleTooltip = () => {
+  if (!showNobleTooltip.value) return
+  requestAnimationFrame(() => { if (showNobleTooltip.value) clampNobleTooltip() })
+}
+watch(showNobleTooltip, (visible) => {
+  if (visible) clampNobleTooltip()
+  else nobleTooltipShift.value = 0
+})
 const closeNoblesOnOutsidePress = (event: PointerEvent) => {
   if (playerCardRef.value && !playerCardRef.value.contains(event.target as Node)) showNobleTooltip.value = false
 }
-onMounted(() => document.addEventListener('pointerdown', closeNoblesOnOutsidePress))
-onUnmounted(() => document.removeEventListener('pointerdown', closeNoblesOnOutsidePress))
+onMounted(() => {
+  document.addEventListener('pointerdown', closeNoblesOnOutsidePress)
+  window.addEventListener('resize', clampVisibleNobleTooltip)
+  window.visualViewport?.addEventListener('resize', clampVisibleNobleTooltip)
+})
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', closeNoblesOnOutsidePress)
+  window.removeEventListener('resize', clampVisibleNobleTooltip)
+  window.visualViewport?.removeEventListener('resize', clampVisibleNobleTooltip)
+})
 const bonusColorRows: readonly (readonly GemType[])[] = [
   ['white', 'blue', 'green'],
   ['red', 'black', 'gray']
@@ -207,7 +240,7 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .metric-badge.clickable:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 25%, transparent); }
 .crown-badge { position: relative; }
 .crown-badge.has-nobles { cursor: pointer; }
-.noble-tooltip { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); box-shadow: var(--shadow-raised); padding: 8px; z-index: 1000; margin-top: 8px; }
+.noble-tooltip { position: absolute; top: 100%; left: 50%; transform: translateX(calc(-50% + var(--noble-tooltip-shift, 0px))); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-card); box-shadow: var(--shadow-raised); padding: 8px; z-index: 1000; margin-top: 8px; }
 .noble-tooltip::before { content: ''; position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 6px solid #ffffff; }
 .noble-tooltip::after { content: ''; position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 7px solid #dee2e6; z-index: -1; }
 .noble-tooltip-content { display: flex; gap: 6px; align-items: center; }

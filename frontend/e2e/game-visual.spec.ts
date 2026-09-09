@@ -121,11 +121,14 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     const name = element.querySelector('.player-summary-name')!.getBoundingClientRect()
     return Math.round(name.left - outer.left)
   })
-  await page.locator('.player-summary-sticky-anchor').evaluate(anchor => {
-    window.scrollTo(0, window.scrollY + anchor.getBoundingClientRect().top - 58 + 100)
-  })
+  const headerBottom = async () => page.evaluate(() =>
+    Math.round(document.querySelector<HTMLElement>('.game-header')!.getBoundingClientRect().bottom))
+  const pinnedHeaderBottom = await headerBottom()
+  await page.locator('.player-summary-sticky-anchor').evaluate((anchor, headerHeight) => {
+    window.scrollTo(0, window.scrollY + anchor.getBoundingClientRect().top - headerHeight + 100)
+  }, pinnedHeaderBottom)
   await expect(localSummary).toHaveClass(/is-globally-stuck/)
-  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(58)
+  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(await headerBottom())
   expect(await localSummary.evaluate(element => getComputedStyle(element).borderLeft)).toBe('5px solid rgb(8, 127, 153)')
   expect(await localSummary.evaluate(element => getComputedStyle(element).borderTopLeftRadius)).toBe('0px')
   expect(await localSummary.evaluate(element => getComputedStyle(element).borderTopRightRadius)).toBe('0px')
@@ -155,7 +158,7 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
   await expect(localDetails).not.toHaveClass(/expanded/)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(localSummary).toHaveClass(/is-globally-stuck/)
-  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(58)
+  expect(await localSummary.evaluate(element => Math.round(element.getBoundingClientRect().top))).toBe(await headerBottom())
   const navigatedByBottomNav = await page.evaluate(() => {
     const button = document.querySelector<HTMLButtonElement>('.mobile-game-nav button[aria-label="版图"]')
     button?.click()

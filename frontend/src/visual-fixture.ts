@@ -19,6 +19,14 @@ const router = createRouter({
   routes: [{ path: '/', component: { template: '<div />' } }]
 })
 const fixture = createGameVisualFixture()
+// 附加数据变体（不改变默认基线）：nobles=many 让本地玩家持有四贵族，用于贵族浮层视口钳制回归
+if (new URLSearchParams(window.location.search).get('nobles') === 'many') {
+  const local = fixture.room.gameState?.players?.[0]
+  if (local) {
+    local.nobles = ['noble1', 'noble2', 'noble3', 'noble4']
+    local.crowns = 4
+  }
+}
 if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
   const firstCardId = fixture.room.gameState?.flippedCards?.['1']?.[0]
   const card = firstCardId ? fixture.room.gameState?.cardDetails?.[firstCardId] : undefined

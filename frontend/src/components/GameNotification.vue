@@ -233,7 +233,8 @@ defineExpose({
 /* 响应式设计 */
 @media (max-width: 768px) {
   .notification-container {
-    top: var(--space-2);
+    /* 游戏页顶栏为 sticky，通知下移至其实际高度之下；非游戏页未设置该变量时保持原位 */
+    top: calc(var(--game-header-height, 0px) + var(--space-2));
     right: var(--page-gutter);
     left: var(--page-gutter);
   }

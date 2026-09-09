@@ -1,7 +1,7 @@
 <template>
-  <div class="game-container">
+  <div class="game-container" :style="{ '--context-action-bar-height': `${contextActionBarHeight}px` }">
     <!-- 游戏头部信息 -->
-    <header class="game-header" :class="{ collapsed: !isHeaderExpanded }" :inert="victoryDialog.visible || undefined">
+    <header ref="gameHeaderRef" class="game-header" :class="{ collapsed: !isHeaderExpanded }" :inert="victoryDialog.visible || undefined">
       <template v-if="isHeaderExpanded">
         <span class="brand-mark" aria-hidden="true"><UiIcon name="diamond" /></span>
         <div class="room-info">
@@ -29,7 +29,7 @@
     </header>
 
     <!-- 游戏主体 -->
-    <main class="game-main" :class="{ 'has-context-action': Boolean(contextActionBar) }" :inert="victoryDialog.visible || undefined">
+    <main class="game-main" :inert="victoryDialog.visible || undefined">
       <section class="turn-overview" :class="{ 'is-my-turn': isMyTurn }" aria-labelledby="turn-overview-heading">
         <span class="turn-overview-icon" aria-hidden="true"><UiIcon name="turn" /></span>
         <div class="turn-overview-copy">
@@ -137,6 +137,7 @@
 
               <ContextActionBar
                 v-if="contextActionBar && !actionDialog.visible && !victoryDialog.visible"
+                :ref="setContextActionBarRef"
                 :mode="contextActionBar.mode"
                 :selected-gems="contextActionBar.selectedGems"
                 :selected-gold="contextActionBar.selectedGold"
@@ -344,7 +345,7 @@
       </div>
     </main>
 
-    <nav v-if="!showWaitingArea && !actionDialog.visible && !contextActionBar" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
+    <nav v-if="!showWaitingArea" class="mobile-game-nav" :class="{ 'keyboard-hidden': isChatInputFocused, 'nav-hidden': actionDialog.visible || Boolean(contextActionBar) }" aria-label="游戏区域快捷导航" :inert="victoryDialog.visible || undefined">
       <span class="mobile-turn-status">{{ isMyTurn ? '你的回合' : '对手回合' }}</span>
       <button type="button" aria-label="玩家" title="玩家" @click="scrollToMobileSection('game-player-section')"><UiIcon name="player" /></button>
       <button type="button" aria-label="版图" title="版图" @click="scrollToMobileSection('game-board-section')"><UiIcon name="board" /></button>
@@ -466,6 +467,21 @@ onMounted(() => {
     if (!img) return
     const bounds = target.getBoundingClientRect()
     preview.value = { visible: true, image: img, x: bounds.left, y: bounds.bottom + 8 }
+    // tap/键盘路径同样做视口防溢出：渲染后读取实际边界再钳制
+    nextTick(() => {
+      const tooltipEl = historyPreviewRef.value
+      if (!tooltipEl || !preview.value.visible || preview.value.image !== img) return
+      const padding = 12
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const rect = tooltipEl.getBoundingClientRect()
+      const x = Math.max(padding, Math.min(vw - rect.width - padding, preview.value.x))
+      // 底缘放不下时翻到链接上方，最终再双向钳制
+      let y = preview.value.y
+      if (y + rect.height + padding > vh) y = bounds.top - rect.height - 8
+      y = Math.max(padding, Math.min(vh - rect.height - padding, y))
+      if (x !== preview.value.x || y !== preview.value.y) preview.value = { ...preview.value, x, y }
+    })
   }
   const onClick = (e) => {
     const target = e.target.closest('[data-preview]')
@@ -678,15 +694,44 @@ const scrollToMobileSection = async (sectionId, panelId) => {
   if (!section) return
   const behavior = reduceMotion ? 'auto' : 'smooth'
   const isMobile = window.matchMedia?.('(max-width: 768px)').matches
-  const stickySummary = document.querySelector('.player-summary.is-globally-stuck')
-  if (isMobile && stickySummary instanceof HTMLElement) {
-    const desiredTop = stickySummary.getBoundingClientRect().bottom + 12
-    window.scrollBy({ top: section.getBoundingClientRect().top - desiredTop, behavior })
+  if (!isMobile) {
+    section.scrollIntoView({ behavior, block: 'start' })
     return
   }
-  section.scrollIntoView({ behavior, block: 'start' })
+  // 移动端统一按「顶栏实际高度 + 吸附摘要实际底部（如吸附）」补偿，避免目标藏到 sticky 顶栏下
+  const headerBottom = gameHeaderRef.value?.getBoundingClientRect().bottom ?? 0
+  const stickySummary = document.querySelector('.player-summary.is-globally-stuck')
+  const summaryBottom = stickySummary instanceof HTMLElement ? stickySummary.getBoundingClientRect().bottom : 0
+  const desiredTop = Math.max(headerBottom, summaryBottom) + 12
+  window.scrollBy({ top: section.getBoundingClientRect().top - desiredTop, behavior })
 }
 const expandedPlayerIds = ref(new Set())
+const gameHeaderRef = ref(null)
+// 顶栏实际高度同步为全局 CSS 变量，吸附摘要 top 与移动端通知位置引用之
+let gameHeaderResizeObserver = null
+const syncGameHeaderHeight = () => {
+  const header = gameHeaderRef.value
+  if (!(header instanceof HTMLElement)) return
+  document.documentElement.style.setProperty('--game-header-height', `${header.getBoundingClientRect().height}px`)
+}
+// ContextActionBar 实际渲染高度，移动端据此动态补偿页面底部 padding
+const contextActionBarHeight = ref(0)
+let contextBarResizeObserver = null
+const setContextActionBarRef = (instance) => {
+  contextBarResizeObserver?.disconnect()
+  contextBarResizeObserver = null
+  const element = instance?.$el
+  if (!(element instanceof HTMLElement)) {
+    contextActionBarHeight.value = 0
+    return
+  }
+  const update = () => { contextActionBarHeight.value = element.getBoundingClientRect().height }
+  update()
+  if (typeof ResizeObserver !== 'undefined') {
+    contextBarResizeObserver = new ResizeObserver(update)
+    contextBarResizeObserver.observe(element)
+  }
+}
 const localPlayerSummaryAnchorRef = ref(null)
 const setLocalPlayerSummaryAnchor = (element) => { localPlayerSummaryAnchorRef.value = element }
 const isLocalPlayerSummaryStuck = ref(false)
@@ -700,16 +745,30 @@ const updateLocalPlayerSummaryStickiness = () => {
   const summary = anchor?.nextElementSibling
   if (!(anchor instanceof HTMLElement) || !(summary instanceof HTMLElement)) return
   if (!isLocalPlayerSummaryStuck.value) localPlayerSummaryHeight.value = summary.getBoundingClientRect().height
-  isLocalPlayerSummaryStuck.value = anchor.getBoundingClientRect().top <= 58
+  // 吸附阈值为 sticky 顶栏的实际底部（顶栏 sticky top: 0，bottom 即其实际高度）
+  const headerBottom = gameHeaderRef.value?.getBoundingClientRect().bottom ?? 58
+  isLocalPlayerSummaryStuck.value = anchor.getBoundingClientRect().top <= headerBottom
 }
 onMounted(() => {
   window.addEventListener('scroll', updateLocalPlayerSummaryStickiness, { passive: true })
   window.addEventListener('resize', updateLocalPlayerSummaryStickiness)
-  nextTick(updateLocalPlayerSummaryStickiness)
+  window.addEventListener('resize', syncGameHeaderHeight)
+  if (typeof ResizeObserver !== 'undefined' && gameHeaderRef.value) {
+    gameHeaderResizeObserver = new ResizeObserver(syncGameHeaderHeight)
+    gameHeaderResizeObserver.observe(gameHeaderRef.value)
+  }
+  nextTick(() => {
+    syncGameHeaderHeight()
+    updateLocalPlayerSummaryStickiness()
+  })
 })
 onUnmounted(() => {
   window.removeEventListener('scroll', updateLocalPlayerSummaryStickiness)
   window.removeEventListener('resize', updateLocalPlayerSummaryStickiness)
+  window.removeEventListener('resize', syncGameHeaderHeight)
+  gameHeaderResizeObserver?.disconnect()
+  contextBarResizeObserver?.disconnect()
+  document.documentElement.style.removeProperty('--game-header-height')
 })
 const isPlayerDetailsExpanded = (playerId) => expandedPlayerIds.value.has(playerId)
 const togglePlayerDetails = (playerId, event) => {
@@ -2562,7 +2621,8 @@ watch(gameState, (newState, oldState) => {
   .game-main {
     gap: var(--space-4);
     padding-top: var(--space-4);
-    padding-bottom: calc(84px + env(safe-area-inset-bottom));
+    /* 底部补偿取底部导航基线与 ContextActionBar 实际渲染高度+间距的较大者，操作栏出现/消失不再跳变 */
+    padding-bottom: calc(max(84px, var(--context-action-bar-height, 0px) + var(--space-3)) + env(safe-area-inset-bottom));
   }
 
   #game-board-section,
@@ -2614,10 +2674,6 @@ watch(gameState, (newState, oldState) => {
     gap: var(--space-2) var(--space-3);
   }
   .bag-container { margin-left: auto; }
-
-  .game-main.has-context-action {
-    padding-bottom: calc(230px + env(safe-area-inset-bottom));
-  }
 
   .development-cards {
     min-width: 0;
@@ -2835,6 +2891,12 @@ watch(gameState, (newState, oldState) => {
 
   .mobile-game-nav.keyboard-hidden {
     display: none;
+  }
+
+  /* 操作栏/对话框展示期间导航保持占位隐藏：不卸载 DOM，避免页面补偿跳变并可即时恢复 */
+  .mobile-game-nav.nav-hidden {
+    visibility: hidden;
+    pointer-events: none;
   }
 }
 
@@ -3692,7 +3754,7 @@ watch(gameState, (newState, oldState) => {
 
   .player-details.is-local-player { overflow: visible; }
   .player-summary-sticky-anchor { display: block; width: 100%; height: 0; }
-  .player-details.is-local-player > .player-summary.is-globally-stuck { position: fixed; z-index: 50; top: 58px; right: var(--page-gutter); left: var(--page-gutter); width: auto; overflow: hidden; border: 1px solid var(--color-border); border-left: 5px solid var(--color-self); border-radius: 0 0 var(--radius-card) var(--radius-card); background: var(--color-surface-subtle); box-shadow: var(--shadow-raised); }
+  .player-details.is-local-player > .player-summary.is-globally-stuck { position: fixed; z-index: 50; top: var(--game-header-height, 58px); right: var(--page-gutter); left: var(--page-gutter); width: auto; overflow: hidden; border: 1px solid var(--color-border); border-left: 5px solid var(--color-self); border-radius: 0 0 var(--radius-card) var(--radius-card); background: var(--color-surface-subtle); box-shadow: var(--shadow-raised); }
   .player-details.is-local-player:has(.player-card.active-turn) > .player-summary.is-globally-stuck { background: var(--color-self-soft); }
 
   .player-summary-metrics { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
