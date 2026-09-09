@@ -290,6 +290,11 @@ const handleImageError = (event: Event, gem: string): void => {
   font-size: 10px;
 }
 
+/* 空位文案仅作弱化占位提示（按钮 aria-label 已提供完整位置语义）；图片加载失败的 .gem-text-fallback 保持全可读 */
+.empty-cell {
+  opacity: .38;
+}
+
 @media (hover: none), (pointer: coarse) {
   .gem-cell.selectable:not(:disabled):hover .gem-image {
     transform: none;

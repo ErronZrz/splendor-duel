@@ -105,6 +105,54 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   }
 })
 
+test('de-emphasizes empty cells, hints the send key and sizes the shell with dvh', async ({ page }) => {
+  await page.goto('/visual-fixture.html?scenario=default&board=gap')
+  await expect(page.locator('html')).toHaveAttribute('data-visual-fixture-ready', 'default')
+
+  // 空格文案视觉淡化但保留 DOM 与按钮 aria 语义；淡化不改变格子几何
+  const emptyCells = page.locator('.empty-cell')
+  await expect(emptyCells).toHaveCount(3)
+  await expect(page.locator('.gem-cell:not(.has-gem)').first()).toHaveAttribute('aria-label', /空位置，第\d+行第\d+列/)
+  const emptyOpacity = await emptyCells.first().evaluate(element => getComputedStyle(element).opacity)
+  expect(emptyOpacity).toBe('0.38')
+  const cellSizes = await page.evaluate(() => {
+    const empty = document.querySelector('.gem-cell:not(.has-gem)')!.getBoundingClientRect()
+    const filled = document.querySelector('.gem-cell.has-gem')!.getBoundingClientRect()
+    return { empty: { width: empty.width, height: empty.height }, filled: { width: filled.width, height: filled.height } }
+  })
+  // 网格轨道宽存在跨浏览器亚像素舍入（Firefox 实测差约 1.5e-5px），按容差比对
+  expect(Math.abs(cellSizes.empty.width - cellSizes.filled.width)).toBeLessThan(0.5)
+  expect(Math.abs(cellSizes.empty.height - cellSizes.filled.height)).toBeLessThan(0.5)
+
+  // 聊天输入提示虚拟键盘回车键为「发送」
+  await expect(page.locator('.chat-input input')).toHaveAttribute('enterkeyhint', 'send')
+
+  // 外壳高度使用 100dvh（保留 100vh 回退行），计算高度与视口一致
+  const shell = await page.evaluate(() => {
+    const texts: string[] = []
+    for (const sheet of Array.from(document.styleSheets)) {
+      for (const rule of Array.from(sheet.cssRules)) texts.push(rule.cssText)
+    }
+    const all = texts.join('\n')
+    const hasDvh = (selector: string) => new RegExp(`${selector}[^{]*\\{[^}]*100dvh`).test(all)
+    return {
+      bodyDvh: hasDvh('body'),
+      appDvh: hasDvh('#app'),
+      containerDvh: hasDvh('\\.game-container'),
+      bodyMin: getComputedStyle(document.body).minHeight,
+      appMin: getComputedStyle(document.getElementById('app')!).minHeight,
+      containerMin: getComputedStyle(document.querySelector('.game-container')!).minHeight,
+      innerHeight: window.innerHeight
+    }
+  })
+  expect(shell.bodyDvh).toBe(true)
+  expect(shell.appDvh).toBe(true)
+  expect(shell.containerDvh).toBe(true)
+  expect(shell.bodyMin).toBe(`${shell.innerHeight}px`)
+  expect(shell.appMin).toBe(`${shell.innerHeight}px`)
+  expect(shell.containerMin).toBe(`${shell.innerHeight}px`)
+})
+
 test('uses a labelled neutral fallback for a broken business image', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-primary')
   await openFixture(page, 'default')

@@ -81,6 +81,7 @@ body {
     radial-gradient(circle at 12% -10%, rgba(36, 85, 143, .09), transparent 30rem),
     var(--color-canvas);
   min-height: 100vh;
+  min-height: 100dvh;
   color: var(--color-ink);
   font-size: var(--font-body);
   line-height: var(--line-body);
@@ -90,6 +91,7 @@ body {
 
 #app {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .container {

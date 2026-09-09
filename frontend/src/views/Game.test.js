@@ -301,6 +301,24 @@ describe('stage 60 mobile keyboard avoidance and stickiness throttling', () => {
   })
 })
 
+describe('stage 62 detail polish', () => {
+  it('hints the virtual keyboard enter key as send on the chat input', async () => {
+    await createGameFlowHarness()
+    const input = wrapper.find('.chat-input input')
+    expect(input.attributes('aria-label')).toBe('聊天消息')
+    expect(input.attributes('enterkeyhint')).toBe('send')
+  })
+
+  it('keeps the waiting area free of debug details', async () => {
+    await createGameFlowHarness({ stateOverrides: { status: 'waiting' } })
+    expect(wrapper.find('.waiting-area').exists()).toBe(true)
+    expect(wrapper.find('.waiting-area h3').text()).toBe('等待其他玩家加入...')
+    expect(wrapper.find('.debug-info').exists()).toBe(false)
+    expect(wrapper.find('.waiting-area').text()).not.toContain('调试信息')
+    expect(wrapper.find('.players-list').exists()).toBe(true)
+  })
+})
+
 describe('existing game action orchestration', () => {
   beforeEach(() => {
     vi.useFakeTimers()

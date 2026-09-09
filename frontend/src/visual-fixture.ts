@@ -27,6 +27,15 @@ if (new URLSearchParams(window.location.search).get('nobles') === 'many') {
     local.crowns = 4
   }
 }
+// 附加数据变体（不改变默认基线）：board=gap 让版图出现三个空位，用于空格文案淡化回归
+if (new URLSearchParams(window.location.search).get('board') === 'gap') {
+  const gemBoard = fixture.room.gameState?.gemBoard
+  if (gemBoard) {
+    gemBoard[0][4] = ''
+    gemBoard[1][1] = ''
+    gemBoard[2][3] = ''
+  }
+}
 if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
   const firstCardId = fixture.room.gameState?.flippedCards?.['1']?.[0]
   const card = firstCardId ? fixture.room.gameState?.cardDetails?.[firstCardId] : undefined

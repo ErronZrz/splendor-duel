@@ -55,13 +55,6 @@
       <div class="game-board-area">
         <div v-if="showWaitingArea" class="waiting-area">
           <h3>等待其他玩家加入...</h3>
-          <div class="debug-info">
-            <p><strong>调试信息:</strong></p>
-            <p>房间ID: {{ roomId }}</p>
-            <p>当前玩家: {{ currentPlayer?.name || '未设置' }}</p>
-            <p>房间信息: {{ currentRoom?.name || '未设置' }}</p>
-            <p>连接状态: {{ isConnected ? '已连接' : '未连接' }}</p>
-          </div>
           <div class="players-list">
             <div v-for="player in waitingPlayers" :key="player.id" class="player-item">
               {{ player.name }}
@@ -332,6 +325,7 @@
               <input
                 v-model="newMessage"
                 aria-label="聊天消息"
+                enterkeyhint="send"
                 @focus="isChatInputFocused = true"
                 @blur="isChatInputFocused = false"
                 @keyup.enter="sendMessage"
@@ -1721,6 +1715,7 @@ watch(gameState, (newState, oldState) => {
 <style scoped>
 .game-container {
   min-height: 100vh;
+  min-height: 100dvh;
   min-width: 0;
   background: var(--color-canvas);
   color: var(--color-ink);
@@ -2285,28 +2280,6 @@ watch(gameState, (newState, oldState) => {
 .waiting-area {
   text-align: center;
   padding: 60px 20px;
-}
-
-.debug-info {
-  background: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 16px;
-  margin: 20px 0;
-  text-align: left;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.debug-info p {
-  margin: 4px 0;
-  font-size: 14px;
-  color: #495057;
-}
-
-.debug-info strong {
-  color: #6c757d;
 }
 
 .players-list {
