@@ -13,6 +13,14 @@ const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   expect(applicationSockets).toEqual([])
 }
 
+// 程序滚动后浏览器 scroll anchoring 异步收敛：连续两帧 scrollY 采样不变视为沉降完成
+const settleScroll = async (page: Page): Promise<void> => {
+  await page.waitForFunction(() => new Promise<boolean>(resolve => {
+    const last = window.scrollY
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY === last)))
+  }), undefined, { polling: 'raf' })
+}
+
 test('renders the deterministic game baseline', async ({ page }, testInfo) => {
   await openFixture(page, 'default')
   await expect(page.getByRole('heading', { name: '游戏版图', exact: true })).toBeVisible()
@@ -41,10 +49,9 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
     await expect(page.locator('.player-card:visible')).toHaveCount(0)
     const mobilePanels = page.locator('.mobile-collapsible-panel')
-    await expect(mobilePanels).toHaveCount(3)
-    await expect(mobilePanels.nth(0)).not.toHaveClass(/expanded/)
-    await expect(mobilePanels.nth(1)).toHaveClass(/expanded/)
-    await expect(mobilePanels.nth(2)).not.toHaveClass(/expanded/)
+    await expect(mobilePanels).toHaveCount(2)
+    await expect(mobilePanels.nth(0)).toHaveClass(/expanded/)
+    await expect(mobilePanels.nth(1)).not.toHaveClass(/expanded/)
     await expect(page.locator('.history-list')).toBeVisible()
     await expect(page.locator('.chat-input')).toBeHidden()
     const panelBoundsAreValid = await page.locator('.mobile-panel-summary').evaluateAll(summaries => summaries.every(summary => {
@@ -56,7 +63,7 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await historyPreviewTrigger.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toBeVisible()
-    await page.getByRole('button', { name: '关闭历史图片预览' }).click()
+    await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
     await page.locator('.player-details').first().locator('.player-summary').click()
     const nobleDisclosure = page.getByRole('button', { name: /查看1位贵族/ }).first()
@@ -67,7 +74,7 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await page.locator('.player-details').first().locator('.player-summary').click()
     const mobileNav = page.locator('.mobile-game-nav')
     await expect(mobileNav).toBeVisible()
-    await expect(mobileNav.getByText('轮到你', { exact: true })).toBeVisible()
+    await expect(mobileNav.getByText('你的回合', { exact: true })).toBeVisible()
     const navBounds = await mobileNav.evaluate(element => {
       const bounds = element.getBoundingClientRect()
       return { left: bounds.left, right: bounds.right, bottom: bounds.bottom }
@@ -75,22 +82,22 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(navBounds.left).toBeGreaterThanOrEqual(0)
     expect(navBounds.right).toBeLessThanOrEqual(page.viewportSize()!.width)
     expect(navBounds.bottom).toBeLessThanOrEqual(page.viewportSize()!.height)
-    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    await mobilePanels.nth(1).locator('.mobile-panel-summary').click()
     await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
     await page.locator('.chat-input input').focus()
     await expect(mobileNav).toBeHidden()
     await page.locator('.chat-input input').blur()
     await expect(mobileNav).toBeVisible()
-    await mobilePanels.nth(2).locator('.mobile-panel-summary').click()
+    await mobilePanels.nth(1).locator('.mobile-panel-summary').click()
     await mobileNav.getByRole('button', { name: '历史' }).click()
     await expect(page.locator('#game-history-section')).toBeInViewport()
-    await mobileNav.getByRole('button', { name: '棋盘' }).click()
+    await mobileNav.getByRole('button', { name: '版图' }).click()
     await expect(page.locator('#game-board-section')).toBeInViewport()
     await page.evaluate(() => window.scrollTo(0, 0))
   } else {
     await expect(page.getByRole('textbox', { name: '聊天消息' })).toBeVisible()
     await expect(page.locator('.player-card:visible')).toHaveCount(2)
-    await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(3)
+    await expect(page.locator('.mobile-panel-content:visible')).toHaveCount(2)
     await expect(page.locator('.mobile-game-nav')).toBeHidden()
   }
   if (testInfo.project.use.browserName === 'chromium') {
@@ -574,8 +581,14 @@ test.describe('mobile dialog baselines', () => {
             ? page.locator('.inline-effect-choices button').first()
             : page.locator('.noble-item.selectable').first()
       await expect(target).toBeVisible()
-      if (testInfo.project.name.startsWith('mobile-')) await target.tap()
-      else await target.click()
+      if (testInfo.project.name.startsWith('mobile-')) {
+        // 固定底部操作栏会覆盖 minimal-scroll 落点：先滚动到视口中央并等滚动沉降，再 tap（贴合真实用户路径）
+        await target.evaluate(element => element.scrollIntoView({ block: 'center' }))
+        await settleScroll(page)
+        await target.tap()
+      } else {
+        await target.click()
+      }
       await expect(actionBar.getByRole('button', { name: '确认' })).toBeEnabled()
       const metrics = await target.evaluate(element => {
         const bounds = element.getBoundingClientRect()
