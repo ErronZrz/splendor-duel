@@ -16,14 +16,14 @@
       <div v-if="isHeaderExpanded" class="header-details">
         <div class="header-detail">
           <span class="header-detail-label">房间 ID</span>
-          <span class="header-detail-value header-room-id" :title="roomId">{{ roomId }}</span>
+          <span class="header-detail-value header-room-id" :title="roomId">{{ displayRoomId }}</span>
           <button type="button" class="header-copy" :class="{ copied: roomIdCopied }" :aria-label="roomIdCopied ? '房间 ID 已复制' : '复制房间 ID'" @click="copyRoomId">
             <UiIcon :name="roomIdCopied ? 'check' : 'copy'" />{{ roomIdCopied ? '已复制' : '复制' }}
           </button>
         </div>
         <div class="header-detail">
           <span class="header-detail-label">当前玩家</span>
-          <span class="header-detail-value header-player-name"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
+          <span class="header-detail-value header-player-name"><UiIcon name="player" /><span class="header-player-name-text">{{ currentPlayer?.name }}</span></span>
         </div>
         <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
       </div>
@@ -413,6 +413,12 @@ const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black',
 // 摘要栏 token 总量（含珍珠与黄金，规则上限 10 枚）
 const playerTokenTotal = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
   .reduce((sum, type) => sum + (Number(player?.gems?.[type]) || 0), 0)
+
+// 房间 ID 过长时截断展示（如 6c8cad66-6d47-...）；复制与 title 仍使用完整 ID
+const displayRoomId = computed(() => {
+  const id = String(props.roomId || '')
+  return id.length > 16 ? `${id.slice(0, 14)}...` : id
+})
 
 // 房间 ID 一键复制：优先 Clipboard API，非安全上下文退化为隐藏 textarea + execCommand
 const roomIdCopied = ref(false)
@@ -2973,6 +2979,7 @@ watch(gameState, (newState, oldState) => {
 
 .header-details {
   flex-basis: 100%;
+  min-width: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -3004,10 +3011,20 @@ watch(gameState, (newState, oldState) => {
   font-weight: 600;
 }
 
+/* text-overflow 仅对块容器生效，房间 ID 与玩家名文本需脱离 inline-flex 上下文 */
 .header-room-id {
+  display: block;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-player-name-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

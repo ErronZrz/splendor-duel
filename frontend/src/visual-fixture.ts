@@ -36,6 +36,9 @@ if (new URLSearchParams(window.location.search).get('board') === 'gap') {
     gemBoard[2][3] = ''
   }
 }
+// 附加数据变体（不改变默认基线）：roomid=... 覆盖房间 ID，用于长 ID 截断与头部溢出回归
+const requestedRoomId = new URLSearchParams(window.location.search).get('roomid')
+if (requestedRoomId) fixture.room.id = requestedRoomId
 if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
   const firstCardId = fixture.room.gameState?.flippedCards?.['1']?.[0]
   const card = firstCardId ? fixture.room.gameState?.cardDetails?.[firstCardId] : undefined

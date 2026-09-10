@@ -73,12 +73,13 @@ test('keeps one top row in both header states and exposes room actions when expa
   expect(circle.borderWidth).toBe('1px')
   expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(12)
 
-  // 展开态：顶行保持不变，展开区含房间 ID（一键复制）、当前玩家、离开游戏
+  // 展开态：顶行保持不变，展开区含房间 ID（截断展示、一键复制完整 ID）、当前玩家、离开游戏
   await disclosure.click()
   await expect(disclosure).toHaveAttribute('aria-label', '收起房间信息')
   await expect(page.locator('.room-info h2')).toHaveText('Splendor Duel')
   await expect(page.locator('.header-details')).toBeVisible()
-  await expect(page.locator('.header-room-id')).toHaveText('visual-fixture-room')
+  await expect(page.locator('.header-room-id')).toHaveText('visual-fixture...')
+  await expect(page.locator('.header-room-id')).toHaveAttribute('title', 'visual-fixture-room')
   await expect(page.locator('.header-player-name')).toContainText('本地玩家')
   await expect(page.locator('.leave-button')).toBeVisible()
 
@@ -89,6 +90,37 @@ test('keeps one top row in both header states and exposes room actions when expa
 
   await disclosure.click()
   await expect(page.locator('.header-details')).toHaveCount(0)
+})
+
+test('truncates a long room id without overflowing the expanded mobile header', async ({ page }, testInfo) => {
+  test.skip(skipUnlessMobilePrimary(testInfo.project.name))
+  const fullId = '6c8cad66-6d47-407f-bda4-530cd8e9ab12'
+  await openFixture(page, 'default', `&roomid=${fullId}`)
+
+  await page.locator('.header-disclosure').click()
+  // 展示截断（前 14 字符 + ...），title 与剪贴板仍为完整 ID
+  await expect(page.locator('.header-room-id')).toHaveText('6c8cad66-6d47-...')
+  await expect(page.locator('.header-room-id')).toHaveAttribute('title', fullId)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.locator('.header-copy').click()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(fullId)
+
+  // 页面与展开区各行均无横向溢出
+  const geometry = await page.evaluate(() => ({
+    clientWidth: document.documentElement.clientWidth,
+    scrollWidth: document.documentElement.scrollWidth,
+    rows: [...document.querySelectorAll<HTMLElement>('.header-detail, .leave-button')].map(element => {
+      const bounds = element.getBoundingClientRect()
+      return { left: bounds.left, right: bounds.right }
+    }),
+    copyRight: document.querySelector('.header-copy')!.getBoundingClientRect().right
+  }))
+  expect(geometry.scrollWidth).toBe(geometry.clientWidth)
+  for (const row of geometry.rows) {
+    expect(row.left).toBeGreaterThanOrEqual(0)
+    expect(row.right).toBeLessThanOrEqual(geometry.clientWidth + 0.5)
+  }
+  expect(geometry.copyRight).toBeLessThanOrEqual(geometry.clientWidth + 0.5)
 })
 
 test('navigates every mobile section below the actual header and stuck summary', async ({ page }, testInfo) => {
