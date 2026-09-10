@@ -31,6 +31,21 @@ class FakeWebSocket {
   }
 }
 
+const validGameState = () => ({
+  status: 'playing', currentPlayerIndex: 0, turnNumber: 3,
+  players: [{
+    id: 'p1', name: 'Player 1', gems: {}, bonus: {}, reservedCards: [],
+    developmentCards: [], privilegeTokens: 0, crowns: 0, nobles: [], points: 0,
+    isHost: true, lastActive: '2026-09-10T00:00:00Z'
+  }],
+  gemBoard: [], gemBag: [], availablePrivilegeTokens: 3,
+  unflippedCards: {}, flippedCards: {}, level1Deck: [], level2Deck: [], level3Deck: [],
+  cardDetails: {}, cardMap: {}, availableNobles: [], extraTurns: {},
+  cardToRefill: { level: 0, index: 0 }, refilledThisTurn: false,
+  needsGemDiscard: false, gemDiscardTarget: 10, gemDiscardPlayerID: '',
+  createdAt: '2026-09-10T00:00:00Z', startedAt: '2026-09-10T00:01:00Z'
+})
+
 describe('game store WebSocket lifecycle', () => {
   let store
 
@@ -137,6 +152,41 @@ describe('game store WebSocket lifecycle', () => {
       data: JSON.stringify({ type: 'game_state_update', gameState: { ...state, players: [{ id: 'bad' }] } })
     })
     expect(store.gameState).toEqual(state)
+  })
+
+  it('restores authoritative room metadata and state from room_info', () => {
+    store = connectedStore()
+    const socket = FakeWebSocket.instances[0]
+    const room = {
+      id: 'room-1', name: '刷新后仍在的房间名', gameState: validGameState(),
+      createdAt: '2026-09-10T00:00:00Z', updatedAt: '2026-09-10T00:02:00Z'
+    }
+
+    socket.onmessage({ data: JSON.stringify({ type: 'room_info', data: room }) })
+
+    expect(store.currentRoom).toEqual(room)
+    expect(store.gameState).toEqual(room.gameState)
+  })
+
+  it('replaces local chat and game history from a reconnect snapshot', () => {
+    store = connectedStore()
+    store.gameHistory = [{ description: 'stale' }]
+    const socket = FakeWebSocket.instances[0]
+
+    socket.onmessage({
+      data: JSON.stringify({
+        type: 'history_snapshot',
+        data: {
+          chat: [{ playerId: 'p2', playerName: '对手', message: '仍在', timestamp: '2026-09-10T00:03:00Z' }],
+          history: [{ playerId: 'p1', playerName: 'Player 1', description: '拿取了宝石', descriptionHtml: '', timestamp: '2026-09-10T00:04:00Z' }]
+        }
+      })
+    })
+
+    expect(store.chatMessages).toHaveLength(1)
+    expect(store.chatMessages[0]).toMatchObject({ playerName: '对手', message: '仍在' })
+    expect(store.gameHistory).toHaveLength(1)
+    expect(store.gameHistory[0]).toMatchObject({ playerName: 'Player 1', description: '拿取了宝石' })
   })
 
   it('installs an authoritative state update after a gem is removed from the board', () => {

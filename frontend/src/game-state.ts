@@ -196,25 +196,31 @@ export const parseGameStateSnapshot = (value: unknown): GameState | null => {
   return isGameState(normalized) ? normalized : null
 }
 
-const isRoom = (value: unknown): value is Room => (
-  isRecord(value) &&
-  typeof value.id === 'string' && value.id.length > 0 &&
-  typeof value.name === 'string' &&
-  isGameState(value.gameState) &&
-  typeof value.createdAt === 'string' &&
-  typeof value.updatedAt === 'string'
-)
+export const parseRoomSnapshot = (value: unknown): Room | null => {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== 'string' || value.id.length === 0 ||
+    typeof value.name !== 'string' ||
+    typeof value.createdAt !== 'string' ||
+    typeof value.updatedAt !== 'string'
+  ) {
+    return null
+  }
+  const gameState = parseGameStateSnapshot(value.gameState)
+  return gameState ? { ...value, gameState } as unknown as Room : null
+}
 
 export const parseRoomAPIResponse = (value: unknown): RoomAPIResponse | null => {
   if (!isRecord(value) || typeof value.success !== 'boolean') return null
   const message = typeof value.message === 'string' ? value.message : undefined
   if (!value.success) return { success: false, message }
-  if (!isRecord(value.data) || !isRoom(value.data.room) || typeof value.data.playerId !== 'string') {
+  const room = isRecord(value.data) ? parseRoomSnapshot(value.data.room) : null
+  if (!isRecord(value.data) || !room || typeof value.data.playerId !== 'string') {
     return null
   }
   return {
     success: true,
     message,
-    data: { room: value.data.room, playerId: value.data.playerId }
+    data: { room, playerId: value.data.playerId }
   }
 }

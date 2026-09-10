@@ -206,15 +206,8 @@ func getHub() *Hub {
 }
 
 // registerClient 获取或创建房间并注册客户端。锁顺序固定为 Hub -> Room。
+// 房间信息与历史必须等 player_join 身份校验通过后才发送。
 func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *Client) *Room {
-	roomInfo, err := json.Marshal(models.WSMessage{
-		Type: "room_info",
-		Data: gameManager.GetRoom(roomID),
-	})
-	if err != nil {
-		log.Printf("WebSocket room-info serialization failed")
-	}
-
 	h.mutex.Lock()
 	room, exists := h.Rooms[roomID]
 	if !exists {
@@ -227,51 +220,53 @@ func (h *Hub) registerClient(roomID string, gameManager *game.Manager, client *C
 	}
 	room.mutex.Lock()
 	room.Clients[client] = true
-	initialQueued := true
-	if len(roomInfo) > 0 {
-		select {
-		case client.Send <- roomInfo:
-		default:
-			initialQueued = false
-		}
+	room.mutex.Unlock()
+	h.mutex.Unlock()
+	log.Printf("WebSocket client connected")
+	return room
+}
+
+// authenticateAndQueueInitial atomically marks a validated client as eligible
+// for broadcasts after room metadata and retained history are queued. History
+// append+broadcast uses the same Room lock, so a reconnect receives each entry
+// either in the snapshot or as a later live event, never neither.
+func (r *Room) authenticateAndQueueInitial(client *Client, playerID, playerName string, roomInfo *models.Room) bool {
+	roomInfoMessage, err := json.Marshal(models.WSMessage{Type: "room_info", Data: roomInfo})
+	if err != nil {
+		log.Printf("WebSocket room-info serialization failed")
+		return false
 	}
-	if initialQueued && (len(room.ChatMessages) > 0 || len(room.GameHistory) > 0) {
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if !r.Clients[client] {
+		return false
+	}
+
+	messages := [][]byte{roomInfoMessage}
+	if len(r.ChatMessages) > 0 || len(r.GameHistory) > 0 {
 		historySnapshot, marshalErr := json.Marshal(models.WSMessage{
 			Type: "history_snapshot",
 			Data: map[string]any{
-				"chat":    room.ChatMessages,
-				"history": room.GameHistory,
+				"chat":    r.ChatMessages,
+				"history": r.GameHistory,
 			},
 		})
 		if marshalErr != nil {
 			log.Printf("WebSocket history serialization failed")
-		} else {
-			select {
-			case client.Send <- historySnapshot:
-			default:
-				initialQueued = false
-			}
+			return false
 		}
+		messages = append(messages, historySnapshot)
 	}
-	if !initialQueued {
-		delete(room.Clients, client)
-		close(client.Send)
-		if len(room.Clients) == 0 {
-			delete(h.Rooms, roomID)
-		}
+	if cap(client.Send)-len(client.Send) < len(messages) {
+		return false
 	}
-	room.mutex.Unlock()
-	h.mutex.Unlock()
-	if !initialQueued && client.Conn != nil {
-		client.Conn.Close()
+	for _, message := range messages {
+		client.Send <- message
 	}
-
-	if initialQueued {
-		log.Printf("WebSocket client connected")
-	} else {
-		log.Printf("WebSocket client rejected: initial queue full")
-	}
-	return room
+	client.PlayerID = playerID
+	client.PlayerName = playerName
+	return true
 }
 
 func (h *Hub) getRoom(roomID string) *Room {
@@ -298,10 +293,47 @@ func (h *Hub) unregisterClient(client *Client) bool {
 	delete(room.Clients, client)
 	close(client.Send)
 	log.Printf("WebSocket client disconnected")
-	if len(room.Clients) == 0 {
+	// A room with replayable history outlives temporary zero-client gaps (for
+	// example a page refresh). Empty rooms can still be released immediately.
+	if len(room.Clients) == 0 && len(room.ChatMessages) == 0 && len(room.GameHistory) == 0 {
 		delete(h.Rooms, client.RoomID)
 	}
 	return true
+}
+
+// CleanupOrphanedRooms releases retained history after the corresponding
+// authoritative Manager room has expired. It is called after Manager cleanup.
+func CleanupOrphanedRooms() {
+	hub := getHub()
+	hub.mutex.RLock()
+	type candidate struct {
+		id      string
+		room    *Room
+		manager *game.Manager
+	}
+	candidates := make([]candidate, 0, len(hub.Rooms))
+	for id, room := range hub.Rooms {
+		candidates = append(candidates, candidate{id: id, room: room, manager: room.Manager})
+	}
+	hub.mutex.RUnlock()
+
+	for _, item := range candidates {
+		if item.manager != nil && item.manager.GetRoom(item.id) != nil {
+			continue
+		}
+		hub.mutex.Lock()
+		current := hub.Rooms[item.id]
+		if current == item.room {
+			current.mutex.Lock()
+			current.ChatMessages = nil
+			current.GameHistory = nil
+			if len(current.Clients) == 0 {
+				delete(hub.Rooms, item.id)
+			}
+			current.mutex.Unlock()
+		}
+		hub.mutex.Unlock()
+	}
 }
 
 // broadcastToClient 向特定客户端广播消息
@@ -342,6 +374,9 @@ func (r *Room) broadcastToAll(message models.WSMessage) {
 	var slowClients []*Client
 	r.mutex.RLock()
 	for client := range r.Clients {
+		if client.PlayerID == "" {
+			continue
+		}
 		select {
 		case client.Send <- data:
 		default:
@@ -496,19 +531,6 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 		return
 	}
 
-	// 身份只能由房间中已有玩家绑定，后续消息不得切换玩家。
-	c.PlayerID = message.PlayerID
-	c.PlayerName = message.PlayerName
-
-	// 广播玩家加入消息
-	room.broadcastToAll(models.WSMessage{
-		Type: "player_joined",
-		Data: map[string]any{
-			"playerId":   message.PlayerID,
-			"playerName": message.PlayerName,
-		},
-	})
-
 	// 更新游戏状态并检查是否应该开始游戏
 	room.Manager.UpdateRoom(c.RoomID, func(roomData *models.Room) {
 		// 玩家已由创建/加入房间 HTTP 入口创建，WebSocket 只更新活跃时间。
@@ -537,7 +559,28 @@ func (c *Client) handlePlayerJoin(message models.WSMessage, room *Room) {
 
 	// 获取最新的游戏状态
 	latestRoom := room.Manager.GetRoom(c.RoomID)
+	if latestRoom == nil {
+		room.broadcastToClient(c, models.WSMessage{Type: "error", Message: "房间不存在"})
+		return
+	}
+	if !room.authenticateAndQueueInitial(c, message.PlayerID, message.PlayerName, latestRoom) {
+		log.Printf("WebSocket client rejected: initial queue unavailable")
+		getHub().unregisterClient(c)
+		if c.Conn != nil {
+			c.Conn.Close()
+		}
+		return
+	}
 	latestGameState := latestRoom.GameState
+
+	// 初始快照入队并完成身份绑定后，才允许该客户端接收房间广播。
+	room.broadcastToAll(models.WSMessage{
+		Type: "player_joined",
+		Data: map[string]any{
+			"playerId":   message.PlayerID,
+			"playerName": message.PlayerName,
+		},
+	})
 
 	// 广播更新后的游戏状态
 	room.broadcastToAll(models.WSMessage{
@@ -568,17 +611,18 @@ func (c *Client) handleChatMessage(message models.WSMessage, room *Room) {
 		Timestamp:  time.Now(),
 	}
 
-	// 保存到房间聊天历史（用于重连回放）
-	room.mutex.Lock()
-	room.ChatMessages = append(room.ChatMessages, chatMessage)
-	room.mutex.Unlock()
-
-	// 广播聊天消息
-	room.broadcastToAll(models.WSMessage{
+	// 保存与广播共享 Room 锁，确保重连快照和实时事件无缺口、无重复。
+	room.appendChatAndBroadcast(chatMessage, models.WSMessage{
 		Type:       "chat_message",
 		PlayerID:   chatMessage.PlayerID,
 		PlayerName: chatMessage.PlayerName,
 		Message:    chatMessage.Message,
+	})
+}
+
+func (r *Room) appendChatAndBroadcast(chatMessage models.ChatMessage, message models.WSMessage) {
+	r.appendReplayEvent(message, func() {
+		r.ChatMessages = append(r.ChatMessages, chatMessage)
 	})
 }
 
@@ -625,12 +669,39 @@ func broadcastHistory(room *Room, playerID, playerName, desc, html string) {
 		DescriptionHTML: html,
 	}
 
-	// 保存到房间历史（用于重连回放）
-	room.mutex.Lock()
-	room.GameHistory = append(room.GameHistory, ga)
-	room.mutex.Unlock()
+	// 保存与广播共享 Room 锁，确保重连快照和实时事件无缺口、无重复。
+	room.appendReplayEvent(models.WSMessage{Type: "game_action", Action: &ga}, func() {
+		room.GameHistory = append(room.GameHistory, ga)
+	})
+}
 
-	room.broadcastToAll(models.WSMessage{Type: "game_action", Action: &ga})
+func (r *Room) appendReplayEvent(message models.WSMessage, appendEntry func()) {
+	data, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("WebSocket replay serialization failed")
+		return
+	}
+
+	var slowClients []*Client
+	r.mutex.Lock()
+	appendEntry()
+	for client := range r.Clients {
+		if client.PlayerID == "" {
+			continue
+		}
+		select {
+		case client.Send <- data:
+		default:
+			slowClients = append(slowClients, client)
+		}
+	}
+	r.mutex.Unlock()
+	for _, client := range slowClients {
+		getHub().unregisterClient(client)
+		if client.Conn != nil {
+			client.Conn.Close()
+		}
+	}
 }
 
 func sendActionResult(room *Room, client *Client, result models.ActionResult) {

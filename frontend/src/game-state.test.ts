@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { isGameState, parseGameStateSnapshot, parseRoomAPIResponse, type RoomAPIResponse } from './game-state'
+import { isGameState, parseGameStateSnapshot, parseRoomAPIResponse, parseRoomSnapshot, type RoomAPIResponse } from './game-state'
 
 const gameState = {
   status: 'waiting',
@@ -72,6 +72,15 @@ describe('game state boundary', () => {
     if (!response?.success) throw new Error('expected successful response')
     expect(response.data.room.gameState).toMatchObject({ futureStateField: 'kept' })
     expectTypeOf(response).toMatchTypeOf<RoomAPIResponse>()
+  })
+
+  it('parses the bare room snapshot used by room_info', () => {
+    expect(parseRoomSnapshot(successfulResponse.data.room)).toEqual(successfulResponse.data.room)
+    expect(parseRoomSnapshot({
+      ...successfulResponse.data.room,
+      gameState: { ...gameState, availableNobles: null }
+    })?.gameState.availableNobles).toEqual([])
+    expect(parseRoomSnapshot({ ...successfulResponse.data.room, name: 42 })).toBeNull()
   })
 
   it('preserves backend failure messages without requiring data', () => {

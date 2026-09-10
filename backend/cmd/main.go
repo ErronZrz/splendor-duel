@@ -23,6 +23,7 @@ func main() {
 
 		for range ticker.C {
 			gameManager.CleanupExpiredRooms()
+			websocket.CleanupOrphanedRooms()
 		}
 	}()
 

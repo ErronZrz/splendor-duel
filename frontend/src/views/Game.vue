@@ -1670,29 +1670,13 @@ const initializeGame = () => {
 
 // 生命周期
 onMounted(async () => {
-  // 立即检查一次
+  // 创建/加入后的站内跳转已有完整状态；硬刷新则立即恢复身份并连接，
+  // 房间元数据随后由服务端 room_info 权威快照补齐。
   if (currentPlayer.value && currentRoom.value) {
     initializeGame()
-  } else {
-    // 等待最多2秒让store状态更新
-    let attempts = 0
-    const maxAttempts = 20
-    
-    const checkInterval = setInterval(() => {
-      attempts++
-      if (currentPlayer.value && currentRoom.value) {
-        clearInterval(checkInterval)
-        initializeGame()
-      } else if (attempts >= maxAttempts) {
-        clearInterval(checkInterval)
-        // 尝试从本地存储恢复并直接连接房间（断线重连）
-        const restored = gameStore.restoreSession(props.roomId)
-        if (!restored) {
-          console.warn('没有玩家或房间信息，重定向到首页')
-          router.push('/')
-        }
-      }
-    }, 100)
+  } else if (!gameStore.restoreSession(props.roomId)) {
+    console.warn('没有玩家或房间信息，重定向到首页')
+    router.push('/')
   }
 })
 

@@ -170,7 +170,7 @@ func TestBroadcastRemovesBackpressuredClientWithoutDeadlock(t *testing.T) {
 			previousHub := globalHub
 			globalHub = hub
 			t.Cleanup(func() { globalHub = previousHub })
-			client := &Client{RoomID: "room", Send: make(chan []byte, 1)}
+			client := &Client{RoomID: "room", PlayerID: "p1", Send: make(chan []byte, 1)}
 			room := &Room{ID: "room", Clients: map[*Client]bool{client: true}}
 			hub.Rooms[room.ID] = room
 			client.Send <- []byte("full")
@@ -249,6 +249,91 @@ func TestRegisterAndLastClientCleanupRemainAtomic(t *testing.T) {
 		if !registered {
 			t.Fatal("new client is missing from the current hub room")
 		}
+	}
+}
+
+func TestHistorySurvivesZeroClientRefreshAndReplaysAfterAuthentication(t *testing.T) {
+	manager, room, client, playerID := protocolTestRoom(t)
+	client.PlayerID, client.PlayerName = playerID, "p1"
+	broadcastHistory(room, playerID, "p1", "拿取了宝石", "")
+	for len(client.Send) > 0 {
+		<-client.Send
+	}
+
+	client.cleanup()
+	if globalHub.getRoom(room.ID) != room {
+		t.Fatal("history room was deleted during a zero-client refresh gap")
+	}
+
+	reconnected := &Client{RoomID: room.ID, Manager: manager, Send: make(chan []byte, 16)}
+	registeredRoom := globalHub.registerClient(room.ID, manager, reconnected)
+	if registeredRoom != room {
+		t.Fatal("reconnect did not reuse the retained history room")
+	}
+	if len(reconnected.Send) != 0 {
+		t.Fatal("room metadata or history was exposed before player authentication")
+	}
+
+	join, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "p1"})
+	reconnected.handleMessage(join)
+
+	var messageTypes []string
+	var descriptions []string
+	for len(reconnected.Send) > 0 {
+		var message struct {
+			Type string `json:"type"`
+			Data struct {
+				History []models.GameAction `json:"history"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(<-reconnected.Send, &message); err != nil {
+			t.Fatal(err)
+		}
+		messageTypes = append(messageTypes, message.Type)
+		for _, entry := range message.Data.History {
+			descriptions = append(descriptions, entry.Description)
+		}
+	}
+	if len(messageTypes) < 2 || messageTypes[0] != "room_info" || messageTypes[1] != "history_snapshot" {
+		t.Fatalf("initial message order = %v, want room_info then history_snapshot", messageTypes)
+	}
+	if !reflect.DeepEqual(descriptions, []string{"拿取了宝石"}) {
+		t.Fatalf("replayed history = %v", descriptions)
+	}
+}
+
+func TestInvalidIdentityCannotReadInitialRoomSnapshots(t *testing.T) {
+	_, room, client, playerID := protocolTestRoom(t)
+	room.GameHistory = append(room.GameHistory, models.GameAction{Description: "private history"})
+	join, _ := json.Marshal(models.WSMessage{Type: "player_join", PlayerID: playerID, PlayerName: "wrong-name"})
+	client.handleMessage(join)
+
+	for len(client.Send) > 0 {
+		var message models.WSMessage
+		if err := json.Unmarshal(<-client.Send, &message); err != nil {
+			t.Fatal(err)
+		}
+		if message.Type == "room_info" || message.Type == "history_snapshot" {
+			t.Fatalf("unauthenticated client received %s", message.Type)
+		}
+		if message.Type == "error" {
+			return
+		}
+	}
+	t.Fatal("invalid identity received no protocol error")
+}
+
+func TestCleanupOrphanedRoomsReleasesRetainedHistory(t *testing.T) {
+	hub := NewHub()
+	previousHub := globalHub
+	globalHub = hub
+	t.Cleanup(func() { globalHub = previousHub })
+	room := &Room{ID: "expired", Clients: map[*Client]bool{}, GameHistory: []models.GameAction{{Description: "old"}}}
+	hub.Rooms[room.ID] = room
+
+	CleanupOrphanedRooms()
+	if hub.getRoom(room.ID) != nil {
+		t.Fatal("orphaned retained history room was not released")
 	}
 }
 

@@ -105,6 +105,21 @@ const openRefillFromBag = async () => {
   await flushPromises()
 }
 
+it('restores a hard-refresh session immediately and waits for room_info metadata', async () => {
+  const pinia = createPinia()
+  const store = useGameStore(pinia)
+  const restoreSession = vi.spyOn(store, 'restoreSession').mockReturnValue(true)
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
+  await router.push('/')
+  await router.isReady()
+
+  wrapper = mount(Game, { props: { roomId: 'refresh-room' }, global: { plugins: [pinia, router] } })
+
+  expect(restoreSession).toHaveBeenCalledOnce()
+  expect(restoreSession).toHaveBeenCalledWith('refresh-room')
+  expect(wrapper.find('.room-info p').text()).toBe('游戏房间')
+})
+
 it('passes a delayed server resource update into an already-open purchase', async () => {
   const pinia = createPinia()
   const store = useGameStore(pinia)

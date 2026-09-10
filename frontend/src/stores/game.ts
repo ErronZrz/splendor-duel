@@ -15,6 +15,7 @@ import {
 import {
   isRecord,
   parseGameStateSnapshot,
+  parseRoomSnapshot,
   parseRoomAPIResponse,
   type GameState,
   type Room
@@ -301,6 +302,14 @@ export const useGameStore = defineStore('game', () => {
   // 处理 WebSocket 消息
   const handleWebSocketMessage = (data: ServerMessage): void => {
     switch (data.type) {
+      case 'room_info': {
+        const room = parseRoomSnapshot(data.data)
+        if (room) {
+          currentRoom.value = room
+          gameState.value = room.gameState
+        }
+        break
+      }
       case 'history_snapshot': {
         const snapshot = isRecord(data.data) ? data.data : {}
         const chat = snapshot.chat
