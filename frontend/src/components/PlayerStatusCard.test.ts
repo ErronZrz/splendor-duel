@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import PlayerStatusCard from './PlayerStatusCard.vue'
 import type { DevelopmentCard, GemType, Player } from '../game-state'
@@ -20,10 +20,14 @@ const makePlayer = (overrides: Partial<Player> = {}): Player => ({
 })
 
 let wrapper: VueWrapper | undefined
-afterEach(() => wrapper?.unmount())
+afterEach(() => {
+  wrapper?.unmount()
+  document.body.innerHTML = ''
+  vi.unstubAllGlobals()
+})
 
 const mountCard = (player: Player, localPlayerId = 'p1', currentTurnPlayerId = 'p1'): VueWrapper => {
-  wrapper = mount(PlayerStatusCard, { props: {
+  wrapper = mount(PlayerStatusCard, { attachTo: document.body, props: {
     player, cardDetails, localPlayerId, currentTurnPlayerId,
     canSpendPrivilege: player.id === localPlayerId && player.id === currentTurnPlayerId
   } })
@@ -79,10 +83,28 @@ describe('PlayerStatusCard', () => {
     await card.find('.crown-badge').trigger('click')
     expect(card.find('.crown-badge').attributes('aria-expanded')).toBe('true')
     expect(card.find('.noble-tooltip-close').exists()).toBe(false)
-    document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    document.dispatchEvent(new Event('pointerup', { bubbles: true }))
     await card.vm.$nextTick()
     expect(card.find('.noble-tooltip').exists()).toBe(false)
     await card.find('.crown-badge').trigger('keydown', { key: 'Escape' })
+    expect(card.find('.noble-tooltip').exists()).toBe(false)
+    await card.find('.crown-badge').trigger('keydown', { key: 'Enter' })
+    expect(card.find('.noble-tooltip').exists()).toBe(true)
+    await card.find('.crown-badge').trigger('blur')
+    expect(card.find('.noble-tooltip').exists()).toBe(false)
+  })
+
+  it('opens nobles only after a coarse-pointer click and closes from blank player-card space', async () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false })))
+    const card = mountCard(makePlayer({ nobles: ['noble2'] }))
+    const crown = card.find('.crown-badge')
+
+    await crown.trigger('mouseenter')
+    expect(card.find('.noble-tooltip').exists()).toBe(false)
+    await crown.trigger('click')
+    expect(crown.attributes('aria-expanded')).toBe('true')
+
+    await card.find('.player-name').trigger('pointerup')
     expect(card.find('.noble-tooltip').exists()).toBe(false)
   })
 

@@ -1,6 +1,5 @@
 <template>
   <div
-    ref="playerCardRef"
     class="player-card"
     :class="{ 'current-player': player.id === localPlayerId, 'active-turn': player.id === currentTurnPlayerId }"
   >
@@ -24,17 +23,19 @@
         </span>
         <span class="metric-badge" :aria-label="`总分${player.points || 0}，单色最高分${maxSameColorPoints}`"><UiIcon name="score" />{{ player.points || 0 }}<small>最高 {{ maxSameColorPoints }}</small></span>
         <span
+          ref="crownBadgeRef"
           class="metric-badge crown-badge"
           :class="{ 'has-nobles': nobleIds.length > 0 }"
           :role="nobleIds.length > 0 ? 'button' : undefined"
           :tabindex="nobleIds.length > 0 ? 0 : undefined"
           :aria-label="`皇冠${player.crowns || 0}枚${nobleIds.length > 0 ? `，查看${nobleIds.length}位贵族` : ''}`"
           :aria-expanded="nobleIds.length > 0 ? showNobleTooltip : undefined"
-          @mouseenter="showNobleTooltip = true"
-          @mouseleave="showNobleTooltip = false"
-          @focus="showNobleTooltip = true"
+          @mouseenter="openNoblesOnHover"
+          @mouseleave="closeNoblesOnHover"
           @blur="showNobleTooltip = false"
           @click="showNobleTooltip = true"
+          @keydown.enter.prevent="showNobleTooltip = true"
+          @keydown.space.prevent="showNobleTooltip = true"
           @keydown.escape.prevent="showNobleTooltip = false"
         >
           <UiIcon name="crown" />{{ player.crowns || 0 }}
@@ -161,7 +162,7 @@ const emit = defineEmits<{
 const isStealSelectable = (gem: string | null): boolean => Boolean(gem && props.stealSelectableTypes?.includes(gem))
 
 const showNobleTooltip = ref(false)
-const playerCardRef = ref<HTMLElement | null>(null)
+const crownBadgeRef = ref<HTMLElement | null>(null)
 const nobleTooltipRef = ref<HTMLElement | null>(null)
 // 贵族浮层水平视口钳制位移（px），0 表示保持居中
 const nobleTooltipShift = ref(0)
@@ -187,16 +188,24 @@ watch(showNobleTooltip, (visible) => {
   if (visible) clampNobleTooltip()
   else nobleTooltipShift.value = 0
 })
-const closeNoblesOnOutsidePress = (event: PointerEvent) => {
-  if (playerCardRef.value && !playerCardRef.value.contains(event.target as Node)) showNobleTooltip.value = false
+const supportsHover = (): boolean => typeof window.matchMedia !== 'function' || window.matchMedia('(hover: hover) and (pointer: fine)').matches
+const openNoblesOnHover = () => {
+  if (supportsHover()) showNobleTooltip.value = true
+}
+const closeNoblesOnHover = () => {
+  if (supportsHover()) showNobleTooltip.value = false
+}
+// pointerup 在触摸抬手后触发，且 iOS 在不可点击空白处也可靠；边界只包含皇冠与其浮层。
+const closeNoblesOnOutsideRelease = (event: PointerEvent) => {
+  if (showNobleTooltip.value && crownBadgeRef.value && !crownBadgeRef.value.contains(event.target as Node)) showNobleTooltip.value = false
 }
 onMounted(() => {
-  document.addEventListener('pointerdown', closeNoblesOnOutsidePress)
+  document.addEventListener('pointerup', closeNoblesOnOutsideRelease)
   window.addEventListener('resize', clampVisibleNobleTooltip)
   window.visualViewport?.addEventListener('resize', clampVisibleNobleTooltip)
 })
 onUnmounted(() => {
-  document.removeEventListener('pointerdown', closeNoblesOnOutsidePress)
+  document.removeEventListener('pointerup', closeNoblesOnOutsideRelease)
   window.removeEventListener('resize', clampVisibleNobleTooltip)
   window.visualViewport?.removeEventListener('resize', clampVisibleNobleTooltip)
 })

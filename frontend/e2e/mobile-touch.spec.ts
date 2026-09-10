@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 /**
- * 阶段 58 移动端触控手感与安全区基线回归。
+ * 移动端触控、安全区与 Stage 70 抬手响应基线回归。
  * 断言真实浏览器计算值与按压几何行为，不断言 CSS 声明字符串。
  */
 
@@ -12,8 +12,8 @@ const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
   await expect(page.locator('html')).toHaveAttribute('data-visual-fixture-ready', scenario)
 }
 
-/** 按住控件并读取按压中的实际状态，松开后返回。 */
-const holdPress = async (page: Page, locator: Locator) => {
+/** 按住控件并读取按压中的实际状态与业务状态，松开后返回。 */
+const holdPress = async (page: Page, locator: Locator, readActionState: () => Promise<unknown> = async () => undefined) => {
   await locator.evaluate(element => element.scrollIntoView({ block: 'center' }))
   // 字体/图片在 fixture ready 后才就绪，其加载与摘要吸附（position: fixed 跳变）会推动布局；
   // 按压前等待目标几何连续两帧稳定，否则按下后元素移出指针位置，Chromium 会取消 :active（偶发失败）
@@ -42,8 +42,9 @@ const holdPress = async (page: Page, locator: Locator) => {
     transform: getComputedStyle(element).transform,
     filter: getComputedStyle(element).filter
   }))
+  const actionDuring = await readActionState()
   await page.mouse.up()
-  return { rest, during }
+  return { rest, during, actionDuring }
 }
 
 test('serves the safe-area and keyboard-resize viewport meta on both entries', async ({ page }, testInfo) => {
@@ -109,51 +110,58 @@ test('guards game controls against misselection while keeping text input selecta
   expect(inputStyle.userSelect).not.toBe('none')
 })
 
-test.describe('press feedback with motion', () => {
+test.describe('release-only mobile interaction', () => {
   test.use({ reducedMotion: 'no-preference' })
 
-  test('presses shrink and darken the touched control', async ({ page }, testInfo) => {
+  test('does not style or activate controls until release', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-primary')
 
     await openFixture(page, 'take-gems')
     const gemCell = page.locator('.gem-cell.selectable').first()
-    const gemPress = await holdPress(page, gemCell)
+    const gemPress = await holdPress(page, gemCell, () => gemCell.getAttribute('aria-pressed'))
     expect(gemPress.rest.active).toBe(false)
     expect(gemPress.during.active).toBe(true)
-    expect(gemPress.during.transform).toContain('0.96')
-    expect(gemPress.during.filter).toContain('brightness')
+    expect(gemPress.during.transform).toBe('none')
+    expect(gemPress.during.filter).toBe('none')
+    expect(gemPress.actionDuring).toBe('false')
     await expect.poll(() => gemCell.evaluate(element => getComputedStyle(element).transform)).toBe('none')
+
+    // 真实触摸 tap 在抬手时合成 click；重新载入以排除鼠标按压探针可能产生/取消 click 的差异。
+    await openFixture(page, 'take-gems')
+    const tappedGem = page.locator('[data-board-position="0-1"]')
+    await tappedGem.tap()
+    await expect(tappedGem).toHaveAttribute('aria-pressed', 'true')
 
     await openFixture(page, 'noble')
     const noblePress = await holdPress(page, page.locator('.noble-item.selectable').first())
     expect(noblePress.during.active).toBe(true)
-    expect(noblePress.during.transform).toContain('0.96')
-    expect(noblePress.during.filter).toContain('brightness')
+    expect(noblePress.during.transform).toBe('none')
+    expect(noblePress.during.filter).toBe('none')
 
     await openFixture(page, 'default')
     const navPress = await holdPress(page, page.locator('.mobile-game-nav button[aria-label="版图"]'))
     expect(navPress.during.active).toBe(true)
-    expect(navPress.during.transform).toContain('0.96')
-    expect(navPress.during.filter).toContain('brightness')
+    expect(navPress.during.transform).toBe('none')
+    expect(navPress.during.filter).toBe('none')
   })
 })
 
-test.describe('press feedback with reduced motion', () => {
+test.describe('release-only mobile interaction with reduced motion', () => {
   test.use({ reducedMotion: 'reduce' })
 
-  test('presses darken without any motion', async ({ page }, testInfo) => {
+  test('also stays visually unchanged while held', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-primary')
 
     await openFixture(page, 'take-gems')
     const gemPress = await holdPress(page, page.locator('.gem-cell.selectable').first())
     expect(gemPress.during.active).toBe(true)
     expect(gemPress.during.transform).toBe('none')
-    expect(gemPress.during.filter).toContain('brightness')
+    expect(gemPress.during.filter).toBe('none')
 
     await openFixture(page, 'default')
     const summaryPress = await holdPress(page, page.locator('.player-summary').first())
     expect(summaryPress.during.active).toBe(true)
     expect(summaryPress.during.transform).toBe('none')
-    expect(summaryPress.during.filter).toContain('brightness')
+    expect(summaryPress.during.filter).toBe('none')
   })
 })

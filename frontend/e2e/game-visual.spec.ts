@@ -45,6 +45,8 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     expect(tracks.every(track => track.scrollWidth >= track.clientWidth)).toBe(true)
     await expect(page.locator('.development-cards .deck-count').first()).toBeVisible()
     await expect(page.locator('.player-summary')).toHaveCount(2)
+    await expect(page.locator('.player-summary').first().getByLabel('总分7，单色最高分2')).toHaveText('7(2)')
+    await expect(page.locator('.player-summary').nth(1).getByLabel('总分4，单色最高分2')).toHaveText('4(2)')
     await expect(page.locator('.player-details').first()).not.toHaveClass(/expanded/)
     await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
     await expect(page.locator('.player-card:visible')).toHaveCount(0)
@@ -60,6 +62,17 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     }))
     expect(panelBoundsAreValid).toBe(true)
     const historyPreviewTrigger = page.getByRole('button', { name: '查看发展卡图片预览' })
+    await historyPreviewTrigger.tap()
+    await expect(page.getByRole('dialog', { name: '历史图片预览' })).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '历史图片预览' }).locator('img')).toHaveAttribute('src', '/images/cards/a2.jpg')
+    await page.touchscreen.tap(4, 4)
+    await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
+    const nobleHistoryPreviewTrigger = page.getByRole('button', { name: '查看贵族图片预览' })
+    await nobleHistoryPreviewTrigger.tap()
+    await expect(page.getByRole('dialog', { name: '历史图片预览' }).locator('img')).toHaveAttribute('src', '/images/nobles/noble2.jpg')
+    await page.touchscreen.tap(4, 4)
+    await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
+    // 键盘激活路径继续保留。
     await historyPreviewTrigger.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toBeVisible()
@@ -67,9 +80,10 @@ test('renders the deterministic game baseline', async ({ page }, testInfo) => {
     await expect(page.getByRole('dialog', { name: '历史图片预览' })).toHaveCount(0)
     await page.locator('.player-details').first().locator('.player-summary').click()
     const nobleDisclosure = page.getByRole('button', { name: /查看1位贵族/ }).first()
-    await nobleDisclosure.click()
+    await nobleDisclosure.tap()
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'true')
-    await page.locator('body').click({ position: { x: 4, y: 4 } })
+    // 玩家详情内部、皇冠浮层边界之外的空白也应在抬手后关闭（iOS 回归）。
+    await page.locator('.player-details').first().locator('.player-name').tap()
     await expect(nobleDisclosure).toHaveAttribute('aria-expanded', 'false')
     await page.locator('.player-details').first().locator('.player-summary').click()
     const mobileNav = page.locator('.mobile-game-nav')
@@ -441,7 +455,7 @@ test('keeps the bag disclosure compact and shows noble names only after selectio
   })
   expect(bagGeometry).toEqual({ width: 210, columns: '56px 56px 56px' })
   if (testInfo.project.name === 'mobile-primary') {
-    await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })))
+    await page.evaluate(() => document.body.dispatchEvent(new PointerEvent('pointerup', { bubbles: true })))
     await expect(page.locator('.bag-tooltip')).toHaveCount(0)
   }
 

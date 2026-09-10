@@ -227,7 +227,7 @@
                       <span class="player-summary-metrics">
                         <span class="player-summary-primary">
                           <span :aria-label="`特权${player.privilegeTokens || 0}`"><UiIcon name="privilege" /><b>{{ player.privilegeTokens || 0 }}</b></span>
-                          <span :aria-label="`分数${player.points || 0}`"><UiIcon name="score" /><b>{{ player.points || 0 }}</b></span>
+                          <span :aria-label="`总分${player.points || 0}，单色最高分${playerSummaryMaxSameColorPoints(player)}`"><UiIcon name="score" /><b>{{ player.points || 0 }}({{ playerSummaryMaxSameColorPoints(player) }})</b></span>
                           <span :aria-label="`皇冠${player.crowns || 0}`"><UiIcon name="crown" /><b>{{ player.crowns || 0 }}</b></span>
                           <span :aria-label="`token ${playerTokenTotal(player)}/10`"><UiIcon name="diamond" /><b>{{ playerTokenTotal(player) }}/10</b></span>
                         </span>
@@ -419,6 +419,9 @@ const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black',
   hasBonus: type !== 'pearl' && type !== 'gold'
 }))
 
+// 玩家摘要分数括号值：仅统计白蓝绿红黑发展卡的分数，并取单色最高合计。
+const playerSummaryMaxSameColorPoints = (player) => selectMaxSameColorPoints(player, gameState.value?.cardDetails)
+
 // 摘要栏 token 总量（含珍珠与黄金，规则上限 10 枚）
 const playerTokenTotal = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
   .reduce((sum, type) => sum + (Number(player?.gems?.[type]) || 0), 0)
@@ -463,6 +466,8 @@ onMounted(() => {
   if (!el) return
 
   const onMouseOver = (e) => {
+    // 触摸设备会在按下阶段合成 mouseover；仅真实 hover 设备允许悬停预览。
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return
     const t = e.target.closest('[data-preview]')
     if (!t) return
     const img = t.getAttribute('data-preview')
@@ -471,6 +476,7 @@ onMounted(() => {
     preview.value = { visible: true, image: img, x: e.clientX + 12, y: e.clientY + 12 }
   }
   const onMouseMove = (e) => {
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return
     if (!preview.value.visible) return
     // 计算卡片尺寸与视口，做位置防溢出
     const tooltipEl = historyPreviewRef.value
@@ -498,6 +504,7 @@ onMounted(() => {
     preview.value = { ...preview.value, x: tx, y: ty }
   }
   const onMouseOut = (e) => {
+    if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return
     const t = e.target.closest('[data-preview]')
     if (t) {
       preview.value = { ...preview.value, visible: false }
@@ -528,15 +535,8 @@ onMounted(() => {
     const target = e.target.closest('[data-preview]')
     if (!target) return
     e.stopPropagation()
-    if (preview.value.visible && preview.value.image === target.getAttribute('data-preview')) {
-      closeHistoryPreview()
-    } else {
-      showPreviewFromTarget(target)
-    }
-  }
-  const onFocusIn = (e) => {
-    const target = e.target.closest('[data-preview]')
-    if (target) showPreviewFromTarget(target)
+    // click 只负责打开/保持打开，避免触摸合成 hover/focus 后被同一次 click 反向关闭。
+    showPreviewFromTarget(target)
   }
   const onKeyDown = (e) => {
     const target = e.target.closest('[data-preview]')
@@ -549,7 +549,8 @@ onMounted(() => {
       closeHistoryPreview()
     }
   }
-  const onDocumentPointerDown = (e) => {
+  // pointerup 只在抬手后响应，且兼容 iOS 不为不可点击空白合成 click 的行为。
+  const onDocumentPointerUp = (e) => {
     const target = e.target
     if (preview.value.visible && (!(target instanceof Element) || (!target.closest('[data-preview]') && !target.closest('.history-preview-tooltip')))) closeHistoryPreview()
     if (isMobileBagPopoverPinned.value && (!(target instanceof Element) || !bagContainerRef.value?.contains(target))) {
@@ -562,9 +563,8 @@ onMounted(() => {
   el.addEventListener('mousemove', onMouseMove)
   el.addEventListener('mouseout', onMouseOut)
   el.addEventListener('click', onClick)
-  el.addEventListener('focusin', onFocusIn)
   el.addEventListener('keydown', onKeyDown)
-  document.addEventListener('pointerdown', onDocumentPointerDown)
+  document.addEventListener('pointerup', onDocumentPointerUp)
 
   // 清理函数
   onUnmounted(() => {
@@ -572,9 +572,8 @@ onMounted(() => {
     el.removeEventListener('mousemove', onMouseMove)
     el.removeEventListener('mouseout', onMouseOut)
     el.removeEventListener('click', onClick)
-    el.removeEventListener('focusin', onFocusIn)
     el.removeEventListener('keydown', onKeyDown)
-    document.removeEventListener('pointerdown', onDocumentPointerDown)
+    document.removeEventListener('pointerup', onDocumentPointerUp)
   })
 })
 const closeHistoryPreview = () => {
@@ -613,6 +612,7 @@ import {
   getCardDisplayItemsByLevel,
   getGemDisplayName as selectGemDisplayName,
   getGemImageName as selectGemImageName,
+  getMaxSameColorPoints as selectMaxSameColorPoints,
   getNobleDisplayName,
   getPurchaseFollowup as selectPurchaseFollowup,
   getTurnPlayerName,

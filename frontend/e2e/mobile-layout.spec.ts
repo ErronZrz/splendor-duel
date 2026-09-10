@@ -290,7 +290,7 @@ test('clamps the history preview tooltip inside the viewport on the tap path', a
     rightLink.click()
     await frames()
     const atRight = document.querySelector<HTMLElement>('.history-preview-tooltip')!.getBoundingClientRect()
-    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    document.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
 
     const bottomLink = appendLink('底缘预览', 'left')
     bottomLink.scrollIntoView({ block: 'end' })

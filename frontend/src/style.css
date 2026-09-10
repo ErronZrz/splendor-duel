@@ -257,29 +257,8 @@ body {
   -webkit-touch-callout: none;
 }
 
-/* 按压即时反馈：亮度变化瞬间完成，reduced-motion 下保留 */
-.gem-cell:not(:disabled):active,
-.card-item:not([aria-disabled="true"]):active,
-.deck-item:not([aria-disabled="true"]):active,
-.noble-item.selectable:active,
-.token-cell.selectable:not(:disabled):active,
-.bag-pill:active,
-.player-summary:active,
-.mobile-panel-summary:active,
-.mobile-game-nav button:active,
-.header-disclosure:active,
-.metric-badge[role="button"]:active,
-.reserved-card-item.clickable:active,
-.privilege-count button:not(:disabled):active,
-.inline-effect-choices button:not(:disabled):active,
-.gem-item.clickable:active,
-.token-item.clickable:active,
-.btn:not(:disabled):active {
-  filter: brightness(.94);
-}
-
-/* 按压下沉动效仅在用户无动效减弱偏好时启用 */
-@media (prefers-reduced-motion: no-preference) {
+/* 移动端只在抬手后的 click 响应；按住期间的 :active 视觉反馈仅保留给精细鼠标设备。 */
+@media (hover: hover) and (pointer: fine) {
   .gem-cell:not(:disabled):active,
   .card-item:not([aria-disabled="true"]):active,
   .deck-item:not([aria-disabled="true"]):active,
@@ -292,14 +271,37 @@ body {
   .inline-effect-choices button:not(:disabled):active,
   .gem-item.clickable:active,
   .token-item.clickable:active,
+  .player-summary:active,
+  .mobile-panel-summary:active,
   .mobile-game-nav button:active,
   .header-disclosure:active,
   .btn:not(:disabled):active {
-    transform: scale(.96);
+    filter: brightness(.94);
+  }
+
+  /* 按压下沉动效仅在用户无动效减弱偏好时启用。 */
+  @media (prefers-reduced-motion: no-preference) {
+    .gem-cell:not(:disabled):active,
+    .card-item:not([aria-disabled="true"]):active,
+    .deck-item:not([aria-disabled="true"]):active,
+    .noble-item.selectable:active,
+    .token-cell.selectable:not(:disabled):active,
+    .bag-pill:active,
+    .metric-badge[role="button"]:active,
+    .reserved-card-item.clickable:active,
+    .privilege-count button:not(:disabled):active,
+    .inline-effect-choices button:not(:disabled):active,
+    .gem-item.clickable:active,
+    .token-item.clickable:active,
+    .mobile-game-nav button:active,
+    .header-disclosure:active,
+    .btn:not(:disabled):active {
+      transform: scale(.96);
+    }
   }
 }
 
-/* 未自带过渡的控件补快速过渡，使按压与回弹平滑；组件内已定义 transition 的以组件为准 */
+/* 未自带过渡的控件补快速过渡，使鼠标与选择状态变化保持平滑；组件内定义优先。 */
 .gem-cell,
 .token-cell,
 .bag-pill,

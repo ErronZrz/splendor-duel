@@ -154,13 +154,25 @@ it('renders player status cards with the local player first and preserves names'
   store.currentRoom = { id: 'test-room', name: 'Test' }
   store.gameState = {
     status: 'playing', currentPlayerIndex: 0,
-    players: [player('p1', '对手'), { ...player('p2', '本地玩家'), gems: { white: 2, blue: 1, gold: 1 } }],
-    flippedCards: { 1: [], 2: [], 3: [] }, cardDetails: {}, unflippedCards: {}, gemBoard: [], availableNobles: []
+    players: [player('p1', '对手'), { ...player('p2', '本地玩家'), gems: { white: 2, blue: 1, gold: 1 }, developmentCards: ['white-1', 'white-2', 'blue-1'], points: 7 }],
+    flippedCards: { 1: [], 2: [], 3: [] },
+    cardDetails: {
+      'white-1': { ...makeCard({ id: 'white-1', color: 'white', bonus: 'white', points: 2 }) },
+      'white-2': { ...makeCard({ id: 'white-2', color: 'white', bonus: 'white', points: 3 }) },
+      'blue-1': { ...makeCard({ id: 'blue-1', color: 'blue', bonus: 'blue', points: 4 }) }
+    },
+    unflippedCards: {}, gemBoard: [], availableNobles: []
   }
-  store.gameHistory = [{
-    playerId: 'p1', playerName: '对手', description: '购买了发展卡', timestamp: '2026-09-07T00:00:00Z',
-    descriptionHtml: '<span class="hist-link" data-preview="/images/cards/a1.jpg">发展卡</span>'
-  }]
+  store.gameHistory = [
+    {
+      playerId: 'p1', playerName: '对手', description: '购买了发展卡', timestamp: '2026-09-07T00:00:00Z',
+      descriptionHtml: '<span class="hist-link" data-preview="/images/cards/a1.jpg">发展卡</span>'
+    },
+    {
+      playerId: 'p2', playerName: '本地玩家', description: '获得了贵族', timestamp: '2026-09-07T00:01:00Z',
+      descriptionHtml: '<span class="hist-link" data-preview="/images/nobles/noble2.jpg">贵族</span>'
+    }
+  ]
   vi.spyOn(store, 'connectWebSocket').mockImplementation(() => {})
   const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', component: { template: '<div />' } }] })
   await router.push('/')
@@ -185,6 +197,8 @@ it('renders player status cards with the local player first and preserves names'
   // 摘要栏含 token 总量统计（2 白 + 1 蓝 + 1 金 = 4/10）
   const primaryGroups = details[0].findAll('.player-summary-primary > span')
   expect(primaryGroups).toHaveLength(4)
+  expect(primaryGroups[1].attributes('aria-label')).toBe('总分7，单色最高分5')
+  expect(primaryGroups[1].text()).toBe('7(5)')
   expect(primaryGroups[3].attributes('aria-label')).toBe('token 4/10')
   expect(primaryGroups[3].text()).toContain('4/10')
   await details[1].find('.player-summary').trigger('click')
@@ -217,13 +231,21 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.find('.mobile-game-nav').classes()).toContain('keyboard-hidden')
   await wrapper.find('.chat-input input').trigger('blur')
   expect(wrapper.find('.mobile-game-nav').classes()).not.toContain('keyboard-hidden')
-  const historyLink = wrapper.find('.hist-link')
-  expect(historyLink.attributes('role')).toBe('button')
-  expect(historyLink.attributes('aria-label')).toBe('查看发展卡图片预览')
-  await historyLink.trigger('keydown', { key: 'Enter' })
+  const historyLinks = wrapper.findAll('.hist-link')
+  expect(historyLinks).toHaveLength(2)
+  const developmentHistoryLink = historyLinks.find(link => link.text() === '发展卡')
+  const nobleHistoryLink = historyLinks.find(link => link.text() === '贵族')
+  expect(developmentHistoryLink.attributes('role')).toBe('button')
+  expect(developmentHistoryLink.attributes('aria-label')).toBe('查看发展卡图片预览')
+  await developmentHistoryLink.trigger('click')
   expect(wrapper.find('.history-preview-tooltip').attributes('role')).toBe('dialog')
-  document.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  expect(wrapper.find('.history-preview-tooltip img').attributes('src')).toBe('/images/cards/a1.jpg')
+  document.dispatchEvent(new Event('pointerup', { bubbles: true }))
   await flushPromises()
+  expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
+  await nobleHistoryLink.trigger('click')
+  expect(wrapper.find('.history-preview-tooltip img').attributes('src')).toBe('/images/nobles/noble2.jpg')
+  await nobleHistoryLink.trigger('keydown', { key: 'Escape' })
   expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
   expect(wrapper.find('header.game-header').exists()).toBe(true)
   expect(wrapper.find('main.game-main').exists()).toBe(true)
