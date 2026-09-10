@@ -344,7 +344,7 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
   ))
   expect(tokenColors).toEqual({
     white: { background: 'rgb(255, 255, 255)', border: 'rgb(108, 116, 125)' },
-    gold: { background: 'rgb(255, 222, 29)', border: 'rgb(223, 191, 15)' }
+    gold: { background: 'rgb(255, 222, 29)', border: 'rgb(239, 207, 22)' }
   })
   expect(await localSummary.evaluate(element => getComputedStyle(element).overflow)).toBe('hidden')
   expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftColor)).toBe('rgb(8, 127, 153)')

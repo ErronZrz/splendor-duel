@@ -3714,7 +3714,7 @@ watch(gameState, (newState, oldState) => {
   .is-red { background: #ee0024; border-color: #f5a6b1; }
   .is-black { background: #000000; border-color: #6c6c6c; }
   .is-pearl { background: #de7cb9; border-color: #f0b7d8; }
-  .is-gold { background: #ffde1d; border-color: #dfbf0f; }
+  .is-gold { background: #ffde1d; border-color: #efcf16; }
   /* bonus 文字色跟随边框色；黑色特例保持 #333333 */
   .player-summary-bonus { color: #333333; }
   .player-summary-bonus.is-white { background: transparent; border-color: #6c747d; color: #6c747d; }
