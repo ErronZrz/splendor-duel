@@ -153,7 +153,8 @@ it('renders player status cards with the local player first and preserves names'
   store.currentPlayer = { id: 'p2', name: '本地玩家' }
   store.currentRoom = { id: 'test-room', name: 'Test' }
   store.gameState = {
-    status: 'playing', currentPlayerIndex: 0, players: [player('p1', '对手'), player('p2', '本地玩家')],
+    status: 'playing', currentPlayerIndex: 0,
+    players: [player('p1', '对手'), { ...player('p2', '本地玩家'), gems: { white: 2, blue: 1, gold: 1 } }],
     flippedCards: { 1: [], 2: [], 3: [] }, cardDetails: {}, unflippedCards: {}, gemBoard: [], availableNobles: []
   }
   store.gameHistory = [{
@@ -181,6 +182,11 @@ it('renders player status cards with the local player first and preserves names'
   const summaryGems = details[0].findAll('.player-summary-gem')
   expect(summaryGems).toHaveLength(7)
   expect(summaryGems.slice(-2).every(gem => !gem.find('.player-summary-bonus').exists())).toBe(true)
+  // 摘要栏含 token 总量统计（2 白 + 1 蓝 + 1 金 = 4/10）
+  const primaryGroups = details[0].findAll('.player-summary-primary > span')
+  expect(primaryGroups).toHaveLength(4)
+  expect(primaryGroups[3].attributes('aria-label')).toBe('token 4/10')
+  expect(primaryGroups[3].text()).toContain('4/10')
   await details[1].find('.player-summary').trigger('click')
   expect(wrapper.findAll('.player-details')[1].classes()).toContain('expanded')
   expect(wrapper.findAll('.player-details')[1].find('.player-summary').attributes('aria-expanded')).toBe('true')
@@ -221,10 +227,25 @@ it('renders player status cards with the local player first and preserves names'
   expect(wrapper.find('.history-preview-tooltip').exists()).toBe(false)
   expect(wrapper.find('header.game-header').exists()).toBe(true)
   expect(wrapper.find('main.game-main').exists()).toBe(true)
-  expect(wrapper.find('.room-info').exists()).toBe(false)
-  expect(wrapper.find('.header-disclosure').attributes('aria-expanded')).toBe('false')
-  await wrapper.find('.header-disclosure').trigger('click')
+  // 顶行两态一致：连接状态 + Splendor Duel / 房间名两行文案 + 展开按钮
+  expect(wrapper.find('.room-info h2').text()).toBe('Splendor Duel')
   expect(wrapper.find('.room-info h2').attributes('aria-level')).toBe('1')
+  expect(wrapper.find('.room-info p').text()).toBe('Test')
+  expect(wrapper.find('.header-details').exists()).toBe(false)
+  expect(wrapper.find('.header-disclosure').attributes('aria-expanded')).toBe('false')
+  expect(wrapper.find('.header-disclosure').attributes('aria-label')).toBe('展开房间信息')
+  const writeText = vi.fn().mockResolvedValue(undefined)
+  vi.stubGlobal('navigator', { clipboard: { writeText } })
+  await wrapper.find('.header-disclosure').trigger('click')
+  expect(wrapper.find('.header-disclosure').attributes('aria-label')).toBe('收起房间信息')
+  // 展开区：房间 ID（一键复制）、当前玩家、离开游戏
+  expect(wrapper.find('.header-room-id').text()).toBe('test-room')
+  expect(wrapper.find('.header-player-name').text()).toContain('本地玩家')
+  expect(wrapper.find('.leave-button').exists()).toBe(true)
+  await wrapper.find('.header-copy').trigger('click')
+  await flushPromises()
+  expect(writeText).toHaveBeenCalledWith('test-room')
+  expect(wrapper.find('.header-copy').text()).toContain('已复制')
 
   const chatInput = wrapper.find('.chat-input input')
   chatInput.element.focus()

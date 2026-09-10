@@ -52,6 +52,45 @@ test('keeps the sticky summary attached to the actual header bottom in both head
   expect(parseFloat(result.expanded.cssVar)).toBeCloseTo(result.expanded.headerBottom, 1)
 })
 
+test('keeps one top row in both header states and exposes room actions when expanded', async ({ page }, testInfo) => {
+  test.skip(skipUnlessMobilePrimary(testInfo.project.name))
+  await openFixture(page, 'default')
+
+  // 收起态顶行：连接状态 + Splendor Duel / 房间名两行文案 + 与玩家摘要同款的圆形展开按钮
+  const disclosure = page.locator('.header-disclosure')
+  await expect(page.locator('.status[role="status"]')).toBeVisible()
+  await expect(page.locator('.room-info h2')).toHaveText('Splendor Duel')
+  await expect(page.locator('.room-info p')).toHaveText('视觉基线房间')
+  await expect(page.locator('.header-details')).toHaveCount(0)
+  await expect(disclosure).toHaveAttribute('aria-label', '展开房间信息')
+  const circle = await disclosure.evaluate(element => {
+    const bounds = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return { width: bounds.width, height: bounds.height, borderWidth: style.borderWidth, radius: style.borderRadius }
+  })
+  expect(circle.width).toBe(24)
+  expect(circle.height).toBe(24)
+  expect(circle.borderWidth).toBe('1px')
+  expect(parseFloat(circle.radius)).toBeGreaterThanOrEqual(12)
+
+  // 展开态：顶行保持不变，展开区含房间 ID（一键复制）、当前玩家、离开游戏
+  await disclosure.click()
+  await expect(disclosure).toHaveAttribute('aria-label', '收起房间信息')
+  await expect(page.locator('.room-info h2')).toHaveText('Splendor Duel')
+  await expect(page.locator('.header-details')).toBeVisible()
+  await expect(page.locator('.header-room-id')).toHaveText('visual-fixture-room')
+  await expect(page.locator('.header-player-name')).toContainText('本地玩家')
+  await expect(page.locator('.leave-button')).toBeVisible()
+
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.locator('.header-copy').click()
+  await expect(page.locator('.header-copy')).toContainText('已复制')
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('visual-fixture-room')
+
+  await disclosure.click()
+  await expect(page.locator('.header-details')).toHaveCount(0)
+})
+
 test('navigates every mobile section below the actual header and stuck summary', async ({ page }, testInfo) => {
   test.skip(skipUnlessMobilePrimary(testInfo.project.name))
   await openFixture(page, 'default')

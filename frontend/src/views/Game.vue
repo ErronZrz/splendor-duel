@@ -1,31 +1,32 @@
 <template>
   <div class="game-container" :style="{ '--context-action-bar-height': `${contextActionBarHeight}px` }">
-    <!-- 游戏头部信息 -->
+    <!-- 游戏头部信息：顶行两态一致（连接状态 + 两行文案 + 展开/收起按钮），展开区含房间信息 -->
     <header ref="gameHeaderRef" class="game-header" :class="{ collapsed: !isHeaderExpanded }" :inert="victoryDialog.visible || undefined">
-      <template v-if="isHeaderExpanded">
-        <span class="brand-mark" aria-hidden="true"><UiIcon name="diamond" /></span>
-        <div class="room-info">
-          <h2 role="heading" aria-level="1">{{ currentRoom?.name || '游戏房间' }}</h2>
-          <p>房间 · {{ roomId }}</p>
-        </div>
-        <div class="player-info">
-          <span class="player-identity"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
-          <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
-            <UiIcon name="connection" />
-            {{ connectionStatusText }}
-          </span>
-        </div>
-        <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
-      </template>
-      <template v-else>
-        <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
-          <UiIcon name="connection" />
-          {{ connectionStatusText }}
-        </span>
-      </template>
-      <button class="header-disclosure" type="button" :aria-expanded="isHeaderExpanded" aria-label="展开房间信息" @click="isHeaderExpanded = !isHeaderExpanded">
+      <span :class="['status', isConnected ? 'connected' : 'disconnected']" role="status" aria-live="polite" aria-atomic="true">
+        <UiIcon name="connection" />
+        {{ connectionStatusText }}
+      </span>
+      <div class="room-info">
+        <h2 role="heading" aria-level="1">Splendor Duel</h2>
+        <p>{{ currentRoom?.name || '游戏房间' }}</p>
+      </div>
+      <button class="header-disclosure" type="button" :aria-expanded="isHeaderExpanded" :aria-label="isHeaderExpanded ? '收起房间信息' : '展开房间信息'" @click="isHeaderExpanded = !isHeaderExpanded">
         <UiIcon :name="isHeaderExpanded ? 'chevronUp' : 'chevronDown'" />
       </button>
+      <div v-if="isHeaderExpanded" class="header-details">
+        <div class="header-detail">
+          <span class="header-detail-label">房间 ID</span>
+          <span class="header-detail-value header-room-id" :title="roomId">{{ roomId }}</span>
+          <button type="button" class="header-copy" :class="{ copied: roomIdCopied }" :aria-label="roomIdCopied ? '房间 ID 已复制' : '复制房间 ID'" @click="copyRoomId">
+            <UiIcon :name="roomIdCopied ? 'check' : 'copy'" />{{ roomIdCopied ? '已复制' : '复制' }}
+          </button>
+        </div>
+        <div class="header-detail">
+          <span class="header-detail-label">当前玩家</span>
+          <span class="header-detail-value header-player-name"><UiIcon name="player" />{{ currentPlayer?.name }}</span>
+        </div>
+        <button @click="leaveGame" class="btn btn-secondary leave-button"><UiIcon name="exit" />离开游戏</button>
+      </div>
     </header>
 
     <!-- 游戏主体 -->
@@ -219,6 +220,7 @@
                           <span :aria-label="`特权${player.privilegeTokens || 0}`"><UiIcon name="privilege" /><b>{{ player.privilegeTokens || 0 }}</b></span>
                           <span :aria-label="`分数${player.points || 0}`"><UiIcon name="score" /><b>{{ player.points || 0 }}</b></span>
                           <span :aria-label="`皇冠${player.crowns || 0}`"><UiIcon name="crown" /><b>{{ player.crowns || 0 }}</b></span>
+                          <span :aria-label="`token ${playerTokenTotal(player)}/10`"><UiIcon name="diamond" /><b>{{ playerTokenTotal(player) }}/10</b></span>
                         </span>
                         <span class="player-summary-reserved" :aria-label="`保留的发展卡${player.reservedCards?.length || 0}张`"><UiIcon name="card" /><b>{{ player.reservedCards?.length || 0 }}</b></span>
                         <span class="player-summary-gems">
@@ -407,6 +409,38 @@ const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black',
   bonus: Number(player?.bonus?.[type]) || 0,
   hasBonus: type !== 'pearl' && type !== 'gold'
 }))
+
+// 摘要栏 token 总量（含珍珠与黄金，规则上限 10 枚）
+const playerTokenTotal = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
+  .reduce((sum, type) => sum + (Number(player?.gems?.[type]) || 0), 0)
+
+// 房间 ID 一键复制：优先 Clipboard API，非安全上下文退化为隐藏 textarea + execCommand
+const roomIdCopied = ref(false)
+let roomIdCopiedTimer = 0
+const copyRoomId = async () => {
+  const text = String(props.roomId || '')
+  if (!text) return
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      textarea.remove()
+    }
+    roomIdCopied.value = true
+    window.clearTimeout(roomIdCopiedTimer)
+    roomIdCopiedTimer = window.setTimeout(() => { roomIdCopied.value = false }, 1500)
+  } catch {
+    // 复制被拒绝时保持原状，不打扰对局
+  }
+}
 
 onMounted(() => {
   // 悬停预览：监听包含 data-preview 的链接
@@ -1742,13 +1776,6 @@ watch(gameState, (newState, oldState) => {
   font-size: 14px;
 }
 
-.player-info {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
 .status {
   padding: 4px 8px;
   border-radius: 12px;
@@ -2424,28 +2451,6 @@ watch(gameState, (newState, oldState) => {
   }
   #game-development-section { scroll-margin-top: var(--space-3); }
 
-  .game-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-3) var(--space-4);
-    text-align: left;
-  }
-
-  .room-info { min-width: 0; }
-  .room-info h2, .room-info p {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .room-info h2 { font-size: 20px; line-height: 28px; }
-
-  .player-info {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    flex-direction: row;
-    justify-content: space-between;
-  }
-
   .game-board-area {
     padding: var(--space-3);
     border-radius: var(--radius-card);
@@ -2906,36 +2911,128 @@ watch(gameState, (newState, oldState) => {
 .game-header {
   position: relative;
   z-index: 700;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: var(--space-3);
-  min-height: 72px;
-  padding: var(--space-3) max(var(--page-gutter), calc((100vw - 1440px) / 2));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) max(var(--page-gutter), calc((100vw - 1440px) / 2));
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 74%, transparent);
   background: color-mix(in srgb, var(--color-surface) 94%, transparent);
   box-shadow: 0 1px 0 rgba(41, 38, 32, .04);
   backdrop-filter: blur(16px);
 }
 
-.game-header.collapsed {
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-height: 0;
-  padding-block: var(--space-2);
+.room-info {
+  flex: 1;
+  min-width: 0;
 }
 
+.room-info h2,
+.room-info p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-info h2 {
+  color: var(--color-ink);
+  font-size: 16px;
+  line-height: 22px;
+  letter-spacing: -.01em;
+}
+
+.room-info p {
+  margin-top: 1px;
+  color: var(--color-ink-muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+/* 与玩家摘要收起按钮一致的圆形指示按钮；伪元素把触控热区扩至约 42px */
 .header-disclosure {
+  position: relative;
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-subtle);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
   color: var(--color-action-strong);
+  font-size: 13px;
   cursor: pointer;
 }
 
-.brand-mark,
+.header-disclosure::after {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+.header-details {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.header-detail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.header-detail-label {
+  flex: 0 0 auto;
+  color: var(--color-ink-muted);
+  font-size: var(--font-meta);
+}
+
+.header-detail-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.header-room-id {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-copy {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-raised);
+  color: var(--color-action-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.header-copy.copied {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
 .turn-overview-icon {
   display: grid;
   place-items: center;
@@ -2947,29 +3044,6 @@ watch(gameState, (newState, oldState) => {
   box-shadow: 0 5px 16px rgba(61, 58, 120, .2);
 }
 
-.room-info h2 {
-  color: var(--color-ink);
-  font-size: var(--font-section);
-  line-height: var(--line-section);
-  letter-spacing: -.01em;
-}
-
-.room-info p {
-  margin-top: 1px;
-  color: var(--color-ink-muted);
-  font-size: var(--font-meta);
-  line-height: var(--line-meta);
-}
-
-.player-info {
-  align-items: flex-end;
-  justify-content: center;
-  gap: 2px;
-  color: var(--color-ink-muted);
-  font-size: var(--font-meta);
-}
-
-.player-identity,
 .status,
 .game-status > span,
 .bag-pill,
@@ -2997,7 +3071,7 @@ watch(gameState, (newState, oldState) => {
 }
 
 .leave-button {
-  align-self: center;
+  margin-left: auto;
   min-width: 116px;
 }
 
@@ -3286,44 +3360,31 @@ watch(gameState, (newState, oldState) => {
   .game-header {
     position: sticky;
     top: 0;
-    grid-template-columns: 38px minmax(0, 1fr) auto;
     gap: var(--space-2) var(--space-3);
-    min-height: 0;
     padding: var(--space-2) var(--page-gutter);
   }
 
-  .brand-mark {
-    width: 38px;
-    height: 38px;
-    border-radius: 12px;
-  }
-
   .room-info h2 {
-    font-size: 17px;
-    line-height: 22px;
+    font-size: 15px;
+    line-height: 20px;
   }
 
-  .room-info p {
-    font-size: 11px;
+  .header-details {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
   }
 
-  .player-info {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    flex-direction: row;
-    justify-content: space-between;
-    padding-top: var(--space-1);
-    border-top: 1px solid var(--color-border);
+  .header-detail-value {
+    flex: 1;
+    min-width: 0;
   }
 
   .leave-button {
-    grid-column: 3;
-    min-width: 44px;
-    padding-inline: var(--space-3);
-  }
-
-  .leave-button :deep(.ui-icon) {
-    display: none;
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    margin-left: 0;
   }
 
   .game-main {
@@ -3536,8 +3597,6 @@ watch(gameState, (newState, oldState) => {
     font-size: 11px;
   }
 
-  .game-header.collapsed { grid-template-columns: minmax(0, 1fr) auto; }
-  .game-header.collapsed .status { justify-self: start; }
   .bag-tooltip { right: 0; left: auto; inline-size: min(210px, calc(100vw - 2 * var(--page-gutter))); min-width: 0; }
 
   .player-details.is-local-player { overflow: visible; }
@@ -3546,7 +3605,12 @@ watch(gameState, (newState, oldState) => {
   .player-details.is-local-player:has(.player-card.active-turn) > .player-summary.is-globally-stuck { background: var(--color-self-soft); }
 
   .player-summary-metrics { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
-  .player-summary-primary { display: inline-flex; align-items: center; gap: 6px; }
+  /* 选择器特异性需高于 .player-summary-metrics > span，否则 gap 被覆盖为 2px */
+  .player-summary-metrics > .player-summary-primary { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  /* 图标与数字统一转为 flex 项并去除行盒余量，消除数字基线下垂 */
+  .player-summary-primary > span { display: inline-flex; align-items: center; gap: 2px; }
+  .player-summary-metrics :deep(.ui-icon) { display: block; }
+  .player-summary-metrics b { line-height: 1; }
   .player-summary-reserved { justify-self: end; }
   .player-summary-metrics > .player-summary-gems { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 12px; }
   .player-summary-metrics > span { display: inline-flex; align-items: center; gap: 2px; }
@@ -3561,11 +3625,12 @@ watch(gameState, (newState, oldState) => {
   .is-black { background: #000000; border-color: #6c6c6c; }
   .is-pearl { background: #de7cb9; border-color: #f0b7d8; }
   .is-gold { background: #ffde1d; border-color: #f5c85c; }
+  /* bonus 文字色跟随边框色；黑色特例保持 #333333 */
   .player-summary-bonus { color: #333333; }
-  .player-summary-bonus.is-white { background: transparent; border-color: #d9dee3; }
-  .player-summary-bonus.is-blue { background: transparent; border-color: #0456a8; }
-  .player-summary-bonus.is-green { background: transparent; border-color: #08a549; }
-  .player-summary-bonus.is-red { background: transparent; border-color: #ee0024; }
+  .player-summary-bonus.is-white { background: transparent; border-color: #d9dee3; color: #d9dee3; }
+  .player-summary-bonus.is-blue { background: transparent; border-color: #0456a8; color: #0456a8; }
+  .player-summary-bonus.is-green { background: transparent; border-color: #08a549; color: #08a549; }
+  .player-summary-bonus.is-red { background: transparent; border-color: #ee0024; color: #ee0024; }
   .player-summary-bonus.is-black { background: transparent; border-color: #000000; }
 }
 

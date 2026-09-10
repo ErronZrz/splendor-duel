@@ -264,7 +264,7 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     background: getComputedStyle(element).backgroundColor,
     border: getComputedStyle(element).borderColor
   })))
-  expect(colors.every(item => item.color === 'rgb(51, 51, 51)')).toBe(true)
+  // bonus 文字色与边框色一致；黑色特例保持 #333333
   expect(colors.every(item => item.background === 'rgba(0, 0, 0, 0)')).toBe(true)
   expect(colors.map(item => item.border)).toEqual([
     'rgb(217, 222, 227)',
@@ -272,6 +272,13 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     'rgb(8, 165, 73)',
     'rgb(238, 0, 36)',
     'rgb(0, 0, 0)'
+  ])
+  expect(colors.map(item => item.color)).toEqual([
+    'rgb(217, 222, 227)',
+    'rgb(4, 86, 168)',
+    'rgb(8, 165, 73)',
+    'rgb(238, 0, 36)',
+    'rgb(51, 51, 51)'
   ])
   expect(await localSummary.evaluate(element => getComputedStyle(element).overflow)).toBe('hidden')
   expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftColor)).toBe('rgb(8, 127, 153)')
@@ -296,6 +303,24 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     }
   })
   expect(measuredGaps).toEqual({ bonusToToken: 3, tokenToToken: 3, tokenToNextBonus: 10 })
+
+  // 特权/分数/皇冠/token 四组：图标与数字组内垂直居中，组间距 12px，token 总量含全部 14 枚
+  const primaryGeometry = await localSummary.locator('.player-summary-primary').evaluate(element => {
+    const groups = [...element.querySelectorAll<HTMLSpanElement>(':scope > span')]
+    const firstIcon = groups[0].querySelector('.ui-icon')!.getBoundingClientRect()
+    const firstNumber = groups[0].querySelector('b')!.getBoundingClientRect()
+    return {
+      count: groups.length,
+      centerDelta: Math.abs((firstIcon.top + firstIcon.bottom) / 2 - (firstNumber.top + firstNumber.bottom) / 2),
+      gaps: groups.slice(1).map((group, index) => Math.round(
+        group.getBoundingClientRect().left - groups[index].getBoundingClientRect().right)),
+      tokenLabel: groups[3]?.getAttribute('aria-label')
+    }
+  })
+  expect(primaryGeometry.count).toBe(4)
+  expect(primaryGeometry.centerDelta).toBeLessThanOrEqual(1)
+  expect(primaryGeometry.gaps).toEqual([12, 12, 12])
+  expect(primaryGeometry.tokenLabel).toBe('token 14/10')
 })
 
 test('keeps the bag disclosure compact and shows noble names only after selection', async ({ page }, testInfo) => {

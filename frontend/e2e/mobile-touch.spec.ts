@@ -15,6 +15,16 @@ const openFixture = async (page: Page, scenario: Scenario): Promise<void> => {
 /** 按住控件并读取按压中的实际状态，松开后返回。 */
 const holdPress = async (page: Page, locator: Locator) => {
   await locator.evaluate(element => element.scrollIntoView({ block: 'center' }))
+  // 字体/图片在 fixture ready 后才就绪，其加载与摘要吸附（position: fixed 跳变）会推动布局；
+  // 按压前等待目标几何连续两帧稳定，否则按下后元素移出指针位置，Chromium 会取消 :active（偶发失败）
+  await page.waitForFunction(() => document.fonts.status === 'loaded' && [...document.images].every(img => img.complete))
+  await locator.evaluate(element => element.scrollIntoView({ block: 'center' }))
+  await expect.poll(async () => {
+    const first = await locator.boundingBox()
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const second = await locator.boundingBox()
+    return Math.abs((first?.y ?? 0) - (second?.y ?? 1)) + Math.abs((first?.x ?? 0) - (second?.x ?? 1))
+  }, { timeout: 5000 }).toBe(0)
   const box = await locator.boundingBox()
   expect(box).not.toBeNull()
   const x = box!.x + box!.width / 2
