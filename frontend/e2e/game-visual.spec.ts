@@ -333,6 +333,19 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     'rgb(238, 0, 36)',
     'rgb(51, 51, 51)'
   ])
+  // 白 token 与对应 bonus 共用石板灰边框；黄金 token 使用比填充略深的同色相边框。
+  const tokenColors = await localSummary.locator('.player-summary-token').evaluateAll(elements => Object.fromEntries(
+    ['white', 'gold'].map(type => {
+      const element = elements.find(candidate => candidate.classList.contains(`is-${type}`))
+      if (!element) throw new Error(`fixture needs a ${type} summary token`)
+      const style = getComputedStyle(element)
+      return [type, { background: style.backgroundColor, border: style.borderColor }]
+    })
+  ))
+  expect(tokenColors).toEqual({
+    white: { background: 'rgb(255, 255, 255)', border: 'rgb(108, 116, 125)' },
+    gold: { background: 'rgb(255, 222, 29)', border: 'rgb(223, 191, 15)' }
+  })
   expect(await localSummary.evaluate(element => getComputedStyle(element).overflow)).toBe('hidden')
   expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftColor)).toBe('rgb(8, 127, 153)')
   expect(await localDetails.evaluate(element => getComputedStyle(element).borderLeftWidth)).toBe('5px')

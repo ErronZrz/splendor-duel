@@ -1,5 +1,5 @@
 <template>
-  <svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg class="ui-icon" :class="{ 'is-connection': name === 'connection' }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path v-for="path in paths" :key="path" :d="path" />
   </svg>
 </template>
@@ -19,7 +19,8 @@ const iconPaths: Record<IconName, string[]> = {
   check: ['m4 12.5 5 5L20 6.5'],
   chevronDown: ['m6 9 6 6 6-6'],
   chevronUp: ['m18 15-6-6-6 6'],
-  connection: ['M5 9a10 10 0 0 1 14 0', 'M8 12a6 6 0 0 1 8 0', 'M11 15a2 2 0 0 1 2 0', 'M12 18h.01'],
+  // 三段 90° 圆弧以底部圆点 (12, 19) 为共同圆心，半径按 4 等距递减。
+  connection: ['M3.338 10.338A12.25 12.25 0 0 1 20.662 10.338', 'M6.166 13.166A8.25 8.25 0 0 1 17.834 13.166', 'M8.995 15.995A4.25 4.25 0 0 1 15.005 15.995', 'M12 19h.01'],
   copy: ['M20 9h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2Z', 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'],
   crown: ['M4.5 17V8.5L9 12.5 12 5.5 15 12.5 19.5 8.5V17z', 'M4 20h16', 'M4.5 6.4h.01M12 3.1h.01M19.5 6.4h.01'],
   diamond: ['m12 3 7 6-7 12L5 9l7-6Z', 'M5 9h14', 'm9 9 3 12 3-12', 'm9 9 3-6 3 6'],
@@ -39,5 +40,9 @@ const paths = computed(() => iconPaths[props.name])
   width: 1.15em;
   height: 1.15em;
   flex: 0 0 auto;
+}
+
+.ui-icon.is-connection path:last-child {
+  stroke-width: 2.6;
 }
 </style>

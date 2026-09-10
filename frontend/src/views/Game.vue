@@ -3708,13 +3708,13 @@ watch(gameState, (newState, oldState) => {
   .player-summary-bonus { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding-inline: 3px; border: 1px solid currentColor; border-radius: 4px; background: transparent; font-size: 10px; font-weight: 800; line-height: 1; }
   .player-summary-tokens { display: inline-flex; flex-wrap: wrap; gap: 3px; max-width: 46px; }
   .player-summary-token { width: 9px; height: 9px; box-sizing: border-box; border: 1px solid; border-radius: 50%; }
-  .is-white { background: #ffffff; border-color: #d9dee3; }
+  .is-white { background: #ffffff; border-color: #6c747d; }
   .is-blue { background: #0456a8; border-color: #9bc4ee; }
   .is-green { background: #08a549; border-color: #9ce0b7; }
   .is-red { background: #ee0024; border-color: #f5a6b1; }
   .is-black { background: #000000; border-color: #6c6c6c; }
   .is-pearl { background: #de7cb9; border-color: #f0b7d8; }
-  .is-gold { background: #ffde1d; border-color: #f5c85c; }
+  .is-gold { background: #ffde1d; border-color: #dfbf0f; }
   /* bonus 文字色跟随边框色；黑色特例保持 #333333 */
   .player-summary-bonus { color: #333333; }
   .player-summary-bonus.is-white { background: transparent; border-color: #6c747d; color: #6c747d; }
