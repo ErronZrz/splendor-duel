@@ -223,7 +223,7 @@ const handleImageError = (event: Event, gem: string): void => {
   }
 
   .gem-cell {
-    width: auto;
+    width: 100%;
     height: auto;
     min-width: 44px;
     min-height: 44px;
@@ -231,8 +231,10 @@ const handleImageError = (event: Event, gem: string): void => {
 }
 
 .gem-image {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
+  aspect-ratio: 1;
   object-fit: cover;
   border-radius: 50%;
   transition: transform .2s, box-shadow .2s;

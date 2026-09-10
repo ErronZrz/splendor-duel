@@ -153,6 +153,31 @@ test('de-emphasizes empty cells, hints the send key and sizes the shell with dvh
   expect(shell.containerMin).toBe(`${shell.innerHeight}px`)
 })
 
+test('keeps responsive board cells and gem images square', async ({ page }) => {
+  await openFixture(page, 'default')
+
+  const geometry = await page.locator('.gem-cell.has-gem').evaluateAll(cells => cells.map(cell => {
+    const image = cell.querySelector<HTMLImageElement>('.gem-image')
+    if (!image) throw new Error('filled gem cell is missing its image')
+    const cellBounds = cell.getBoundingClientRect()
+    const imageBounds = image.getBoundingClientRect()
+    return {
+      cellWidth: cellBounds.width,
+      cellHeight: cellBounds.height,
+      imageWidth: imageBounds.width,
+      imageHeight: imageBounds.height
+    }
+  }))
+
+  expect(geometry).toHaveLength(25)
+  for (const item of geometry) {
+    expect(Math.abs(item.cellWidth - item.cellHeight)).toBeLessThan(0.5)
+    expect(Math.abs(item.imageWidth - item.imageHeight)).toBeLessThan(0.5)
+    expect(item.imageWidth).toBeLessThanOrEqual(item.cellWidth)
+    expect(item.imageHeight).toBeLessThanOrEqual(item.cellHeight)
+  }
+})
+
 test('uses a labelled neutral fallback for a broken business image', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-primary')
   await openFixture(page, 'default')
