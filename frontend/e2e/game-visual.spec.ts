@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 type Scenario = 'default' | 'take-gems' | 'spend-privilege' | 'purchase' | 'reserve' | 'refill' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble' | 'discard' | 'victory' | 'pending' | 'unknown'
 
@@ -178,6 +178,45 @@ test('keeps responsive board cells and gem images square', async ({ page }) => {
   }
 })
 
+// 嵌套圆角同心回归：内层圆角 = 外层圆角 - 外层边框 - 间距（默认场景贵族卡不可选：1px 边框 + 4px padding）
+test('keeps nested rounded rectangles concentric', async ({ page }) => {
+  await openFixture(page, 'default')
+  const geometry = await page.evaluate(() => {
+    const read = (selector: string) => {
+      const element = document.querySelector<HTMLElement>(selector)
+      if (!element) throw new Error(`${selector} is missing`)
+      const style = getComputedStyle(element)
+      return {
+        radius: Number.parseFloat(style.borderTopLeftRadius),
+        border: Number.parseFloat(style.borderTopWidth),
+        padding: Number.parseFloat(style.paddingLeft)
+      }
+    }
+    return {
+      gemGrid: read('.gem-grid'),
+      gemCell: read('.gem-grid .gem-cell'),
+      cardItem: read('.card-item'),
+      cardImage: read('.card-item .card-image'),
+      deckItem: read('.deck-item'),
+      deckImage: read('.deck-item .deck-image'),
+      nobleItem: read('.noble-item'),
+      nobleImage: read('.noble-item .noble-image')
+    }
+  })
+  const expectConcentric = (outer: { radius: number; border: number; padding: number }, inner: { radius: number }) => {
+    expect(inner.radius).toBe(outer.radius - outer.border - outer.padding)
+  }
+  expect(geometry.gemGrid.radius).toBe(20)
+  expectConcentric(geometry.gemGrid, geometry.gemCell)
+  expectConcentric(geometry.cardItem, geometry.cardImage)
+  expectConcentric(geometry.deckItem, geometry.deckImage)
+  expectConcentric(geometry.nobleItem, geometry.nobleImage)
+  expect(geometry.cardImage.radius).toBe(9)
+  expect(geometry.deckImage.radius).toBe(9)
+  expect(geometry.nobleImage.radius).toBe(9)
+  expect(geometry.gemCell.radius).toBe(11)
+})
+
 test('uses a labelled neutral fallback for a broken business image', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-primary')
   await openFixture(page, 'default')
@@ -323,6 +362,48 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
   expect(primaryGeometry.tokenLabel).toBe('token 14/10')
 })
 
+test('removes the redundant turn frame inside expanded mobile player details', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-primary')
+  // 展开详情并入外层容器：回合态只保留与摘要的 1px 分隔线，无描边、圆角与光环
+  const expectFramelessActiveCard = async (details: Locator) => {
+    await expect(details).toHaveClass(/expanded/)
+    const activeCard = details.locator('.player-card.active-turn')
+    await expect(activeCard).toBeVisible()
+    const frame = await activeCard.evaluate(element => {
+      const style = getComputedStyle(element)
+      return {
+        borderTop: style.borderTop,
+        borderRightWidth: style.borderRightWidth,
+        borderBottomWidth: style.borderBottomWidth,
+        borderLeftWidth: style.borderLeftWidth,
+        borderRadius: style.borderRadius,
+        boxShadow: style.boxShadow
+      }
+    })
+    expect(frame).toEqual({
+      borderTop: '1px solid rgb(216, 208, 194)',
+      borderRightWidth: '0px',
+      borderBottomWidth: '0px',
+      borderLeftWidth: '0px',
+      borderRadius: '0px',
+      boxShadow: 'none'
+    })
+  }
+
+  await openFixture(page, 'default')
+  const localDetails = page.locator('.player-details.is-local-player')
+  await localDetails.locator('.player-summary').click()
+  await expectFramelessActiveCard(localDetails)
+  await localDetails.locator('.player-summary').click()
+  await expect(localDetails).not.toHaveClass(/expanded/)
+
+  await page.goto('/visual-fixture.html?scenario=default&turn=opponent')
+  await expect(page.locator('html')).toHaveAttribute('data-visual-fixture-ready', 'default')
+  const opponentDetails = page.locator('.player-details:not(.is-local-player)')
+  await opponentDetails.locator('.player-summary').click()
+  await expectFramelessActiveCard(opponentDetails)
+})
+
 test('keeps the bag disclosure compact and shows noble names only after selection', async ({ page }, testInfo) => {
   test.skip(!['desktop', 'mobile-primary'].includes(testInfo.project.name))
   await openFixture(page, 'default')
@@ -386,10 +467,25 @@ test('keeps the bag disclosure compact and shows noble names only after selectio
     expect(mobileNobleGeometry.oneRow).toBe(true)
     expect(mobileNobleGeometry.right).toBeLessThanOrEqual(mobileNobleGeometry.rowRight)
     expect(mobileNobleGeometry.imageSizes).toEqual([[60, 90], [60, 90], [60, 90], [60, 90]])
-    // 外框与图片间距调大（2px 边框 + 4px padding），图片 9px 圆角与外框同心
-    expect(mobileNobleGeometry.imageInsets).toEqual([6, 6, 6, 6])
+    // selectable 态 2px 边框 + 3px 补偿 padding，图片 9px 圆角与外框同心（14 - 2 - 3 = 9）
+    expect(mobileNobleGeometry.imageInsets).toEqual([5, 5, 5, 5])
     expect(mobileNobleGeometry.imageRadii).toEqual(['9px', '9px', '9px', '9px'])
     expect(mobileNobleGeometry.frameGaps).toEqual([6, 6, 6])
+  }
+  if (testInfo.project.name === 'desktop') {
+    const desktopNobleGeometry = await page.locator('.nobles-row').evaluate(element => {
+      const cards = [...element.querySelectorAll<HTMLElement>('.noble-item')]
+      const images = cards.map(card => card.querySelector<HTMLElement>('.noble-image')?.getBoundingClientRect())
+      return {
+        imageSizes: images.map(image => image && [Math.round(image.width), Math.round(image.height)]),
+        imageInsets: cards.map((card, index) => Math.round((images[index]?.left ?? 0) - card.getBoundingClientRect().left)),
+        imageRadii: cards.map(card => getComputedStyle(card.querySelector<HTMLElement>('.noble-image')!).borderRadius)
+      }
+    })
+    // 桌面端与移动端同心规则一致：selectable 态 2px 边框 + 3px padding，图片圆角 14 - 2 - 3 = 9px
+    expect(desktopNobleGeometry.imageSizes).toEqual([[80, 120], [80, 120], [80, 120], [80, 120]])
+    expect(desktopNobleGeometry.imageInsets).toEqual([5, 5, 5, 5])
+    expect(desktopNobleGeometry.imageRadii).toEqual(['9px', '9px', '9px', '9px'])
   }
   const fourthNoble = nobleCards.nth(3)
   if (testInfo.project.name === 'mobile-primary') await fourthNoble.tap()
@@ -545,12 +641,42 @@ test.describe('mobile dialog baselines', () => {
     await page.screenshot({ path: testInfo.outputPath('take-gems-direct-actual.png'), fullPage: true, animations: 'disabled' })
   })
 
+  test('opens spend-privilege from the always-visible board header pill', async ({ page }, testInfo) => {
+    await openFixture(page, 'default')
+    const pill = page.getByRole('button', { name: '花费特权指示物，当前持有2枚', exact: true })
+    await expect(pill).toBeVisible()
+    await expect(pill).toHaveAttribute('aria-disabled', 'false')
+    const hitArea = await pill.evaluate(element => {
+      const hit = getComputedStyle(element, '::before')
+      return { width: Number.parseFloat(hit.width), height: Number.parseFloat(hit.height) }
+    })
+    expect(hitArea.width).toBeGreaterThanOrEqual(44)
+    expect(hitArea.height).toBeGreaterThanOrEqual(44)
+    if (testInfo.project.name.startsWith('mobile-')) {
+      await pill.tap()
+    } else {
+      await pill.click()
+    }
+    const actionBar = page.getByRole('region', { name: '花费特权' })
+    await expect(actionBar).toBeVisible()
+    await expect(pill).toHaveAttribute('aria-disabled', 'true')
+    const pageWidth = await page.evaluate(() => ({
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth
+    }))
+    expect(pageWidth.scrollWidth).toBe(pageWidth.clientWidth)
+    await page.screenshot({ path: testInfo.outputPath('privilege-pill-entry-actual.png'), fullPage: true, animations: 'disabled' })
+  })
+
   test('keeps direct privilege interaction inside the primary mobile viewport', async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== 'mobile-primary')
     await openFixture(page, 'spend-privilege')
     await expect(page.locator('.dialog-content')).toBeHidden()
     const actionBar = page.getByRole('region', { name: '花费特权' })
     await expect(actionBar).toBeVisible()
+    // 进入行动后版图头部入口同步锁定并呈选中态
+    await expect(page.locator('.privilege-pill')).toHaveAttribute('aria-disabled', 'true')
+    await expect(page.locator('.privilege-pill')).toHaveClass(/selected/)
     await actionBar.getByRole('button', { name: '2', exact: true }).click()
     await page.getByRole('button', { name: '选择白色，第1行第1列', exact: true }).click()
     await page.getByRole('button', { name: '选择蓝色，第1行第2列', exact: true }).tap()
@@ -671,24 +797,32 @@ test.describe('mobile dialog baselines', () => {
       await expect(page.locator('.dialog-content')).toBeHidden()
       const actionBar = page.getByRole('region', { name: region })
       await expect(actionBar).toBeVisible()
-      if (scenario === 'steal-token' && testInfo.project.name.startsWith('mobile-')) {
-        await page.locator('.player-details').nth(1).locator('.player-summary').click()
+      if (scenario === 'steal-token') {
+        // 窃取选择内嵌固定操作栏：对手持有全部 6 种可窃取颜色，移动端无需展开对手面板
+        await expect(actionBar.locator('.steal-choices button')).toHaveCount(6)
       }
       const target = scenario === 'extra-token'
         ? page.locator('.gem-cell.selectable').first()
         : scenario === 'steal-token'
-          ? page.locator('.player-card:not(.current-player) .token-cell.selectable').first()
+          ? actionBar.locator('.steal-choices button').first()
           : scenario === 'wildcard'
             ? page.locator('.inline-effect-choices button').first()
             : page.locator('.noble-item.selectable').first()
       await expect(target).toBeVisible()
-      if (testInfo.project.name.startsWith('mobile-')) {
+      if (testInfo.project.name.startsWith('mobile-') && scenario !== 'steal-token') {
         // 固定底部操作栏会覆盖 minimal-scroll 落点：先滚动到视口中央并等滚动沉降，再 tap（贴合真实用户路径）
         await target.evaluate(element => element.scrollIntoView({ block: 'center' }))
         await settleScroll(page)
         await target.tap()
+      } else if (testInfo.project.name.startsWith('mobile-')) {
+        // 窃取 chips 位于固定操作栏内，始终在视口中，直接 tap
+        await target.tap()
       } else {
         await target.click()
+      }
+      if (scenario === 'steal-token' && testInfo.project.name.startsWith('mobile-')) {
+        // 回归：全流程对手详情保持折叠
+        await expect(page.locator('.player-details').nth(1)).not.toHaveClass(/expanded/)
       }
       await expect(actionBar.getByRole('button', { name: '确认' })).toBeEnabled()
       const metrics = await target.evaluate(element => {

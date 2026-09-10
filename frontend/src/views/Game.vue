@@ -81,10 +81,17 @@
                 </div>
                 <div class="game-status">
                   <span class="game-state-chip">{{ gameStatusText }}</span>
-                  <span v-if="gameState?.currentPlayerIndex !== undefined">
-                    <UiIcon name="turn" />{{ getCurrentPlayerName() }}
-                  </span>
-                  <div 
+                  <!-- 可选行动「花费特权」常驻入口：取代原当前玩家组件（回合归属已由回合横幅与顶栏表达）；0 枚时置灰，面板徽章保留为辅助入口 -->
+                  <button
+                    type="button"
+                    class="privilege-pill"
+                    :class="{ selected: interactionState.action.kind === 'spend-privilege' }"
+                    :aria-disabled="!canUsePrivilegePill"
+                    :aria-label="`花费特权指示物，当前持有${currentPlayerPrivilegeCount}枚`"
+                    title="花费特权：从棋盘拿取等量宝石"
+                    @click.stop="handleSpendPrivilege"
+                  ><UiIcon name="privilege" />使用特权<b>{{ currentPlayerPrivilegeCount }}</b></button>
+                  <div
                     ref="bagContainerRef"
                     class="bag-container"
                     @mouseenter="bagHover = true"
@@ -143,12 +150,14 @@
                 :confirm-disabled="contextActionBar.confirmDisabled"
                 :allow-skip="purchaseEffectCanSkip"
                 :selection-label="contextSelectionLabel"
+                :steal-options="stealOptions"
                 :pending="isBoardActionPending"
                 @change-count="handlePrivilegeCountChange"
                 @clear="handleBoardSelectionClear"
                 @cancel="handleBoardSelectionCancel"
                 @confirm="handleBoardSelectionConfirm"
                 @skip="handlePurchaseEffectSkip"
+                @select-steal="selectStealToken"
               />
 
               <InlineWildcardChoices
@@ -968,6 +977,12 @@ const stealSelectableTypes = computed(() => {
   return legalStealTypes.filter(type => (gems[type] || 0) > 0)
 })
 const selectedStealType = computed(() => interactionState.value.action.kind === 'steal-token' ? interactionState.value.action.selectedGemType : undefined)
+// 窃取选择项（内嵌于操作栏）：对手实际持有的各可窃取颜色及数量，黄金不可窃取
+const stealOptions = computed(() => {
+  if (interactionState.value.action.kind !== 'steal-token') return []
+  const gems = getOpponentData()?.gems || {}
+  return legalStealTypes.filter(type => (gems[type] || 0) > 0).map(type => ({ type, count: gems[type] }))
+})
 const wildcardSelectableColors = computed(() => {
   if (interactionState.value.action.kind !== 'wildcard') return []
   const bonus = getCurrentPlayerData()?.bonus || {}
@@ -1097,6 +1112,13 @@ const handleReserveCard = (goldX, goldY) => {
   })
 }
 
+// 本地玩家持有的特权数量（驱动版图头部「使用特权」入口的渲染条件）
+const currentPlayerPrivilegeCount = computed(() => Number(getCurrentPlayerData()?.privilegeTokens) || 0)
+// 入口可用条件与玩家面板内特权徽章（canSpendPrivilege）保持一致
+const canUsePrivilegePill = computed(() =>
+  isMyTurn.value && currentPlayerPrivilegeCount.value > 0 && !gameState.value?.refilledThisTurn && !isBoardActionPending.value && interactionState.value.action.kind === 'idle'
+)
+
 // 处理花费特权操作（向后端发送特权请求）
 const handleSpendPrivilege = () => {
   if (!isMyTurn.value) {
@@ -1105,6 +1127,12 @@ const handleSpendPrivilege = () => {
     }
     return
   }
+  // 版图头部常显入口不走 canSpendPrivilege 的渲染门控，需在此补齐 pending/idle 守卫（与 handleRefillBoard 对齐）
+  if (isBoardActionPending.value) {
+    notificationRef.value?.info('请稍候', '正在等待上一项棋盘操作的服务器结果')
+    return
+  }
+  if (interactionState.value.action.kind !== 'idle') return
   // 前置校验：本回合若已补充版图，则禁止使用特权
   if (gameState.value?.refilledThisTurn) {
     if (notificationRef.value) {
@@ -1886,6 +1914,31 @@ watch(gameState, (newState, oldState) => {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, .24);
 }
 .bag-pill[aria-disabled="true"] { cursor: default; }
+/* 版图头部「使用特权」入口：视觉与袋中宝石 pill 对齐 */
+.privilege-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  background: #ffffff;
+  color: #495057;
+  border: 1px solid #dee2e6;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.privilege-pill::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, 44px);
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+.privilege-pill[aria-disabled="true"] { cursor: default; opacity: .55; }
 .metric-badge.clickable { cursor: pointer; box-shadow: 0 0 0 0 rgba(13,110,253,0); transition: box-shadow .2s ease; }
 .metric-badge.clickable:hover { box-shadow: 0 0 0 3px rgba(13,110,253,0.25); }
 .bag-tooltip {
@@ -2641,6 +2694,13 @@ watch(gameState, (newState, oldState) => {
     border-top: 1px solid var(--color-border);
     border-radius: 0;
   }
+
+  /* 回合态已由外层容器左侧 5px 色条与柔和底色表达；展开详情并入容器，需以更高特异性压过组件内 active-turn 的 2px 描边与光环 */
+  .player-details.expanded > :deep(.player-card.active-turn) {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    box-shadow: none;
+  }
   .bottom-panels { gap: var(--space-4); }
 
   .mobile-game-nav {
@@ -2757,7 +2817,8 @@ watch(gameState, (newState, oldState) => {
   z-index: 3000;
   background: rgba(255,255,255,0.98);
   border: 1px solid #dee2e6;
-  border-radius: 8px;
+  /* 浮层圆角与内部图片同心：8px 图片 + 1px 边框 + 6px 间距 = 15px */
+  border-radius: 15px;
   padding: 6px;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25);
   pointer-events: auto;
@@ -3069,6 +3130,7 @@ watch(gameState, (newState, oldState) => {
 .status,
 .game-status > span,
 .bag-pill,
+.privilege-pill,
 .panel-title {
   display: inline-flex;
   align-items: center;
@@ -3265,7 +3327,8 @@ watch(gameState, (newState, oldState) => {
 }
 
 .game-status > span,
-.bag-pill {
+.bag-pill,
+.privilege-pill {
   min-height: 30px;
   padding: 4px 9px;
   border: 1px solid var(--color-border);
@@ -3278,14 +3341,20 @@ watch(gameState, (newState, oldState) => {
   font-weight: 750;
 }
 
-.bag-pill {
+.bag-pill,
+.privilege-pill {
   color: var(--color-ink);
 }
 
-.bag-pill.selected {
+.bag-pill.selected,
+.privilege-pill.selected {
   border-color: var(--color-action);
   background: var(--color-action-soft);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 22%, transparent);
+}
+
+.privilege-pill b {
+  font-weight: 800;
 }
 
 .game-sidebar {
@@ -3505,8 +3574,14 @@ watch(gameState, (newState, oldState) => {
     gap: var(--space-2);
   }
 
+  /* 特权入口占据原当前玩家的中间轨道并居中，首行三列一行为止 */
+  .game-status > .privilege-pill {
+    justify-self: center;
+  }
+
   .game-status > span,
-  .bag-pill {
+  .bag-pill,
+  .privilege-pill {
     min-height: 32px;
   }
 

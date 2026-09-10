@@ -244,7 +244,8 @@ const ownedBonusCards = (color: GemType): string[] => getOwnedBonusCardIds(props
 .noble-tooltip::before { content: ''; position: absolute; top: -6px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 6px solid #ffffff; }
 .noble-tooltip::after { content: ''; position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 7px solid #dee2e6; z-index: -1; }
 .noble-tooltip-content { display: flex; gap: 6px; align-items: center; }
-.noble-tooltip-image { width: 60px; height: 90px; object-fit: cover; border-radius: 4px; border: 1px solid #dee2e6; }
+/* 图片圆角与浮层同心：14px 浮层 - 1px 边框 - 8px 间距 = 5px */
+.noble-tooltip-image { width: 60px; height: 90px; object-fit: cover; border-radius: 5px; border: 1px solid #dee2e6; }
 .token-board { display: flex; flex-direction: column; gap: 6px; }
 .token-row { display: flex; gap: 6px; }
 .token-row.overflow { margin-top: 6px; }

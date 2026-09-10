@@ -39,6 +39,22 @@
       <span v-if="reserveTarget" class="selected-gem selected-target">目标：{{ reserveTargetLabel }}</span>
       <span v-else class="empty-selection">尚未选择市场卡或牌堆</span>
     </div>
+    <!-- 窃取选择内嵌操作栏：移动端无需展开对手面板即可选取；对手面板 token 格保留为辅助路径 -->
+    <div v-else-if="mode === 'steal-token'" class="steal-choices" role="group" aria-label="对手持有的可窃取 token">
+      <span v-if="stealOptions.length === 0" class="empty-selection">对手暂无可窃取的 token，可明确跳过</span>
+      <button
+        v-for="option in stealOptions"
+        :key="option.type"
+        type="button"
+        :class="{ selected: selectionLabel === option.type }"
+        :aria-pressed="selectionLabel === option.type"
+        :aria-label="`窃取${getGemDisplayName(option.type)}，对手持有${option.count}枚`"
+        :disabled="pending"
+        @click="emit('select-steal', option.type)"
+      >
+        <img :src="`/images/gems/${getGemImageName(option.type)}.jpg`" alt="" />{{ getGemDisplayName(option.type) }}<span class="steal-count">×{{ option.count }}</span>
+      </button>
+    </div>
     <div v-else-if="selectionLabel" class="selected-list" aria-live="polite">
       <span class="selected-gem">已选择：{{ getGemDisplayName(selectionLabel) }}</span>
     </div>
@@ -57,8 +73,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { getGemDisplayName } from '../game-view-selectors'
+import { getGemDisplayName, getGemImageName } from '../game-view-selectors'
 import type { GemPosition, ReserveTarget, SelectedGem } from '../game-interaction-state'
+
+export interface StealOption {
+  type: string
+  count: number
+}
 
 const props = defineProps<{
   mode: 'take-gems' | 'spend-privilege' | 'reserve-card' | 'refill-confirm' | 'extra-token' | 'steal-token' | 'wildcard' | 'noble'
@@ -73,6 +94,7 @@ const props = defineProps<{
   pending: boolean
   allowSkip?: boolean
   selectionLabel?: string
+  stealOptions?: readonly StealOption[]
 }>()
 
 const emit = defineEmits<{
@@ -81,7 +103,10 @@ const emit = defineEmits<{
   cancel: []
   confirm: []
   skip: []
+  'select-steal': [gemType: string]
 }>()
+
+const stealOptions = computed(() => props.stealOptions ?? [])
 
 const title = computed(() => ({
   'take-gems': '拿取宝石',
@@ -206,6 +231,65 @@ const confirmLabel = computed(() => props.mode === 'reserve-card'
 .context-actions button {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* 窃取目标选择 chips：视觉与 InlineWildcardChoices 对齐，内嵌操作栏免展开对手面板 */
+.steal-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.steal-choices button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--font-small);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.steal-choices button.selected {
+  border-color: var(--color-action);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-action) 24%, transparent);
+}
+
+.steal-choices button.selected::after {
+  content: '✓';
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--color-surface);
+  border-radius: var(--radius-pill);
+  background: var(--color-action-strong);
+  color: white;
+  font-size: 11px;
+}
+
+.steal-choices img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.steal-count {
+  color: var(--color-ink-muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .privilege-count button {

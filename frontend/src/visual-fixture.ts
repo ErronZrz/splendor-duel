@@ -39,6 +39,10 @@ if (new URLSearchParams(window.location.search).get('board') === 'gap') {
 // 附加数据变体（不改变默认基线）：roomid=... 覆盖房间 ID，用于长 ID 截断与头部溢出回归
 const requestedRoomId = new URLSearchParams(window.location.search).get('roomid')
 if (requestedRoomId) fixture.room.id = requestedRoomId
+// 附加数据变体（不改变默认基线）：turn=opponent 让对手持有当前回合，用于对手回合展开详情描边回归
+if (new URLSearchParams(window.location.search).get('turn') === 'opponent' && fixture.room.gameState) {
+  fixture.room.gameState.currentPlayerIndex = 1
+}
 if (scenario === 'extra-token' || scenario === 'steal-token' || scenario === 'wildcard' || scenario === 'noble') {
   const firstCardId = fixture.room.gameState?.flippedCards?.['1']?.[0]
   const card = firstCardId ? fixture.room.gameState?.cardDetails?.[firstCardId] : undefined
@@ -80,7 +84,8 @@ await nextTick()
 if (scenario === 'take-gems') {
   document.querySelector<HTMLButtonElement>('.gem-board .gem-cell:not(:disabled)')?.click()
 } else if (scenario === 'spend-privilege') {
-  document.querySelector<HTMLElement>('.player-card .privilege-badge[role="button"]')?.click()
+  // 走版图头部常显「使用特权」入口（主要路径）；玩家面板内徽章为辅助路径，由 Vitest 覆盖
+  document.querySelector<HTMLElement>('.privilege-pill')?.click()
 } else if (scenario === 'purchase') {
   document.querySelector<HTMLElement>('.development-cards .card-item')?.click()
 } else if (scenario === 'reserve') {

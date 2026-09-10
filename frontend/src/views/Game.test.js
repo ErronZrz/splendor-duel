@@ -890,3 +890,91 @@ describe('existing game action orchestration', () => {
     expect(wrapper.find('.request-feedback-banner').attributes('role')).toBe('alert')
   })
 })
+
+describe('stage 69 action flow entries', () => {
+  const openPurchase = async () => {
+    await wrapper.find('.card-item').trigger('click')
+    await flushPromises()
+    expect(actionDialog().props('actionType')).toBe('buyCard')
+  }
+
+  it('keeps the board-header privilege pill resident but greyed out at zero privileges', async () => {
+    await createGameFlowHarness()
+    const pill = wrapper.get('.privilege-pill')
+    expect(pill.text()).toContain('使用特权')
+    expect(pill.text()).toContain('0')
+    expect(pill.attributes('aria-label')).toBe('花费特权指示物，当前持有0枚')
+    expect(pill.attributes('aria-disabled')).toBe('true')
+    await pill.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+  })
+
+  it('no longer repeats the turn player inside the board header status row', async () => {
+    await createGameFlowHarness()
+    expect(wrapper.get('.game-status').text()).not.toContain('本地玩家')
+    expect(wrapper.get('.game-status').text()).toContain('对局进行中')
+  })
+
+  it('opens spend-privilege from the board-header pill and locks the pill while the action runs', async () => {
+    await createGameFlowHarness({ playerOverrides: { privilegeTokens: 2 } })
+    const pill = wrapper.get('.privilege-pill')
+    expect(pill.text()).toContain('使用特权')
+    expect(pill.text()).toContain('2')
+    expect(pill.attributes('aria-label')).toBe('花费特权指示物，当前持有2枚')
+    expect(pill.attributes('aria-disabled')).toBe('false')
+    await pill.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('spend-privilege')
+    const activePill = wrapper.get('.privilege-pill')
+    expect(activePill.attributes('aria-disabled')).toBe('true')
+    expect(activePill.classes()).toContain('selected')
+  })
+
+  it('keeps the pill unavailable outside the local turn or after a refill this turn', async () => {
+    await createGameFlowHarness({ playerOverrides: { privilegeTokens: 2 }, stateOverrides: { currentPlayerIndex: 1 } })
+    const opponentTurnPill = wrapper.get('.privilege-pill')
+    expect(opponentTurnPill.attributes('aria-disabled')).toBe('true')
+    await opponentTurnPill.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+
+    wrapper.unmount()
+    wrapper = undefined
+    await createGameFlowHarness({ playerOverrides: { privilegeTokens: 2 }, stateOverrides: { refilledThisTurn: true } })
+    const refilledPill = wrapper.get('.privilege-pill')
+    expect(refilledPill.attributes('aria-disabled')).toBe('true')
+    await refilledPill.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).exists()).toBe(false)
+  })
+
+  it('never displaces an in-flight board action when the pill is pressed', async () => {
+    await createGameFlowHarness({ playerOverrides: { privilegeTokens: 2 } })
+    await wrapper.get('[data-board-position="0-0"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('take-gems')
+    await wrapper.get('.privilege-pill').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(ContextActionBar).props('mode')).toBe('take-gems')
+  })
+
+  it('completes steal through the inline action bar chips without touching the opponent panel', async () => {
+    const { card, sendAction } = await createGameFlowHarness({ card: makeCard({ effects: ['steal'] }) })
+    await openPurchase()
+    await emitConfirm({ actionType: 'buyCard', selectedCard: card, paymentPlan: { white: 1 } })
+    const bar = wrapper.findComponent(ContextActionBar)
+    expect(bar.props('mode')).toBe('steal-token')
+    const chips = bar.findAll('.steal-choices button')
+    // 对手默认持有 white4/blue2/green1；黄金与未持有颜色不可窃取
+    expect(chips).toHaveLength(3)
+    expect(chips[0].text()).toContain('×4')
+    await chips[0].trigger('click')
+    await flushPromises()
+    const activeBar = wrapper.findComponent(ContextActionBar)
+    expect(activeBar.props('confirmDisabled')).toBe(false)
+    await activeBar.get('.btn-primary').trigger('click')
+    expect(sendAction).toHaveBeenCalledTimes(1)
+    expect(sendAction).toHaveBeenCalledWith('buyCard', expect.objectContaining({ effects: { steal: { gemType: 'white' } } }))
+  })
+})

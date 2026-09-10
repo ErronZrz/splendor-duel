@@ -156,7 +156,8 @@ const handleImageError = (event: Event, gem: string): void => {
   width: min(100%, 280px);
   padding: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+  /* 网格圆角取 20px，与四角格子同心：20px - 1px 边框 - 8px 间距 = 11px = .gem-cell 圆角 */
+  border-radius: var(--radius-surface);
   background: var(--color-surface-strong);
 }
 
