@@ -264,17 +264,17 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     background: getComputedStyle(element).backgroundColor,
     border: getComputedStyle(element).borderColor
   })))
-  // bonus 文字色与边框色一致；黑色特例保持 #333333
+  // bonus 文字色与边框色一致；白色加深为石板灰 #4a5568，黑色特例保持 #333333
   expect(colors.every(item => item.background === 'rgba(0, 0, 0, 0)')).toBe(true)
   expect(colors.map(item => item.border)).toEqual([
-    'rgb(217, 222, 227)',
+    'rgb(74, 85, 104)',
     'rgb(4, 86, 168)',
     'rgb(8, 165, 73)',
     'rgb(238, 0, 36)',
     'rgb(0, 0, 0)'
   ])
   expect(colors.map(item => item.color)).toEqual([
-    'rgb(217, 222, 227)',
+    'rgb(74, 85, 104)',
     'rgb(4, 86, 168)',
     'rgb(8, 165, 73)',
     'rgb(238, 0, 36)',
@@ -379,13 +379,16 @@ test('keeps the bag disclosure compact and shows noble names only after selectio
         rowRight: Math.round(row.right),
         imageSizes: images.map(image => image && [Math.round(image.width), Math.round(image.height)]),
         imageInsets: cards.map((card, index) => Math.round((images[index]?.left ?? 0) - card.getBoundingClientRect().left)),
+        imageRadii: cards.map(card => getComputedStyle(card.querySelector<HTMLElement>('.noble-image')!).borderRadius),
         frameGaps: cards.slice(1).map((card, index) => Math.round(card.getBoundingClientRect().left - cards[index].getBoundingClientRect().right))
       }
     })
     expect(mobileNobleGeometry.oneRow).toBe(true)
     expect(mobileNobleGeometry.right).toBeLessThanOrEqual(mobileNobleGeometry.rowRight)
     expect(mobileNobleGeometry.imageSizes).toEqual([[60, 90], [60, 90], [60, 90], [60, 90]])
-    expect(mobileNobleGeometry.imageInsets).toEqual([4, 4, 4, 4])
+    // 外框与图片间距调大（2px 边框 + 4px padding），图片 9px 圆角与外框同心
+    expect(mobileNobleGeometry.imageInsets).toEqual([6, 6, 6, 6])
+    expect(mobileNobleGeometry.imageRadii).toEqual(['9px', '9px', '9px', '9px'])
     expect(mobileNobleGeometry.frameGaps).toEqual([6, 6, 6])
   }
   const fourthNoble = nobleCards.nth(3)

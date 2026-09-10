@@ -55,8 +55,9 @@ const emit = defineEmits<{
 .noble-image { width: 80px; height: 120px; object-fit: cover; border-radius: 10px; }
 @media (max-width: 768px) {
   .nobles-row { flex-wrap: nowrap; gap: 6px; justify-content: flex-start; }
-  .noble-item { padding: 2px; }
-  .noble-image { width: 60px; height: 90px; }
+  /* 外框与图片边缘间距由 2px 调大为 4px，圆角随之同心（14px 外框 - 1px 边框 - 4px 间距 = 9px） */
+  .noble-item { padding: 4px; }
+  .noble-image { width: 60px; height: 90px; border-radius: 9px; }
 }
 @media (hover: none), (pointer: coarse) { .noble-item.selectable:hover:not(:active) { transform: none; box-shadow: none; } }
 @media (prefers-reduced-motion: reduce) { .noble-item { transition: none; } }

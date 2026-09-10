@@ -78,7 +78,8 @@ test('keeps one top row in both header states and exposes room actions when expa
   await expect(disclosure).toHaveAttribute('aria-label', '收起房间信息')
   await expect(page.locator('.room-info h2')).toHaveText('Splendor Duel')
   await expect(page.locator('.header-details')).toBeVisible()
-  await expect(page.locator('.header-room-id')).toHaveText('visual-fixture...')
+  await expect(page.locator('.header-room-id .room-id-short')).toHaveText('visual-fixture-room')
+  await expect(page.locator('.header-room-id .room-id-full')).toBeHidden()
   await expect(page.locator('.header-room-id')).toHaveAttribute('title', 'visual-fixture-room')
   await expect(page.locator('.header-player-name')).toContainText('本地玩家')
   await expect(page.locator('.leave-button')).toBeVisible()
@@ -98,8 +99,9 @@ test('truncates a long room id without overflowing the expanded mobile header', 
   await openFixture(page, 'default', `&roomid=${fullId}`)
 
   await page.locator('.header-disclosure').click()
-  // 展示截断（前 14 字符 + ...），title 与剪贴板仍为完整 ID
-  await expect(page.locator('.header-room-id')).toHaveText('6c8cad66-6d47-...')
+  // 展示截断（前 18 字符 + ...），完整形态隐藏，title 与剪贴板仍为完整 ID
+  await expect(page.locator('.header-room-id .room-id-short')).toHaveText('6c8cad66-6d47-407f...')
+  await expect(page.locator('.header-room-id .room-id-full')).toBeHidden()
   await expect(page.locator('.header-room-id')).toHaveAttribute('title', fullId)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.locator('.header-copy').click()
@@ -121,6 +123,18 @@ test('truncates a long room id without overflowing the expanded mobile header', 
     expect(row.right).toBeLessThanOrEqual(geometry.clientWidth + 0.5)
   }
   expect(geometry.copyRight).toBeLessThanOrEqual(geometry.clientWidth + 0.5)
+})
+
+test('shows the full room id untruncated in the expanded desktop header', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop')
+  const fullId = '6c8cad66-6d47-407f-bda4-530cd8e9ab12'
+  await openFixture(page, 'default', `&roomid=${fullId}`)
+
+  // 桌面端始终展示完整 ID，截断形态仅移动端可见
+  await page.locator('.header-disclosure').click()
+  await expect(page.locator('.header-room-id .room-id-full')).toHaveText(fullId)
+  await expect(page.locator('.header-room-id .room-id-short')).toBeHidden()
+  await expect(page.locator('.header-room-id')).toHaveAttribute('title', fullId)
 })
 
 test('navigates every mobile section below the actual header and stuck summary', async ({ page }, testInfo) => {

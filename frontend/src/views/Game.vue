@@ -16,7 +16,7 @@
       <div v-if="isHeaderExpanded" class="header-details">
         <div class="header-detail">
           <span class="header-detail-label">房间 ID</span>
-          <span class="header-detail-value header-room-id" :title="roomId">{{ displayRoomId }}</span>
+          <span class="header-detail-value header-room-id" :title="roomId"><span class="room-id-full">{{ roomId }}</span><span class="room-id-short">{{ displayRoomId }}</span></span>
           <button type="button" class="header-copy" :class="{ copied: roomIdCopied }" :aria-label="roomIdCopied ? '房间 ID 已复制' : '复制房间 ID'" @click="copyRoomId">
             <UiIcon :name="roomIdCopied ? 'check' : 'copy'" />{{ roomIdCopied ? '已复制' : '复制' }}
           </button>
@@ -414,10 +414,10 @@ const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black',
 const playerTokenTotal = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
   .reduce((sum, type) => sum + (Number(player?.gems?.[type]) || 0), 0)
 
-// 房间 ID 过长时截断展示（如 6c8cad66-6d47-...）；复制与 title 仍使用完整 ID
+// 房间 ID 仅移动端截断展示（多取一段，如 6c8cad66-6d47-407f...）；复制与 title 仍使用完整 ID
 const displayRoomId = computed(() => {
   const id = String(props.roomId || '')
-  return id.length > 16 ? `${id.slice(0, 14)}...` : id
+  return id.length > 21 ? `${id.slice(0, 18)}...` : id
 })
 
 // 房间 ID 一键复制：优先 Clipboard API，非安全上下文退化为隐藏 textarea + execCommand
@@ -3021,6 +3021,11 @@ watch(gameState, (newState, oldState) => {
   white-space: nowrap;
 }
 
+/* 截断形态仅移动端展示，桌面端始终为完整 ID */
+.header-room-id .room-id-short {
+  display: none;
+}
+
 .header-player-name-text {
   display: block;
   min-width: 0;
@@ -3397,6 +3402,15 @@ watch(gameState, (newState, oldState) => {
     min-width: 0;
   }
 
+  /* 移动端房间 ID 切换为截断形态 */
+  .header-room-id .room-id-full {
+    display: none;
+  }
+
+  .header-room-id .room-id-short {
+    display: inline;
+  }
+
   .leave-button {
     width: 100%;
     min-width: 0;
@@ -3644,7 +3658,7 @@ watch(gameState, (newState, oldState) => {
   .is-gold { background: #ffde1d; border-color: #f5c85c; }
   /* bonus 文字色跟随边框色；黑色特例保持 #333333 */
   .player-summary-bonus { color: #333333; }
-  .player-summary-bonus.is-white { background: transparent; border-color: #d9dee3; color: #d9dee3; }
+  .player-summary-bonus.is-white { background: transparent; border-color: #4a5568; color: #4a5568; }
   .player-summary-bonus.is-blue { background: transparent; border-color: #0456a8; color: #0456a8; }
   .player-summary-bonus.is-green { background: transparent; border-color: #08a549; color: #08a549; }
   .player-summary-bonus.is-red { background: transparent; border-color: #ee0024; color: #ee0024; }

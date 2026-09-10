@@ -238,8 +238,9 @@ it('renders player status cards with the local player first and preserves names'
   vi.stubGlobal('navigator', { clipboard: { writeText } })
   await wrapper.find('.header-disclosure').trigger('click')
   expect(wrapper.find('.header-disclosure').attributes('aria-label')).toBe('收起房间信息')
-  // 展开区：房间 ID（一键复制）、当前玩家、离开游戏
-  expect(wrapper.find('.header-room-id').text()).toBe('test-room')
+  // 展开区：房间 ID（桌面完整形态与移动端截断形态共存于 DOM，一键复制）、当前玩家、离开游戏
+  expect(wrapper.find('.header-room-id .room-id-full').text()).toBe('test-room')
+  expect(wrapper.find('.header-room-id .room-id-short').text()).toBe('test-room')
   expect(wrapper.find('.header-player-name').text()).toContain('本地玩家')
   expect(wrapper.find('.leave-button').exists()).toBe(true)
   await wrapper.find('.header-copy').trigger('click')
