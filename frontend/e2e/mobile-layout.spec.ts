@@ -99,8 +99,8 @@ test('truncates a long room id without overflowing the expanded mobile header', 
   await openFixture(page, 'default', `&roomid=${fullId}`)
 
   await page.locator('.header-disclosure').click()
-  // 展示截断（前 18 字符 + ...），完整形态隐藏，title 与剪贴板仍为完整 ID
-  await expect(page.locator('.header-room-id .room-id-short')).toHaveText('6c8cad66-6d47-407f...')
+  // 展示截断（前 19 字符 + ...），完整形态隐藏，title 与剪贴板仍为完整 ID
+  await expect(page.locator('.header-room-id .room-id-short')).toHaveText('6c8cad66-6d47-407f-...')
   await expect(page.locator('.header-room-id .room-id-full')).toBeHidden()
   await expect(page.locator('.header-room-id')).toHaveAttribute('title', fullId)
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])

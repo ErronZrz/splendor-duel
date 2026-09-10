@@ -414,10 +414,10 @@ const playerSummaryGems = (player) => ['white', 'blue', 'green', 'red', 'black',
 const playerTokenTotal = (player) => ['white', 'blue', 'green', 'red', 'black', 'pearl', 'gold']
   .reduce((sum, type) => sum + (Number(player?.gems?.[type]) || 0), 0)
 
-// 房间 ID 仅移动端截断展示（多取一段，如 6c8cad66-6d47-407f...）；复制与 title 仍使用完整 ID
+// 房间 ID 仅移动端截断展示（保留前 19 字符，如 6c8cad66-6d47-407f-...）；复制与 title 仍使用完整 ID
 const displayRoomId = computed(() => {
   const id = String(props.roomId || '')
-  return id.length > 21 ? `${id.slice(0, 18)}...` : id
+  return id.length > 22 ? `${id.slice(0, 19)}...` : id
 })
 
 // 房间 ID 一键复制：优先 Clipboard API，非安全上下文退化为隐藏 textarea + execCommand
@@ -3658,7 +3658,7 @@ watch(gameState, (newState, oldState) => {
   .is-gold { background: #ffde1d; border-color: #f5c85c; }
   /* bonus 文字色跟随边框色；黑色特例保持 #333333 */
   .player-summary-bonus { color: #333333; }
-  .player-summary-bonus.is-white { background: transparent; border-color: #4a5568; color: #4a5568; }
+  .player-summary-bonus.is-white { background: transparent; border-color: #6c747d; color: #6c747d; }
   .player-summary-bonus.is-blue { background: transparent; border-color: #0456a8; color: #0456a8; }
   .player-summary-bonus.is-green { background: transparent; border-color: #08a549; color: #08a549; }
   .player-summary-bonus.is-red { background: transparent; border-color: #ee0024; color: #ee0024; }

@@ -264,17 +264,17 @@ test('keeps the local mobile summary globally pinned with colored bonuses', asyn
     background: getComputedStyle(element).backgroundColor,
     border: getComputedStyle(element).borderColor
   })))
-  // bonus 文字色与边框色一致；白色加深为石板灰 #4a5568，黑色特例保持 #333333
+  // bonus 文字色与边框色一致；白色加深为石板灰 #6c747d，黑色特例保持 #333333
   expect(colors.every(item => item.background === 'rgba(0, 0, 0, 0)')).toBe(true)
   expect(colors.map(item => item.border)).toEqual([
-    'rgb(74, 85, 104)',
+    'rgb(108, 116, 125)',
     'rgb(4, 86, 168)',
     'rgb(8, 165, 73)',
     'rgb(238, 0, 36)',
     'rgb(0, 0, 0)'
   ])
   expect(colors.map(item => item.color)).toEqual([
-    'rgb(74, 85, 104)',
+    'rgb(108, 116, 125)',
     'rgb(4, 86, 168)',
     'rgb(8, 165, 73)',
     'rgb(238, 0, 36)',
