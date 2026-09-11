@@ -81,13 +81,18 @@ test('guards game controls against misselection while keeping text input selecta
     const element = document.querySelector(selector)
     if (!element) return { selector, missing: true as const }
     const style = getComputedStyle(element)
-    return { selector, touchAction: style.touchAction, userSelect: style.userSelect }
+    return { selector, touchAction: style.touchAction, userSelect: style.userSelect, tapHighlight: style.getPropertyValue('-webkit-tap-highlight-color') }
   }), guardedSelectors)
   for (const item of guards) {
     expect(item, `${item.selector} 应存在于 fixture`).not.toHaveProperty('missing')
     expect(item.touchAction, `${item.selector} touch-action`).toBe('manipulation')
     expect(item.userSelect, `${item.selector} user-select`).toBe('none')
+    expect(item.tapHighlight, `${item.selector} tap-highlight-color`).toBe('rgba(0, 0, 0, 0)')
   }
+
+  // html 上继承的透明 tap highlight 应覆盖整个文档（含未列入控件清单的元素）
+  const rootTapHighlight = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('-webkit-tap-highlight-color'))
+  expect(rootTapHighlight).toBe('rgba(0, 0, 0, 0)')
 
   const imageGuards = await page.evaluate(() => {
     const images = [...document.querySelectorAll<HTMLElement>('.game-container img')]

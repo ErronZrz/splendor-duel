@@ -219,6 +219,13 @@ html {
   touch-action: manipulation;
 }
 
+/* ===== 阶段 73：全局消除移动端默认 tap highlight ===== */
+/* 发展卡/宝石 token/贵族卡等交互元素均已有独立的选中与按压反馈；
+   默认半透明高亮叠加其上只会产生杂讯。该属性可继承，挂 html 即覆盖全部元素。 */
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* ===== 阶段 60：滚动行为 ===== */
 /* 抑制 Android 顶部下拉刷新与越界滚动链（root 越界回弹）；内层列表
    overscroll-behavior-y: auto 的滚动接力（阶段 56）不受影响 */
